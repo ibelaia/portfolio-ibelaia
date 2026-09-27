@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
@@ -66,7 +66,7 @@ const IT_CATEGORIES = [
   'Enterprise Software'
 ];
 
-export default function ProjectsManagementPage() {
+function ProjectsManagementContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const editIdParam = searchParams.get('edit');
@@ -360,7 +360,6 @@ export default function ProjectsManagementPage() {
                   <Wrench size={15} />
                   <span>Services</span>
                 </Link>
-                {/* Diperbarui agar langsung mengarah ke halaman daftar proyek */}
                 <Link href="/dashboard/projects/list" className="flex items-center gap-3 px-3 py-2.5 rounded-xl font-semibold bg-[#581c87]/60 text-white border border-[#9333ea]/30 transition-all">
                   <FolderGit2 size={15} className="text-[#c084fc]" />
                   <span>Projects</span>
@@ -953,5 +952,17 @@ export default function ProjectsManagementPage() {
 
       </main>
     </div>
+  );
+}
+
+export default function ProjectsManagementPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-[#07090e] flex items-center justify-center text-cyan-400 font-mono text-xs">
+        Memuat halaman proyek...
+      </div>
+    }>
+      <ProjectsManagementContent />
+    </Suspense>
   );
 }
