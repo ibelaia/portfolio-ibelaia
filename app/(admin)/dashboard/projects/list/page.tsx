@@ -94,7 +94,6 @@ export default function ProjectsListPage() {
       .order('created_at', { ascending: false });
 
     if (!error && data) {
-      // Mengurutkan agar proyek yang berbintang (is_featured = true) otomatis naik ke urutan paling atas
       const sortedData = [...data].sort((a, b) => {
         if (a.is_featured === b.is_featured) return 0;
         return a.is_featured ? -1 : 1;
@@ -104,7 +103,6 @@ export default function ProjectsListPage() {
     setLoading(false);
   };
 
-  // Fungsi Toggle Bintang (Featured) Proyek
   const handleToggleFeatured = async (id: string, currentStatus: boolean, title: string) => {
     const newStatus = !currentStatus;
     const { error } = await supabase
@@ -117,7 +115,6 @@ export default function ProjectsListPage() {
     } else {
       setProjects(prev => {
         const updated = prev.map(p => p.id === id ? { ...p, is_featured: newStatus } : p);
-        // Urutkan ulang secara dinamis agar langsung naik ke atas grid
         return updated.sort((a, b) => {
           if (a.is_featured === b.is_featured) return 0;
           return a.is_featured ? -1 : 1;
@@ -413,7 +410,6 @@ export default function ProjectsListPage() {
                     <div className="relative w-full h-36 bg-slate-950 overflow-hidden">
                       <img src={p.thumbnail || '/placeholder.svg'} alt={p.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                       
-                      {/* Badge Kategori & Multi */}
                       <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
                         <span className="px-2 py-0.5 rounded-md text-[10px] font-mono bg-black/80 backdrop-blur-md border border-white/10 text-cyan-400 font-bold">
                           {p.category}
@@ -425,7 +421,6 @@ export default function ProjectsListPage() {
                         )}
                       </div>
 
-                      {/* Tombol Bintang (Featured / Starred) di Pojok Kanan Atas */}
                       <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5">
                         <button
                           type="button"
@@ -458,14 +453,24 @@ export default function ProjectsListPage() {
                     </Link>
                     <div className="flex items-center gap-2">
                       {isMulti ? (
-                        <button
-                          type="button"
-                          onClick={() => handleOpenMultiModal(p)}
-                          className="px-2.5 py-1 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 font-mono text-[11px] text-purple-300 flex items-center gap-1 transition-colors cursor-pointer"
-                        >
-                          <Layers size={11} />
-                          <span>Kelola Item ({subItemsCount})</span>
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <Link
+                            href={`/dashboard/projects?edit=${p.id}`}
+                            className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 font-mono text-[11px] text-slate-300 hover:text-white flex items-center gap-1 transition-colors"
+                            title="Edit Informasi Utama Koleksi"
+                          >
+                            <Edit3 size={11} />
+                            <span>Edit Koleksi</span>
+                          </Link>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenMultiModal(p)}
+                            className="px-2.5 py-1 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 font-mono text-[11px] text-purple-300 flex items-center gap-1 transition-colors cursor-pointer"
+                          >
+                            <Layers size={11} />
+                            <span>Item ({subItemsCount})</span>
+                          </button>
+                        </div>
                       ) : (
                         <Link
                           href={`/dashboard/projects?edit=${p.id}`}
