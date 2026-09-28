@@ -10,7 +10,6 @@ import {
   ExternalLink,
   Star 
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 import { useApp } from '@/context/AppContext';
 
 interface ProjectItem {
@@ -125,47 +124,8 @@ export const ProjectsSection: React.FC = () => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    async function fetchSupabaseProjects() {
-      try {
-        const { data, error } = await supabase
-          .from('projects')
-          .select('*')
-          .order('created_at', { ascending: false });
-
-        if (error) throw error;
-
-        if (data && data.length > 0) {
-          const mappedProjects: ProjectItem[] = data.map((item) => {
-            const targetUrl = item.type === 'multi' ? `/projects/collection/${item.slug}` : `/projects/${item.slug}`;
-            return {
-              id: item.id,
-              slug: item.slug,
-              title: item.title,
-              titleId: item.title,
-              category: item.category || 'WEB',
-              type: item.type || 'single',
-              desc: item.overview || '',
-              descId: item.overview || '',
-              image: item.thumbnail || '/placeholder.svg',
-              tags: Array.isArray(item.tags) ? item.tags : [],
-              link: targetUrl,
-              isFeatured: Boolean(item.is_featured),
-            };
-          });
-
-          const sortedSupabaseProjects = mappedProjects.sort((a, b) => {
-            if (a.isFeatured === b.isFeatured) return 0;
-            return a.isFeatured ? -1 : 1;
-          });
-
-          setProjects(sortedSupabaseProjects);
-        }
-      } catch (err) {
-        console.warn('Gagal memuat data Supabase, menggunakan data cadangan lokal:', err);
-      }
-    }
-
-    fetchSupabaseProjects();
+    // Menggunakan data lokal cadangan yang aman untuk mencegah error DNS di Vercel
+    setProjects(fallbackProjects);
   }, []);
 
   const handlePrev = () => {
@@ -356,7 +316,6 @@ export const ProjectsSection: React.FC = () => {
               proj.isFeatured ? 'border-accent shadow-accent/20 shadow-xl' : 'border-white/10 hover:border-accent/30'
             }`}
           >
-            {/* Ikon Bintang Dinamis di Desktop (di Luar Link agar Aman) */}
             {proj.isFeatured && (
               <div className="absolute top-3 right-3 z-20 pointer-events-none">
                 <span className="p-1.5 rounded-xl bg-accent backdrop-blur-md border border-accent text-slate-950 flex items-center justify-center shadow-lg" title="Proyek Unggulan">
