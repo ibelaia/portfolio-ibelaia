@@ -11,7 +11,6 @@ import {
   Code2,
   Terminal
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 
 interface HomeData {
   title: string;
@@ -34,8 +33,8 @@ export default function HomePage() {
     highlight_text: 'Full-Stack Developer',
     description: 'I build modern, secure, and scalable web applications with clean code and exceptional user experience.',
     profile_photo_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
-    projects_completed: 0,
-    happy_clients: 0,
+    projects_completed: 6,
+    happy_clients: 4,
     years_experience: 8,
     availability_status: 'Available for Hire',
     location: 'Surabaya, Indonesia',
@@ -43,52 +42,7 @@ export default function HomePage() {
   });
 
   useEffect(() => {
-    async function fetchPublicContent() {
-      // 1. Ambil data dari home_settings
-      const { data: homeSettings } = await supabase
-        .from('home_settings')
-        .select('*')
-        .eq('id', 'default')
-        .maybeSingle();
-
-      // 2. Ambil data dari general_settings
-      const { data: generalSettings } = await supabase
-        .from('general_settings')
-        .select('*')
-        .eq('id', 'default')
-        .maybeSingle();
-
-      // 3. Hitung jumlah total projects secara real-time dari database
-      const { count: projectCount } = await supabase
-        .from('projects')
-        .select('*', { count: 'exact', head: true });
-
-      // 4. Hitung jumlah total achievements secara real-time dari database
-      const { count: achievementCount } = await supabase
-        .from('achievements')
-        .select('*', { count: 'exact', head: true });
-
-      setData((prev) => ({
-        ...prev,
-        title: homeSettings?.title || prev.title,
-        subtitle: homeSettings?.subtitle || prev.subtitle,
-        highlight_text: homeSettings?.highlight_text || prev.highlight_text,
-        description: homeSettings?.description || prev.description,
-        profile_photo_url: homeSettings?.profile_photo_url || prev.profile_photo_url,
-        years_experience: homeSettings?.years_experience ?? prev.years_experience,
-        
-        // Masukkan hasil hitung otomatis dari tabel Supabase
-        projects_completed: projectCount ?? homeSettings?.projects_completed ?? prev.projects_completed,
-        happy_clients: achievementCount ?? homeSettings?.happy_clients ?? prev.happy_clients,
-
-        // Data dari General Settings
-        availability_status: generalSettings?.availability_status || prev.availability_status,
-        location: generalSettings?.location || prev.location,
-        site_tagline: generalSettings?.site_tagline || prev.site_tagline,
-      }));
-    }
-
-    fetchPublicContent();
+    // Menggunakan data lokal aman untuk mencegah error DNS client-side di Vercel
   }, []);
 
   return (
@@ -157,7 +111,7 @@ export default function HomePage() {
               {data.description}
             </p>
 
-            {/* Statistik Otomatis Real-time dari Database */}
+            {/* Statistik */}
             <div className="grid grid-cols-2 gap-3 pt-1 max-w-md mx-auto lg:mx-0">
               <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-[var(--bg-primary)] border border-[var(--card-border)] text-xs font-mono shadow-inner">
                 <FolderGit2 size={18} className="text-emerald-400 shrink-0" />
