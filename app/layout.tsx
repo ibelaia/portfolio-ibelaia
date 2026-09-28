@@ -2,7 +2,7 @@ import React from 'react';
 import type { Metadata } from 'next';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import '@/app/globals.css';
-import { supabase } from '@/lib/supabase';
+import { createClient } from '@supabase/supabase-js';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -16,7 +16,11 @@ const jetbrainsMono = JetBrains_Mono({
   display: 'swap',
 });
 
-// Fungsi Dinamis untuk Menarik Metadata SEO dari Supabase
+// Klien Supabase aman dengan fallback
+const supabaseUrl = 'https://zuvlslccrtalsbaukqi.supabase.co';
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp1dmx2c2xjY3J0YWxzYmF1a3FpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkyOTI1MTMsImV4cCI6MjEwNDg2ODUxM30.bFjEgfzgxAL8aXrVlxzrR0bTaMcCxCMGoVQk1XiSXvo';
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
 export async function generateMetadata(): Promise<Metadata> {
   let seoData = {
     meta_title: 'Ibe Laia | Software Engineer & Full-Stack Developer',
@@ -43,7 +47,7 @@ export async function generateMetadata(): Promise<Metadata> {
       };
     }
   } catch (err) {
-    console.warn('Failed to load SEO settings for metadata:', err);
+    console.warn('Menggunakan default SEO (offline mode)');
   }
 
   return {
@@ -80,7 +84,7 @@ export default async function RootLayout({
       .maybeSingle();
     appearance = data;
   } catch (err) {
-    console.warn('Failed to load appearance settings:', err);
+    console.warn('Menggunakan default appearance (offline mode)');
   }
 
   const themeMode = appearance?.theme_mode === 'light' ? 'light' : 'dark';
