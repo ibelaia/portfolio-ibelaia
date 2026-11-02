@@ -12,9 +12,6 @@ import {
   ArrowLeft
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
-import { supabase } from '@/lib/supabase';
-
-export const dynamic = 'force-dynamic';
 
 interface ServiceItem {
   id: string;
@@ -42,27 +39,11 @@ export default function ServicesPage() {
   useEffect(() => {
     async function fetchServicesData() {
       try {
-        const { data: headerData } = await supabase
-          .from('services_header')
-          .select('*')
-          .eq('id', 'default')
-          .maybeSingle();
+        const response = await fetch('/api/services');
+        const json = await response.json();
 
-        if (headerData) {
-          setHeader({
-            badge_text: headerData.badge_text || 'MY SERVICES',
-            title: headerData.title || 'My Services',
-            subtitle: headerData.subtitle || 'Things I can build, design, and contribute to.'
-          });
-        }
-
-        const { data: servicesData } = await supabase
-          .from('services')
-          .select('*')
-          .order('created_at', { ascending: true });
-
-        if (servicesData && servicesData.length > 0) {
-          const mapped = servicesData.map((item: any, idx: number) => {
+        if (json.success && json.data && json.data.length > 0) {
+          const mapped = json.data.map((item: any, idx: number) => {
             const numStr = item.badge || (idx < 9 ? `0${idx + 1}` : `${idx + 1}`);
             const upperTitle = (item.title || '').toUpperCase();
             
@@ -83,8 +64,8 @@ export default function ServicesPage() {
               id: numStr,
               title: item.title,
               titleUpper: upperTitle,
-              desc: item.description,
-              tags: Array.isArray(item.tags) ? item.tags : [],
+              desc: item.description || '',
+              tags: Array.isArray(item.tags) ? item.tags : ['Backend', 'API'],
               icon: iconElement,
               watermark: water
             };
@@ -92,7 +73,7 @@ export default function ServicesPage() {
           setServices(mapped);
         }
       } catch (err) {
-        console.warn('Error fetching public services:', err);
+        console.warn('Gagal memuat data services dari Neon API:', err);
       }
     }
 
@@ -126,7 +107,13 @@ export default function ServicesPage() {
     }
   };
 
-  if (services.length === 0) return null;
+  if (services.length === 0) {
+    return (
+      <main className="w-full max-w-6xl mx-auto px-4 py-20 text-center">
+        <p className="text-sm font-mono text-slate-400 animate-pulse">Memuat layanan dari database Neon...</p>
+      </main>
+    );
+  }
 
   return (
     <main className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
