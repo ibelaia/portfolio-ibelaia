@@ -28,99 +28,9 @@ interface ProjectItem {
   isFeatured?: boolean;
 }
 
-const fallbackProjects: ProjectItem[] = [
-  {
-    id: '01',
-    type: 'single',
-    slug: 'e-commerce-dashboard',
-    title: 'E-Commerce Dashboard',
-    titleId: 'Dashboard E-Commerce',
-    category: 'WEB',
-    desc: 'Real-time analytics engine and dashboard tracking customer conversion rates, sales volumes, and multi-tenant inventory.',
-    descId: 'Mesin analitik real-time untuk memantau konversi pelanggan, volume penjualan, dan inventaris multi-toko.',
-    image: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=800&q=80',
-    tags: ['Next.js', 'Tailwind CSS', 'Chart.js', 'TypeScript'],
-    githubUrl: 'https://github.com/ibelaia',
-    isFeatured: true,
-  },
-  {
-    id: '02',
-    type: 'multi',
-    slug: 'uiux-design',
-    title: 'UI/UX Design Projects',
-    titleId: 'Koleksi Desain UI/UX',
-    category: 'UIUX',
-    desc: 'Exploration archive of mobile UI designs, design systems, interactive Figma prototypes, and seamless user experiences.',
-    descId: 'Arsip eksplorasi desain antarmuka mobile, design system, prototipe Figma interaktif, dan alur pengalaman pengguna.',
-    image: 'https://images.unsplash.com/photo-1526367790999-0150786686a2?auto=format&fit=crop&w=800&q=80',
-    tags: ['Figma', 'Prototyping', 'Design System', 'User Flow'],
-    githubUrl: 'https://github.com/ibelaia',
-    isFeatured: false,
-  },
-  {
-    id: '03',
-    type: 'single',
-    slug: 'jawatrip-mobile-travel-platform',
-    title: 'JawaTrip Mobile Travel Platform',
-    titleId: 'Aplikasi Travel & Wisata JawaTrip',
-    category: 'MOBILE',
-    desc: 'End-to-end interactive itinerary planner and ticket booking application engineered with rich micro-interactions.',
-    descId: 'Aplikasi perencanaan rencana perjalanan dan pemesanan tiket wisata dengan antarmuka dinamis dan responsif.',
-    image: 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=800&q=80',
-    tags: ['React Native', 'Mobile UI', 'Figma', 'API Integration'],
-    githubUrl: 'https://github.com/ibelaia',
-    isFeatured: true,
-  },
-  {
-    id: '04',
-    type: 'single',
-    slug: 'defi-liquidity-asset-protocol',
-    title: 'DeFi Liquidity & Asset Protocol',
-    titleId: 'Protokol Likuiditas & Analisis DeFi',
-    category: 'WEB3',
-    desc: 'Decentralized finance dashboard tracking liquidity pools, gas metrics, and automated smart contract transactions.',
-    descId: 'Dashboard keuangan terdesentralisasi untuk monitoring likuiditas pool, estimasi gas fee, dan smart contract.',
-    image: 'https://images.unsplash.com/photo-1639762681485-074b7f938ba0?auto=format&fit=crop&w=800&q=80',
-    tags: ['Solidity', 'Ethers.js', 'Web3', 'Tailwind'],
-    githubUrl: 'https://github.com/ibelaia',
-    isFeatured: false,
-  },
-  {
-    id: '05',
-    type: 'single',
-    slug: 'releaf-paper-eco-store',
-    title: 'Releaf Paper Eco-Store',
-    titleId: 'E-Commerce Ramah Lingkungan Releaf',
-    category: 'WEB',
-    desc: 'Dedicated digital storefront and inventory management system engineered for sustainable agricultural paper products.',
-    descId: 'Toko digital dan sistem manajemen stok produk pertanian ramah lingkungan berbahan baku serat daur ulang.',
-    image: 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=800&q=80',
-    tags: ['PHP', 'CodeIgniter', 'MySQL', 'Bootstrap'],
-    githubUrl: 'https://github.com/ibelaia',
-    isFeatured: false,
-  },
-  {
-    id: '06',
-    type: 'single',
-    slug: 'interactive-portfolio-core',
-    title: 'Interactive Portfolio Core',
-    titleId: 'Portofolio Digital Interaktif',
-    category: 'WEB',
-    desc: 'Modern dual-view engineering portfolio equipped with custom state management, internationalization, and micro-animations.',
-    descId: 'Situs portofolio berkinerja tinggi dengan arsitektur multi-bahasa, state kustom, dan animasi interaktif.',
-    image: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=800&q=80',
-    tags: ['Next.js 15', 'Tailwind v4', 'TypeScript', 'App Router'],
-    githubUrl: 'https://github.com/ibelaia',
-    isFeatured: true,
-  },
-].sort((a, b) => {
-  if (a.isFeatured === b.isFeatured) return 0;
-  return a.isFeatured ? -1 : 1;
-});
-
 export default function AllProjectsPage() {
   const { t } = useApp();
-  const [projects, setProjects] = useState<ProjectItem[]>(fallbackProjects);
+  const [projects, setProjects] = useState<ProjectItem[]>([]);
   const [selectedFilter, setSelectedFilter] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
@@ -132,7 +42,7 @@ export default function AllProjectsPage() {
         const json = await response.json();
 
         if (json.success && json.data && json.data.length > 0) {
-          const mappedProjects: ProjectItem[] = json.data.map((item: any) => {
+          const mappedProjects: ProjectItem[] = json.data.map((item: any, index: number) => {
             const rawCat = (item.category || '').toUpperCase();
             let normCat = 'WEB';
             if (rawCat.includes('MOBILE') || rawCat.includes('APP')) normCat = 'MOBILE';
@@ -140,17 +50,19 @@ export default function AllProjectsPage() {
             else if (rawCat.includes('WEB3') || rawCat.includes('CRYPTO')) normCat = 'WEB3';
             else normCat = 'WEB';
 
+            const isMulti = item.type === 'multi' || (Array.isArray(item.collection_items) && item.collection_items.length > 0);
+
             return {
-              id: item.id.toString(),
-              slug: item.slug,
+              id: item.id ? item.id.toString() : String(index + 1).padStart(2, '0'),
+              slug: item.slug || `project-${index + 1}`,
               title: item.title,
               titleId: item.title,
               category: normCat,
-              type: item.type || 'single',
-              desc: item.overview || item.description || '',
-              descId: item.overview || item.description || '',
-              image: item.thumbnail || item.image_url || '/placeholder.svg',
-              tags: Array.isArray(item.tags) ? item.tags : [],
+              type: item.type || (isMulti ? 'multi' : 'single'),
+              desc: item.description || item.overview || '',
+              descId: item.description || item.overview || '',
+              image: item.image_url || item.thumbnail || 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=800&q=80',
+              tags: Array.isArray(item.tags) ? item.tags : ['Next.js', 'PostgreSQL'],
               githubUrl: item.github_url || 'https://github.com/ibelaia',
               isFeatured: Boolean(item.is_featured),
             };
@@ -164,7 +76,7 @@ export default function AllProjectsPage() {
           setProjects(sortedNeonProjects);
         }
       } catch (err) {
-        console.warn('Gagal memuat data dari Neon API, menggunakan data cadangan lokal:', err);
+        console.warn('Gagal memuat data dari Neon API:', err);
       } finally {
         setLoading(false);
       }
@@ -255,7 +167,7 @@ export default function AllProjectsPage() {
       {loading ? (
         <div className="py-24 text-center text-accent font-mono text-xs flex items-center justify-center gap-2">
           <div className="w-2.5 h-2.5 rounded-full bg-accent animate-ping" />
-          <span>{t('Loading projects...', 'Memuat data proyek...')}</span>
+          <span>{t('Loading projects...', 'Memuat data proyek dari Neon...')}</span>
         </div>
       ) : filteredProjects.length === 0 ? (
         <div className="py-20 text-center text-[var(--text-muted)] font-mono text-xs bg-[var(--card-bg)] border border-[var(--card-border)] rounded-3xl">
