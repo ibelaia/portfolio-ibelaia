@@ -1,26 +1,25 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = 'https://zuvlslccrtalsbaukqi.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp1dmx2c2xjY3J0YWxzYmF1a3FpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkyOTI1MTMsImV4cCI6MjEwNDg2ODUxM30.bFjEgfzgxAL8aXrVlxzrR0bTaMcCxCMGoVQk1XiSXvo';
-
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+import sql from '@/lib/db';
 
 export async function GET() {
   try {
-    // Ambil data umum, proyek, dan pencapaian dari Supabase
-    const { data: general } = await supabase.from('general_settings').select('*');
-    const { data: home } = await supabase.from('home_settings').select('*');
-    const { data: projects } = await supabase.from('projects').select('*');
-    const { data: achievements } = await supabase.from('achievements').select('*');
+    // Mengambil data dari berbagai tabel Neon secara paralel
+    const [general, home, projects, achievements] = await Promise.all([
+      sql`SELECT * FROM general_settings LIMIT 1`,
+      sql`SELECT * FROM home_settings LIMIT 1`,
+      sql`SELECT * FROM projects`,
+      sql`SELECT * FROM achievements`
+    ]);
 
     return NextResponse.json({
-      general: general || [],
-      home: home || [],
+      success: true,
+      general: general[0] || {},
+      home: home[0] || {},
       projects: projects || [],
-      achievements: achievements || [],
-    });
-  } catch (error) {
-    return NextResponse.json({ error: 'Gagal mengambil data' }, { status: 500 });
+      achievements: achievements || []
+    }, { status: 200 });
+
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || 'Gagal mengambil data' }, { status: 500 });
   }
 }
