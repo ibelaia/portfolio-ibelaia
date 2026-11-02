@@ -27,99 +27,9 @@ interface ProjectItem {
   isFeatured?: boolean;
 }
 
-const fallbackProjects: ProjectItem[] = [
-  {
-    id: '01',
-    slug: 'e-commerce-dashboard',
-    type: 'single',
-    title: 'E-Commerce Dashboard',
-    titleId: 'Dashboard E-Commerce',
-    category: 'WEB',
-    desc: 'A comprehensive analytics dashboard for tracking sales, users, and product metrics.',
-    descId: 'Dashboard analitik komprehensif untuk memantau metrik penjualan, pengguna, dan performa produk.',
-    image: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=800&q=80',
-    tags: ['HTML', 'CSS', 'JavaScript', 'Chart.js'],
-    link: '/projects/e-commerce-dashboard',
-    isFeatured: true,
-  },
-  {
-    id: '02',
-    slug: 'uiux-design',
-    type: 'multi',
-    title: 'Food Delivery App',
-    titleId: 'Aplikasi Pesan Makanan',
-    category: 'UIUX',
-    desc: 'A modern food delivery application with seamless ordering, tracking, and real-time updates.',
-    descId: 'Aplikasi pemesanan makanan modern dengan pelacakan pesanan dan pembaruan instan.',
-    image: 'https://images.unsplash.com/photo-1526367790999-0150786686a2?auto=format&fit=crop&w=800&q=80',
-    tags: ['Figma', 'UI/UX', 'Prototyping'],
-    link: '/projects/collection/uiux-design',
-    isFeatured: false,
-  },
-  {
-    id: '03',
-    slug: 'interactive-portfolio-core',
-    type: 'single',
-    title: 'Personal Portfolio',
-    titleId: 'Portofolio Pribadi',
-    category: 'WEB',
-    desc: 'A personal portfolio website to showcase my work, engineering skills, and experience.',
-    descId: 'Situs web portofolio profesional untuk menampilkan karya, keahlian teknis, dan pengalaman.',
-    image: 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=800&q=80',
-    tags: ['Next.js', 'Tailwind', 'GSAP'],
-    link: '/projects/interactive-portfolio-core',
-    isFeatured: true,
-  },
-  {
-    id: '04',
-    slug: 'defi-liquidity-asset-protocol',
-    type: 'single',
-    title: 'DeFi Dashboard',
-    titleId: 'Dashboard DeFi',
-    category: 'WEB3',
-    desc: 'A Web3 dashboard for monitoring assets, transactions, and decentralized finance analytics.',
-    descId: 'Dashboard Web3 untuk memonitor aset kripto, transaksi jaringan, dan analitik finansial terdesentralisasi.',
-    image: 'https://images.unsplash.com/photo-1639762681485-074b7f938ba0?auto=format&fit=crop&w=800&q=80',
-    tags: ['Web3.js', 'Solidity', 'Tailwind'],
-    link: '/projects/defi-liquidity-asset-protocol',
-    isFeatured: false,
-  },
-  {
-    id: '05',
-    slug: 'jawatrip-mobile-travel-platform',
-    type: 'single',
-    title: 'Travel App (JawaTrip)',
-    titleId: 'Aplikasi Travel JawaTrip',
-    category: 'MOBILE',
-    desc: 'Interactive booking application and itinerary planner designed with rich micro-interactions.',
-    descId: 'Aplikasi pemesanan wisata dan perencana rencana perjalanan dengan antarmuka interaktif.',
-    image: 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=800&q=80',
-    tags: ['UI/UX', 'Mobile App', 'Figma'],
-    link: '/projects/jawatrip-mobile-travel-platform',
-    isFeatured: false,
-  },
-  {
-    id: '06',
-    slug: 'releaf-paper-eco-store',
-    type: 'single',
-    title: 'Agricultural Media Platform',
-    titleId: 'Platform Produk Pertanian',
-    category: 'WEB',
-    desc: 'Digital branding and eCommerce system crafted for sustainable and eco-friendly products.',
-    descId: 'Branding digital dan platform e-commerce untuk produk ramah lingkungan berbasis daur ulang.',
-    image: 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=800&q=80',
-    tags: ['Full-Stack', 'MySQL', 'Node.js'],
-    link: '/projects/releaf-paper-eco-store',
-    isFeatured: true,
-  },
-].sort((a, b) => {
-  if (a.isFeatured === b.isFeatured) return 0;
-  return a.isFeatured ? -1 : 1;
-});
-
 export const ProjectsSection: React.FC = () => {
   const { t } = useApp();
-  const [projects, setProjects] = useState<ProjectItem[]>(fallbackProjects);
+  const [projects, setProjects] = useState<ProjectItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -138,16 +48,16 @@ export const ProjectsSection: React.FC = () => {
 
             return {
               id: String(index + 1).padStart(2, '0'),
-              slug: item.slug,
+              slug: item.slug || `project-${index + 1}`,
               type: item.type || (isMulti ? 'multi' : 'single'),
               title: item.title,
               titleId: item.title,
               category: item.category || 'WEB',
-              desc: item.overview || item.description || '',
-              descId: item.overview || item.description || '',
-              image: item.thumbnail || item.image_url || 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=800&q=80',
+              desc: item.description || item.overview || '',
+              descId: item.description || item.overview || '',
+              image: item.image_url || item.thumbnail || 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=800&q=80',
               tags: Array.isArray(item.tags) ? item.tags : ['Next.js', 'PostgreSQL'],
-              link: targetLink,
+              link: item.live_url || targetLink,
               isFeatured: Boolean(item.is_featured),
             };
           });
@@ -160,7 +70,7 @@ export const ProjectsSection: React.FC = () => {
           setProjects(sorted);
         }
       } catch (err) {
-        console.warn('Gagal memuat proyek dari Neon API, menggunakan fallback lokal:', err);
+        console.warn('Gagal memuat proyek dari Neon API:', err);
       }
     }
 
@@ -192,6 +102,14 @@ export const ProjectsSection: React.FC = () => {
       });
     }
   };
+
+  if (projects.length === 0) {
+    return (
+      <section id="projects" className="w-full max-w-7xl mx-auto px-4 sm:px-8 py-10 text-center">
+        <p className="text-sm font-mono text-slate-400 animate-pulse">Memuat data proyek dari database Neon...</p>
+      </section>
+    );
+  }
 
   return (
     <section id="projects" className="w-full max-w-7xl mx-auto px-4 sm:px-8 py-10">
@@ -346,7 +264,7 @@ export const ProjectsSection: React.FC = () => {
         </div>
       </div>
 
-      {/* ================= TAMPILAN DESKTOP GRID 3x2 ================= */}
+      {/* ================= TAMPILAN DESKTOP GRID ================= */}
       <div className="hidden md:grid md:grid-cols-2 lg:grid-cols-3 gap-6">
         {projects.map((proj) => (
           <div
@@ -411,19 +329,6 @@ export const ProjectsSection: React.FC = () => {
             </div>
           </div>
         ))}
-      </div>
-
-      {/* Indikator Dots & Swipe Label Desktop di Bawah Grid */}
-      <div className="hidden md:flex flex-col items-center justify-center pt-10 gap-2">
-        <div className="flex items-center gap-2">
-          <span className="w-5 h-1.5 rounded-full bg-accent" />
-          <span className="w-1.5 h-1.5 rounded-full bg-slate-700" />
-          <span className="w-1.5 h-1.5 rounded-full bg-slate-700" />
-          <span className="w-1.5 h-1.5 rounded-full bg-slate-700" />
-        </div>
-        <span className="text-[10px] font-mono tracking-widest text-slate-500 uppercase">
-          &lt; {t('SWIPE TO EXPLORE', 'GESER UNTUK JELAJAHI')} &gt;
-        </span>
       </div>
     </section>
   );
