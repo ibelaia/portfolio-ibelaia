@@ -11,7 +11,6 @@ import {
   FolderArchive,
   Star 
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 import { useApp } from '@/context/AppContext';
 
 interface ProjectItem {
@@ -127,17 +126,13 @@ export default function AllProjectsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function fetchSupabaseProjects() {
+    async function fetchNeonProjects() {
       try {
-        const { data, error } = await supabase
-          .from('projects')
-          .select('*')
-          .order('created_at', { ascending: false });
+        const response = await fetch('/api/projects');
+        const json = await response.json();
 
-        if (error) throw error;
-
-        if (data && data.length > 0) {
-          const mappedProjects: ProjectItem[] = data.map((item) => {
+        if (json.success && json.data && json.data.length > 0) {
+          const mappedProjects: ProjectItem[] = json.data.map((item: any) => {
             const rawCat = (item.category || '').toUpperCase();
             let normCat = 'WEB';
             if (rawCat.includes('MOBILE') || rawCat.includes('APP')) normCat = 'MOBILE';
@@ -146,36 +141,36 @@ export default function AllProjectsPage() {
             else normCat = 'WEB';
 
             return {
-              id: item.id,
+              id: item.id.toString(),
               slug: item.slug,
               title: item.title,
               titleId: item.title,
               category: normCat,
               type: item.type || 'single',
-              desc: item.overview || '',
-              descId: item.overview || '',
-              image: item.thumbnail || '/placeholder.svg',
+              desc: item.overview || item.description || '',
+              descId: item.overview || item.description || '',
+              image: item.thumbnail || item.image_url || '/placeholder.svg',
               tags: Array.isArray(item.tags) ? item.tags : [],
               githubUrl: item.github_url || 'https://github.com/ibelaia',
               isFeatured: Boolean(item.is_featured),
             };
           });
 
-          const sortedSupabaseProjects = mappedProjects.sort((a, b) => {
+          const sortedNeonProjects = mappedProjects.sort((a, b) => {
             if (a.isFeatured === b.isFeatured) return 0;
             return a.isFeatured ? -1 : 1;
           });
 
-          setProjects(sortedSupabaseProjects);
+          setProjects(sortedNeonProjects);
         }
       } catch (err) {
-        console.warn('Gagal memuat data Supabase, menggunakan data cadangan lokal:', err);
+        console.warn('Gagal memuat data dari Neon API, menggunakan data cadangan lokal:', err);
       } finally {
         setLoading(false);
       }
     }
 
-    fetchSupabaseProjects();
+    fetchNeonProjects();
   }, []);
 
   const filterTabs = [
@@ -260,7 +255,7 @@ export default function AllProjectsPage() {
       {loading ? (
         <div className="py-24 text-center text-accent font-mono text-xs flex items-center justify-center gap-2">
           <div className="w-2.5 h-2.5 rounded-full bg-accent animate-ping" />
-          <span>Memuat data proyek dari Supabase...</span>
+          <span>{t('Loading projects...', 'Memuat data proyek...')}</span>
         </div>
       ) : filteredProjects.length === 0 ? (
         <div className="py-20 text-center text-[var(--text-muted)] font-mono text-xs bg-[var(--card-bg)] border border-[var(--card-border)] rounded-3xl">
@@ -281,7 +276,7 @@ export default function AllProjectsPage() {
                   proj.isFeatured ? 'border-accent shadow-accent/20 shadow-xl' : 'border-[var(--card-border)] hover:border-accent/30'
                 }`}
               >
-                {/* Ikon Bintang Menggunakan bg-accent dan border-accent agar otomatis mengikuti warna global */}
+                {/* Ikon Bintang Unggulan */}
                 {proj.isFeatured && (
                   <div className="absolute top-3 right-3 z-20 pointer-events-none">
                     <span className="p-1.5 rounded-xl bg-accent backdrop-blur-md border border-accent text-slate-950 flex items-center justify-center shadow-lg" title="Proyek Unggulan">

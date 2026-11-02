@@ -124,8 +124,47 @@ export const ProjectsSection: React.FC = () => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Menggunakan data lokal cadangan yang aman untuk mencegah error DNS di Vercel
-    setProjects(fallbackProjects);
+    async function fetchNeonProjects() {
+      try {
+        const response = await fetch('/api/projects');
+        const json = await response.json();
+
+        if (json.success && json.data && json.data.length > 0) {
+          const mapped: ProjectItem[] = json.data.map((item: any, index: number) => {
+            const isMulti = item.type === 'multi' || (Array.isArray(item.collection_items) && item.collection_items.length > 0);
+            const targetLink = isMulti 
+              ? `/projects/collection/${item.slug}` 
+              : `/projects/${item.slug}`;
+
+            return {
+              id: String(index + 1).padStart(2, '0'),
+              slug: item.slug,
+              type: item.type || (isMulti ? 'multi' : 'single'),
+              title: item.title,
+              titleId: item.title,
+              category: item.category || 'WEB',
+              desc: item.overview || item.description || '',
+              descId: item.overview || item.description || '',
+              image: item.thumbnail || item.image_url || 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=800&q=80',
+              tags: Array.isArray(item.tags) ? item.tags : ['Next.js', 'PostgreSQL'],
+              link: targetLink,
+              isFeatured: Boolean(item.is_featured),
+            };
+          });
+
+          const sorted = mapped.sort((a, b) => {
+            if (a.isFeatured === b.isFeatured) return 0;
+            return a.isFeatured ? -1 : 1;
+          });
+
+          setProjects(sorted);
+        }
+      } catch (err) {
+        console.warn('Gagal memuat proyek dari Neon API, menggunakan fallback lokal:', err);
+      }
+    }
+
+    fetchNeonProjects();
   }, []);
 
   const handlePrev = () => {
@@ -177,14 +216,14 @@ export const ProjectsSection: React.FC = () => {
         <div className="hidden md:flex items-center gap-2">
           <button
             onClick={handlePrev}
-            className="p-2.5 rounded-full border border-white/10 bg-[#090e1f] hover:bg-white/5 text-slate-300 hover:text-white transition-all"
+            className="p-2.5 rounded-full border border-white/10 bg-[#090e1f] hover:bg-white/5 text-slate-300 hover:text-white transition-all cursor-pointer"
             aria-label="Previous project"
           >
             <ChevronLeft size={16} />
           </button>
           <button
             onClick={handleNext}
-            className="p-2.5 rounded-full border border-white/10 bg-[#090e1f] hover:bg-white/5 text-slate-300 hover:text-white transition-all"
+            className="p-2.5 rounded-full border border-white/10 bg-[#090e1f] hover:bg-white/5 text-slate-300 hover:text-white transition-all cursor-pointer"
             aria-label="Next project"
           >
             <ChevronRight size={16} />
@@ -225,7 +264,7 @@ export const ProjectsSection: React.FC = () => {
                 proj.isFeatured ? 'border-accent shadow-accent/20 shadow-lg' : 'border-white/10'
               }`}
             >
-              {/* Ikon Bintang Menggunakan bg-accent & border-accent */}
+              {/* Ikon Bintang Unggulan */}
               {proj.isFeatured && (
                 <div className="absolute top-3 right-3 z-20 pointer-events-none">
                   <span className="p-1.5 rounded-xl bg-accent backdrop-blur-md border border-accent text-slate-950 flex items-center justify-center shadow-lg" title="Proyek Unggulan">
@@ -238,7 +277,7 @@ export const ProjectsSection: React.FC = () => {
                 {/* Preview Image Container */}
                 <div className="relative w-full h-44 bg-slate-900 overflow-hidden border-b border-white/10">
                   <span className="absolute top-2.5 left-2.5 z-10 px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-md border border-white/10 text-[9px] font-mono text-accent">
-                    {proj.id} / 06
+                    {proj.id} / {String(projects.length).padStart(2, '0')}
                   </span>
                   <img
                     src={proj.image}
@@ -294,7 +333,7 @@ export const ProjectsSection: React.FC = () => {
                   setCurrentIndex(dotIdx);
                   scrollToCard(dotIdx);
                 }}
-                className={`h-1.5 rounded-full transition-all duration-300 ${
+                className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${
                   currentIndex === dotIdx ? 'w-5 bg-accent' : 'w-1.5 bg-slate-700 hover:bg-slate-500'
                 }`}
                 aria-label={`Slide ${dotIdx + 1}`}
@@ -307,7 +346,7 @@ export const ProjectsSection: React.FC = () => {
         </div>
       </div>
 
-      {/* ================= TAMPILAN DESKTOP GRID 3x2 SESUAI FIGMA ================= */}
+      {/* ================= TAMPILAN DESKTOP GRID 3x2 ================= */}
       <div className="hidden md:grid md:grid-cols-2 lg:grid-cols-3 gap-6">
         {projects.map((proj) => (
           <div
@@ -328,7 +367,7 @@ export const ProjectsSection: React.FC = () => {
               {/* Header Preview Image */}
               <div className="relative w-full h-48 bg-slate-900 overflow-hidden border-b border-white/5">
                 <span className="absolute top-2.5 left-2.5 z-10 px-2 py-0.5 rounded-md bg-black/60 backdrop-blur-md border border-white/10 text-[10px] font-mono text-accent">
-                  {proj.id} / 06
+                  {proj.id} / {String(projects.length).padStart(2, '0')}
                 </span>
                 <img
                   src={proj.image}

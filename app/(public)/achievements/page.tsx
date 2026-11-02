@@ -16,7 +16,6 @@ import {
   X
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
-import { supabase } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,79 +53,73 @@ export default function AchievementsPage() {
   const isIndo = language === 'ID';
 
   useEffect(() => {
-    async function fetchAchievements() {
+    async function fetchNeonAchievements() {
       try {
-        const { data: headerData } = await supabase
-          .from('achievements_header')
-          .select('*')
-          .eq('id', 'default')
-          .maybeSingle();
+        const response = await fetch('/api/achievements');
+        const json = await response.json();
 
-        if (headerData) {
-          setHeader({
-            badge_text: headerData.badge_text || 'HONORS & RECOGNITION',
-            title: headerData.title || 'Honors & Milestones',
-            subtitle: headerData.subtitle || 'A timeline of competitive awards, hackathon recognitions, and academic milestones achieved throughout my software engineering journey.'
-          });
-        }
+        if (json.success) {
+          if (json.header) {
+            setHeader({
+              badge_text: json.header.badge_text || 'HONORS & RECOGNITION',
+              title: json.header.title || 'Honors & Milestones',
+              subtitle: json.header.subtitle || 'A timeline of competitive awards, hackathon recognitions, and academic milestones achieved throughout my software engineering journey.'
+            });
+          }
 
-        const { data: dbData } = await supabase
-          .from('achievements')
-          .select('*')
-          .order('created_at', { ascending: false });
+          if (json.data && json.data.length > 0) {
+            const mapped: AchievementItem[] = json.data.map((item: any) => {
+              let cat: 'COMPETITION' | 'HACKATHON' | 'ACADEMIC' | 'AWARDS' = 'COMPETITION';
+              let color = 'text-amber-400 border-amber-500/30 bg-amber-500/10';
+              
+              const badgeLower = (item.badge || '').toLowerCase();
+              if (badgeLower.includes('hackathon')) {
+                cat = 'HACKATHON';
+                color = 'text-accent border-accent/30 bg-accent/10';
+              } else if (badgeLower.includes('academic') || badgeLower.includes('akademik')) {
+                cat = 'ACADEMIC';
+                color = 'text-purple-400 border-purple-500/30 bg-purple-500/10';
+              } else if (badgeLower.includes('award') || badgeLower.includes('finalist')) {
+                cat = 'AWARDS';
+                color = 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10';
+              }
 
-        if (dbData && dbData.length > 0) {
-          const mapped: AchievementItem[] = dbData.map((item: any) => {
-            let cat: 'COMPETITION' | 'HACKATHON' | 'ACADEMIC' | 'AWARDS' = 'COMPETITION';
-            let color = 'text-amber-400 border-amber-500/30 bg-amber-500/10';
-            
-            const badgeLower = (item.badge || '').toLowerCase();
-            if (badgeLower.includes('hackathon')) {
-              cat = 'HACKATHON';
-              color = 'text-accent border-accent/30 bg-accent/10';
-            } else if (badgeLower.includes('academic') || badgeLower.includes('akademik')) {
-              cat = 'ACADEMIC';
-              color = 'text-purple-400 border-purple-500/30 bg-purple-500/10';
-            } else if (badgeLower.includes('award') || badgeLower.includes('finalist')) {
-              cat = 'AWARDS';
-              color = 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10';
-            }
+              const highlightsArr = Array.isArray(item.highlights) 
+                ? item.highlights.map((h: string) => ({ en: h, id: h })) 
+                : [];
 
-            const highlightsArr = Array.isArray(item.highlights) 
-              ? item.highlights.map((h: string) => ({ en: h, id: h })) 
-              : [];
+              return {
+                id: item.id.toString(),
+                category: cat,
+                badge: { en: item.badge, id: item.badge },
+                badgeColor: color,
+                organizer: item.location || 'Surabaya, Jawa Timur',
+                date: { en: item.date_str || '2026', id: item.date_str || '2026' },
+                location: item.location || 'Indonesia',
+                title: { en: item.title, id: item.title },
+                desc: { en: item.description, id: item.description },
+                highlights: highlightsArr,
+                image: item.image_url || '/placeholder.svg',
+                imageCaption: { 
+                  en: 'Documentation photo of achievement recognition.', 
+                  id: 'Dokumentasi foto penghargaan.' 
+                },
+                verifyUrl: item.credential_url || '',
+                verifyLabel: { en: 'Verify Credential', id: 'Verifikasi Sertifikat' }
+              };
+            });
 
-            return {
-              id: item.id,
-              category: cat,
-              badge: { en: item.badge, id: item.badge },
-              badgeColor: color,
-              organizer: item.location || 'Surabaya, Jawa Timur',
-              date: { en: item.date_str || '2026', id: item.date_str || '2026' },
-              location: item.location || 'Indonesia',
-              title: { en: item.title, id: item.title },
-              desc: { en: item.description, id: item.description },
-              highlights: highlightsArr,
-              image: item.image_url || '/placeholder.svg',
-              imageCaption: { 
-                en: 'Documentation photo of achievement recognition.', 
-                id: 'Dokumentasi foto penghargaan.' 
-              },
-              verifyUrl: item.credential_url || '',
-              verifyLabel: { en: 'Verify Credential', id: 'Verifikasi Sertifikat' }
-            };
-          });
-
-          setAchievementsData(mapped);
+            setAchievementsData(mapped);
+          }
         }
       } catch (err) {
-        console.warn('Error fetching achievements:', err);
+        console.warn('Gagal memuat achievements dari API Neon:', err);
       } finally {
         setLoading(false);
       }
     }
 
-    fetchAchievements();
+    fetchNeonAchievements();
   }, []);
 
   const filterTabs = [
@@ -187,10 +180,10 @@ export default function AchievementsPage() {
 
       {/* Timeline List Container */}
       {loading ? (
-        <div className="py-20 text-center text-xs font-mono text-[var(--text-muted)]">Memuat achievements...</div>
+        <div className="py-20 text-center text-xs font-mono text-accent">Memuat achievements dari Neon...</div>
       ) : filteredItems.length === 0 ? (
         <div className="py-20 text-center text-xs font-mono text-[var(--text-muted)] border border-dashed border-[var(--card-border)] rounded-2xl">
-          Belum ada achievement tercatat di database.
+          Belum ada achievement tercatat di database Neon.
         </div>
       ) : (
         <div className="relative pl-6 sm:pl-8 border-l border-[var(--card-border)] space-y-8">
@@ -290,7 +283,7 @@ export default function AchievementsPage() {
                     >
                       <img
                         src={item.image}
-                        alt={item.title.en}
+                        alt={typeof item.title.en === 'string' ? item.title.en : 'Achievement preview'}
                         className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-500 opacity-90 group-hover/img:opacity-100"
                       />
                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-xs font-mono text-white backdrop-blur-[2px]">
@@ -327,6 +320,7 @@ export default function AchievementsPage() {
                 {selectedImage.title}
               </span>
               <button
+                type="button"
                 onClick={() => setSelectedImage(null)}
                 className="w-7 h-7 rounded-lg bg-white/5 hover:bg-white/10 text-[var(--text-muted)] hover:text-[var(--text-main)] flex items-center justify-center transition-colors cursor-pointer"
               >
