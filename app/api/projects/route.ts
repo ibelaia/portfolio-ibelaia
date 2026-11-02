@@ -32,4 +32,4 @@ export async function POST(request: Request) {
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Terjadi kesalahan' }, { status: 500 });
   }
-}
+} 
