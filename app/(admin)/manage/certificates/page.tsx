@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
 import { Loader2, Plus, Trash2, Edit3, Check, X } from 'lucide-react';
 
 interface Certificate {
@@ -31,17 +30,21 @@ export default function ManageCertificatesPage() {
 
   const fetchCertificates = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('certificates')
-      .select('*')
-      .order('created_at', { ascending: false });
+    try {
+      const response = await fetch('/api/certificates');
+      const json = await response.json();
 
-    if (error) {
+      if (json.success && Array.isArray(json.data)) {
+        setCertificates(json.data);
+      } else {
+        showToast('Gagal memuat data sertifikat', 'error');
+      }
+    } catch (err) {
+      console.warn('Gagal memuat data certificates:', err);
       showToast('Gagal memuat data sertifikat', 'error');
-    } else {
-      setCertificates(data || []);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   useEffect(() => {
@@ -73,53 +76,50 @@ export default function ManageCertificatesPage() {
     }
 
     const payload = {
+      id: editingId,
       title,
       issuer,
       date,
       credential_url: credentialUrl,
     };
 
-    if (editingId) {
-      const { error } = await supabase
-        .from('certificates')
-        .update(payload)
-        .eq('id', editingId);
+    try {
+      const response = await fetch('/api/certificates', {
+        method: editingId ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const json = await response.json();
 
-      if (error) {
-        showToast('Gagal memperbarui sertifikat', 'error');
-      } else {
-        showToast('Sertifikat berhasil diperbarui!');
+      if (response.ok && json.success) {
+        showToast(editingId ? 'Sertifikat berhasil diperbarui ke Neon!' : 'Sertifikat berhasil ditambahkan ke Neon!');
         setIsModalOpen(false);
         fetchCertificates();
-      }
-    } else {
-      const { error } = await supabase
-        .from('certificates')
-        .insert([payload]);
-
-      if (error) {
-        showToast('Gagal menambah sertifikat baru', 'error');
       } else {
-        showToast('Sertifikat berhasil ditambahkan!');
-        setIsModalOpen(false);
-        fetchCertificates();
+        showToast(`Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`, 'error');
       }
+    } catch (err: any) {
+      showToast(`Error: ${err.message}`, 'error');
     }
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm('Apakah Anda yakin ingin menghapus sertifikat ini?')) return;
 
-    const { error } = await supabase
-      .from('certificates')
-      .delete()
-      .eq('id', id);
+    try {
+      const response = await fetch(`/api/certificates?id=${id}`, {
+        method: 'DELETE'
+      });
+      const json = await response.json();
 
-    if (error) {
-      showToast('Gagal menghapus sertifikat', 'error');
-    } else {
-      showToast('Sertifikat berhasil dihapus!');
-      fetchCertificates();
+      if (response.ok && json.success) {
+        showToast('Sertifikat berhasil dihapus!');
+        fetchCertificates();
+      } else {
+        showToast(`Gagal menghapus: ${json.error || 'Terjadi kesalahan'}`, 'error');
+      }
+    } catch (err: any) {
+      showToast(`Error: ${err.message}`, 'error');
     }
   };
 
@@ -135,11 +135,11 @@ export default function ManageCertificatesPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-extrabold text-white">Kelola Sertifikat</h1>
-          <p className="text-slate-400 text-sm mt-1">Tambah, ubah, atau hapus daftar sertifikat Anda.</p>
+          <p className="text-slate-400 text-sm mt-1">Tambah, ubah, atau hapus daftar sertifikat Anda via Neon.</p>
         </div>
         <button
           onClick={() => handleOpenModal()}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-cyan-500 text-slate-950 font-bold hover:bg-cyan-400 transition-colors"
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-cyan-500 text-slate-950 font-bold hover:bg-cyan-400 transition-colors cursor-pointer"
         >
           <Plus size={18} />
           <span>Tambah Sertifikat</span>
@@ -149,7 +149,7 @@ export default function ManageCertificatesPage() {
       {loading ? (
         <div className="w-full py-20 flex flex-col items-center justify-center gap-3">
           <Loader2 className="animate-spin text-cyan-400" size={32} />
-          <span className="text-sm text-slate-400 font-mono">Memuat data sertifikat...</span>
+          <span className="text-sm text-slate-400 font-mono">Memuat data sertifikat dari Neon API...</span>
         </div>
       ) : certificates.length === 0 ? (
         <div className="text-center py-20 bg-slate-900/40 border border-white/5 rounded-2xl">
@@ -175,14 +175,14 @@ export default function ManageCertificatesPage() {
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-white/5">
                 <button
                   onClick={() => handleOpenModal(item)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-medium text-slate-200 transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-medium text-slate-200 transition-colors cursor-pointer"
                 >
                   <Edit3 size={14} />
                   <span>Edit</span>
                 </button>
                 <button
                   onClick={() => handleDelete(item.id)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-xs font-medium text-rose-400 transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-xs font-medium text-rose-400 transition-colors cursor-pointer"
                 >
                   <Trash2 size={14} />
                   <span>Hapus</span>
@@ -198,7 +198,7 @@ export default function ManageCertificatesPage() {
           <div className="w-full max-w-lg bg-slate-900 border border-white/10 rounded-2xl p-6 shadow-2xl space-y-5">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-bold text-white">{editingId ? 'Edit Sertifikat' : 'Tambah Sertifikat Baru'}</h2>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white">
+              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white cursor-pointer">
                 <X size={20} />
               </button>
             </div>
@@ -254,13 +254,13 @@ export default function ManageCertificatesPage() {
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-medium text-slate-300 transition-colors"
+                  className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-medium text-slate-300 transition-colors cursor-pointer"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold transition-colors"
+                  className="px-5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold transition-colors cursor-pointer"
                 >
                   Simpan
                 </button>

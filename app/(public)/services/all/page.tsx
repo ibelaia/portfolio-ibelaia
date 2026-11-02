@@ -11,7 +11,6 @@ import {
   Layers 
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
-import { supabase } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,15 +28,13 @@ export default function AllServicesPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function fetchAllServices() {
+    async function fetchNeonAllServices() {
       try {
-        const { data } = await supabase
-          .from('services')
-          .select('*')
-          .order('created_at', { ascending: true });
+        const response = await fetch('/api/services');
+        const json = await response.json();
 
-        if (data && data.length > 0) {
-          const mapped = data.map((item: any, idx: number) => {
+        if (json.success && json.data && json.data.length > 0) {
+          const mapped = json.data.map((item: any, idx: number) => {
             const numStr = item.badge || (idx < 9 ? `0${idx + 1}` : `${idx + 1}`);
             const upperTitle = (item.title || '').toUpperCase();
             
@@ -55,20 +52,20 @@ export default function AllServicesPage() {
               id: numStr,
               title: item.title,
               desc: item.description,
-              tags: Array.isArray(item.tags) ? item.tags : [],
+              tags: Array.isArray(item.tags) ? item.tags : (item.price ? [item.price] : ['Backend', 'API']),
               icon: iconElement
             };
           });
           setServices(mapped);
         }
       } catch (err) {
-        console.warn('Error fetching all services:', err);
+        console.warn('Gagal memuat semua services dari Neon API:', err);
       } finally {
         setLoading(false);
       }
     }
 
-    fetchAllServices();
+    fetchNeonAllServices();
   }, []);
 
   return (
@@ -96,20 +93,20 @@ export default function AllServicesPage() {
         </h1>
         <p className="text-xs sm:text-sm text-slate-400 mt-1 max-w-xl">
           {t(
-            'Comprehensive breakdown of engineering, design, and architecture capabilities.',
-            'Rincian lengkap kapabilitas rekayasa perangkat lunak, desain antarmuka, dan sistem arsitektur.'
+            'Comprehensive breakdown of engineering, design, and architecture capabilities via Neon.',
+            'Rincian lengkap kapabilitas rekayasa perangkat lunak, desain antarmuka, dan sistem arsitektur via Neon.'
           )}
         </p>
       </div>
 
-      {/* Grid Semua Layanan (Vertical Stack di Mobile, 2 Kolom di Tablet/Desktop) */}
+      {/* Grid Semua Layanan */}
       {loading ? (
         <div className="py-12 text-center text-xs font-mono text-slate-500">
-          {t('Loading services...', 'Memuat layanan...')}
+          {t('Loading services...', 'Memuat layanan dari Neon API...')}
         </div>
       ) : services.length === 0 ? (
         <div className="py-12 text-center text-xs font-mono text-slate-500">
-          {t('No services found.', 'Tidak ada layanan ditemukan.')}
+          {t('No services found.', 'Tidak ada layanan ditemukan di database Neon.')}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -138,7 +135,7 @@ export default function AllServicesPage() {
               </div>
 
               <div className="pt-4 border-t border-white/5 flex flex-wrap gap-1.5">
-                {service.tags.map((tag) => (
+                {Array.isArray(service.tags) && service.tags.map((tag) => (
                   <span
                     key={tag}
                     className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-[10px] font-mono text-slate-300"

@@ -121,7 +121,7 @@ export const AchievementsSection: React.FC = () => {
         <div className="hidden md:flex items-center gap-2">
           <Link
             href="/achievements"
-            className="px-4 py-2 rounded-full border border-purple-500/30 bg-[#1e1b4b]/60 hover:bg-[#1e1b4b] text-purple-200 text-xs font-semibold flex items-center gap-1.5 mr-2 transition-all"
+            className="px-4 py-2 rounded-full border border-purple-500/30 bg-[#1e1b4b]/60 hover:bg-[#1e1b4b] text-purple-200 text-xs font-semibold flex items-center gap-1.5 mr-2 transition-all cursor-pointer"
           >
             <span>{t('View All Achievements', 'Lihat Semua Prestasi')}</span>
             <ArrowRight size={13} />
@@ -129,14 +129,14 @@ export const AchievementsSection: React.FC = () => {
 
           <button
             onClick={handlePrev}
-            className="p-2.5 rounded-full border border-white/10 bg-[#090e1f] hover:bg-white/5 text-slate-300 hover:text-white transition-all"
+            className="p-2.5 rounded-full border border-white/10 bg-[#090e1f] hover:bg-white/5 text-slate-300 hover:text-white transition-all cursor-pointer"
             aria-label="Previous achievement"
           >
             <ChevronLeft size={16} />
           </button>
           <button
             onClick={handleNext}
-            className="p-2.5 rounded-full border border-white/10 bg-[#090e1f] hover:bg-white/5 text-slate-300 hover:text-white transition-all"
+            className="p-2.5 rounded-full border border-white/10 bg-[#090e1f] hover:bg-white/5 text-slate-300 hover:text-white transition-all cursor-pointer"
             aria-label="Next achievement"
           >
             <ChevronRight size={16} />
@@ -154,7 +154,7 @@ export const AchievementsSection: React.FC = () => {
           {/* Tombol View All ke Halaman Baru */}
           <Link
             href="/achievements"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1e1b4b]/80 border border-purple-500/30 text-purple-200 text-xs font-semibold active:scale-95 transition-all shadow-sm"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1e1b4b]/80 border border-purple-500/30 text-purple-200 text-xs font-semibold active:scale-95 transition-all shadow-sm cursor-pointer"
           >
             <Layers size={13} />
             <span>{t('View all', 'Semua')}</span>
@@ -174,7 +174,7 @@ export const AchievementsSection: React.FC = () => {
                 setCurrentIndex(idx);
                 scrollToCard(idx);
               }}
-              className="snap-center flex-shrink-0 w-[280px] bg-[#0c1226] border border-white/10 rounded-2xl overflow-hidden flex flex-col justify-between shadow-lg"
+              className="snap-center flex-shrink-0 w-[280px] bg-[#0c1226] border border-white/10 rounded-2xl overflow-hidden flex flex-col justify-between shadow-lg cursor-pointer"
             >
               <div>
                 <div className="relative w-full h-40 bg-slate-900 overflow-hidden border-b border-white/10">
@@ -224,7 +224,7 @@ export const AchievementsSection: React.FC = () => {
                   setCurrentIndex(dotIdx);
                   scrollToCard(dotIdx);
                 }}
-                className={`h-1.5 rounded-full transition-all duration-300 ${
+                className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${
                   currentIndex === dotIdx ? 'w-5 bg-cyan-400' : 'w-1.5 bg-slate-700 hover:bg-slate-500'
                 }`}
                 aria-label={`Slide ${dotIdx + 1}`}

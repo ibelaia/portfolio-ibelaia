@@ -46,7 +46,8 @@ export const AboutSection: React.FC = () => {
               <a
                 href="/assets/resume.pdf"
                 target="_blank"
-                className="px-4 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-xs font-semibold flex items-center gap-2 transition-all"
+                rel="noreferrer"
+                className="px-4 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer"
               >
                 <Download size={14} />
                 {t('Download CV', 'Unduh CV')}
@@ -55,7 +56,7 @@ export const AboutSection: React.FC = () => {
 
               <Link
                 href="/about"
-                className="px-4 py-2 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 border border-purple-500/30 text-xs font-semibold flex items-center gap-2 transition-all"
+                className="px-4 py-2 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 border border-purple-500/30 text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer"
               >
                 <User size={14} />
                 {t('About Me', 'Tentang Saya')}

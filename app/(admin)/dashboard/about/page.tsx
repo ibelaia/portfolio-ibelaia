@@ -28,7 +28,6 @@ import {
   Terminal,
   Upload
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 
 export default function AboutManagementPage() {
   const router = useRouter();
@@ -64,17 +63,11 @@ export default function AboutManagementPage() {
   useEffect(() => {
     async function loadAboutData() {
       try {
-        const { data, error } = await supabase
-          .from('about_settings')
-          .select('*')
-          .eq('id', 'default')
-          .maybeSingle();
+        const response = await fetch('/api/about');
+        const json = await response.json();
 
-        if (error) {
-          console.warn('Error loading about settings:', error);
-        }
-
-        if (data) {
+        if (json.success && json.data) {
+          const data = json.data;
           setForm({
             badge_text: data.badge_text ?? 'ABOUT ME',
             name: data.name ?? 'Ibe Laia',
@@ -85,14 +78,16 @@ export default function AboutManagementPage() {
             edu_major: data.edu_major ?? 'Informatics',
             edu_institution: data.edu_institution ?? 'UPN "Veteran" Jawa Timur',
             edu_period: data.edu_period ?? '2024 — Present',
-            focus_items: Array.isArray(data.focus_items) ? data.focus_items.join('\n') : '',
+            focus_items: Array.isArray(data.focus_items) ? data.focus_items.join('\n') : (data.focus_items || ''),
             focus_tag: data.focus_tag ?? 'Production Ready',
-            interests_tags: Array.isArray(data.interests_tags) ? data.interests_tags.join(', ') : '',
+            interests_tags: Array.isArray(data.interests_tags) ? data.interests_tags.join(', ') : (data.interests_tags || ''),
             interests_tag: data.interests_tag ?? 'Exploration Track',
-            what_i_do_items: Array.isArray(data.what_i_do_items) ? data.what_i_do_items.join('\n') : '',
+            what_i_do_items: Array.isArray(data.what_i_do_items) ? data.what_i_do_items.join('\n') : (data.what_i_do_items || ''),
             what_i_do_tag: data.what_i_do_tag ?? 'Problem Solver'
           });
         }
+      } catch (err) {
+        console.warn('Gagal memuat data About dari API:', err);
       } finally {
         setLoading(false);
       }
@@ -124,7 +119,6 @@ export default function AboutManagementPage() {
     setSaving(true);
 
     const payload = {
-      id: 'default',
       badge_text: form.badge_text,
       name: form.name,
       bio_paragraph_1: form.bio_paragraph_1,
@@ -139,48 +133,31 @@ export default function AboutManagementPage() {
       interests_tags: form.interests_tags.split(',').map(i => i.trim()).filter(Boolean),
       interests_tag: form.interests_tag,
       what_i_do_items: form.what_i_do_items.split('\n').map(i => i.trim()).filter(Boolean),
-      what_i_do_tag: form.what_i_do_tag,
-      updated_at: new Date().toISOString()
+      what_i_do_tag: form.what_i_do_tag
     };
 
     try {
-      const { data: existing, error: checkError } = await supabase
-        .from('about_settings')
-        .select('id')
-        .eq('id', 'default')
-        .maybeSingle();
+      const response = await fetch('/api/about', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
 
-      let resError;
-
-      if (existing && !checkError) {
-        const { error } = await supabase
-          .from('about_settings')
-          .update(payload)
-          .eq('id', 'default');
-        resError = error;
-      } else {
-        const { error } = await supabase
-          .from('about_settings')
-          .insert([payload]);
-        resError = error;
-      }
-
+      const json = await response.json();
       setSaving(false);
-      if (!resError) {
-        showToast('Data halaman About berhasil disimpan ke Supabase!');
+
+      if (response.ok && json.success) {
+        showToast('Data halaman About berhasil disimpan ke Neon PostgreSQL!');
       } else {
-        console.error('Gagal menyimpan ke Supabase:', resError);
-        showToast(`Gagal menyimpan: ${resError.message}`, 'error');
+        showToast(`Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`, 'error');
       }
     } catch (err: any) {
       setSaving(false);
-      console.error('System error:', err);
       showToast(`Error: ${err.message || 'Terjadi kesalahan'}`, 'error');
     }
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
     router.replace('/login');
   };
 
@@ -313,7 +290,7 @@ export default function AboutManagementPage() {
         {loading ? (
           <div className="py-24 text-center text-xs font-mono text-slate-500 flex items-center justify-center gap-2">
             <Loader2 size={18} className="animate-spin text-cyan-400" />
-            <span>Memuat data About dari Supabase...</span>
+            <span>Memuat data About dari Neon API...</span>
           </div>
         ) : (
           <form onSubmit={handleSave} className="space-y-6">

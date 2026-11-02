@@ -11,7 +11,6 @@ import {
   Cpu 
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
-import { supabase } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,25 +55,23 @@ export default function AboutPage() {
   const [data, setData] = useState<AboutPublicData>(fallbackData);
 
   useEffect(() => {
-    async function fetchSupabaseAbout() {
+    async function fetchNeonAbout() {
       try {
-        const { data: res, error } = await supabase
-          .from('about_settings')
-          .select('*')
-          .eq('id', 'default')
-          .single();
+        const response = await fetch('/api/about');
+        const json = await response.json();
 
-        if (!error && res) {
+        if (json.success && json.data) {
+          const res = json.data;
           setData({
             badge_text: res.badge_text || fallbackData.badge_text,
-            name: res.name || fallbackData.name,
-            bio_paragraph_1: res.bio_paragraph_1 ?? fallbackData.bio_paragraph_1,
-            bio_paragraph_2: res.bio_paragraph_2 ?? fallbackData.bio_paragraph_2,
-            cv_url: res.cv_url || fallbackData.cv_url,
+            name: res.name || res.title || fallbackData.name,
+            bio_paragraph_1: res.bio || res.bio_paragraph_1 || fallbackData.bio_paragraph_1,
+            bio_paragraph_2: res.bio_paragraph_2 || fallbackData.bio_paragraph_2,
+            cv_url: res.cv_url || res.avatar_url || fallbackData.cv_url,
             contact_btn_link: res.contact_btn_link || fallbackData.contact_btn_link,
             edu_major: res.edu_major || fallbackData.edu_major,
             edu_institution: res.edu_institution || fallbackData.edu_institution,
-            edu_period: res.edu_period || fallbackData.edu_period,
+            edu_period: res.experience_years || res.edu_period || fallbackData.edu_period,
             focus_items: Array.isArray(res.focus_items) && res.focus_items.length > 0 ? res.focus_items : fallbackData.focus_items,
             focus_tag: res.focus_tag || fallbackData.focus_tag,
             interests_tags: Array.isArray(res.interests_tags) && res.interests_tags.length > 0 ? res.interests_tags : fallbackData.interests_tags,
@@ -84,11 +81,11 @@ export default function AboutPage() {
           });
         }
       } catch (err) {
-        console.error('Error loading public about data:', err);
+        console.error('Error loading public about data from Neon API:', err);
       }
     }
 
-    fetchSupabaseAbout();
+    fetchNeonAbout();
   }, []);
 
   return (

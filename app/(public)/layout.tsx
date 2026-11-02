@@ -4,7 +4,6 @@ import React, { useEffect, useState } from 'react';
 import { AppProvider } from '@/context/AppContext';
 import Navbar from '@/components/public/Navbar';
 import Footer from '@/components/public/Footer';
-import { supabase } from '@/lib/supabase';
 
 export default function PublicLayout({
   children,
@@ -14,23 +13,22 @@ export default function PublicLayout({
   const [siteName, setSiteName] = useState('IbeLaia.Dev');
 
   useEffect(() => {
-    async function fetchGeneralSettings() {
+    async function fetchNeonGeneralSettings() {
       try {
-        const { data, error } = await supabase
-          .from('general_settings')
-          .select('site_name')
-          .eq('id', 'default')
-          .maybeSingle();
+        const response = await fetch('/api/settings');
+        const json = await response.json();
 
-        if (data && !error && data.site_name) {
-          setSiteName(data.site_name);
+        if (json.success && json.data) {
+          if (json.data.site_name) {
+            setSiteName(json.data.site_name);
+          }
         }
       } catch (err) {
-        console.warn('Error loading site name:', err);
+        console.warn('Gagal memuat site name dari Neon API:', err);
       }
     }
 
-    fetchGeneralSettings();
+    fetchNeonGeneralSettings();
   }, []);
 
   return (

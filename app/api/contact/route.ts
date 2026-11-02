@@ -1,10 +1,34 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
+import sql from '@/lib/db';
+
+export async function GET(request: Request) {
+  try {
+    const url = new URL(request.url);
+    const id = url.searchParams.get('id');
+
+    if (id) {
+      const data = await sql`
+        SELECT * FROM messages WHERE id = ${id}
+      `;
+      return NextResponse.json({ success: true, data: data[0] || null }, { status: 200 });
+    }
+
+    const messages = await sql`
+      SELECT * FROM messages ORDER BY created_at DESC
+    `;
+    return NextResponse.json({ success: true, messages }, { status: 200 });
+  } catch (err: any) {
+    return NextResponse.json({
+      success: false,
+      error: err.message || 'Gagal memuat pesan masuk',
+    }, { status: 500 });
+  }
+}
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { name, email, message } = body;
+    const { name, email, subject, message } = body;
 
     if (!name || !email || !message) {
       return NextResponse.json(
@@ -13,23 +37,46 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data, error } = await supabase
-      .from('messages')
-      .insert([{ name, email, message }]);
+    const fullMessage = subject ? `[Subjek: ${subject}]\n\n${message}` : message;
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
+    const result = await sql`
+      INSERT INTO messages (name, email, message)
+      VALUES (${name}, ${email}, ${fullMessage})
+      RETURNING *
+    `;
 
-    return NextResponse.json(
-      { success: true, message: 'Pesan berhasil dikirim' },
-      { status: 200 }
-    );
+    return NextResponse.json({
+      success: true,
+      message: 'Pesan berhasil dikirim',
+      data: result[0],
+    }, { status: 200 });
+
   } catch (err: any) {
-    return NextResponse.json({ error: err.message || 'Terjadi kesalahan' }, { status: 500 });
+    return NextResponse.json({
+      success: false,
+      error: err.message || 'Terjadi kesalahan',
+    }, { status: 500 });
   }
 }
 
-export async function GET() {
-  return NextResponse.json({ status: 'API Contact is running' }, { status: 200 });
+export async function DELETE(request: Request) {
+  try {
+    const url = new URL(request.url);
+    const id = url.searchParams.get('id');
+
+    if (!id) {
+      return NextResponse.json({ success: false, error: 'ID pesan tidak ditemukan' }, { status: 400 });
+    }
+
+    await sql`
+      DELETE FROM messages WHERE id = ${id}
+    `;
+
+    return NextResponse.json({ success: true, message: 'Pesan berhasil dihapus' }, { status: 200 });
+  } catch (err: any) {
+    return NextResponse.json({
+      success: false,
+      error: err.message || 'Gagal menghapus pesan',
+    }, { status: 500 });
+  }
 }

@@ -158,7 +158,7 @@ export const ProjectsSection: React.FC = () => {
 
           <Link
             href="/projects"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1e1b4b]/80 border border-purple-500/30 text-purple-200 text-xs font-semibold"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1e1b4b]/80 border border-purple-500/30 text-purple-200 text-xs font-semibold cursor-pointer"
           >
             <Layers size={13} />
             <span>{t('View all', 'Semua')}</span>
@@ -178,7 +178,7 @@ export const ProjectsSection: React.FC = () => {
                 setCurrentIndex(idx);
                 scrollToCard(idx);
               }}
-              className={`snap-center flex-shrink-0 w-[290px] bg-[#0c1226] border rounded-2xl overflow-hidden flex flex-col justify-between shadow-lg relative ${
+              className={`snap-center flex-shrink-0 w-[290px] bg-[#0c1226] border rounded-2xl overflow-hidden flex flex-col justify-between shadow-lg relative cursor-pointer ${
                 proj.isFeatured ? 'border-accent shadow-accent/20 shadow-lg' : 'border-white/10'
               }`}
             >
@@ -231,7 +231,7 @@ export const ProjectsSection: React.FC = () => {
               <div className="p-5 pt-0">
                 <Link
                   href={proj.link || '#'}
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent hover:opacity-80 transition-colors"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent hover:opacity-80 transition-colors cursor-pointer"
                 >
                   <span>{t('View Project', 'Lihat Proyek')}</span>
                   <ArrowRight size={13} />
@@ -321,7 +321,7 @@ export const ProjectsSection: React.FC = () => {
             <div className="px-6 pb-6 pt-0">
               <Link
                 href={proj.link || '#'}
-                className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent hover:opacity-80 transition-colors"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent hover:opacity-80 transition-colors cursor-pointer"
               >
                 <span>{t('View Project', 'Lihat Proyek')}</span>
                 <ExternalLink size={13} />

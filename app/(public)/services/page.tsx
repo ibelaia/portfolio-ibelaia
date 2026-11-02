@@ -37,7 +37,7 @@ export default function ServicesPage() {
   const [services, setServices] = useState<ServiceItem[]>([]);
 
   useEffect(() => {
-    async function fetchServicesData() {
+    async function fetchNeonServicesData() {
       try {
         const response = await fetch('/api/services');
         const json = await response.json();
@@ -65,7 +65,7 @@ export default function ServicesPage() {
               title: item.title,
               titleUpper: upperTitle,
               desc: item.description || '',
-              tags: Array.isArray(item.tags) ? item.tags : ['Backend', 'API'],
+              tags: Array.isArray(item.tags) ? item.tags : (item.price ? [item.price] : ['Backend', 'API']),
               icon: iconElement,
               watermark: water
             };
@@ -77,7 +77,7 @@ export default function ServicesPage() {
       }
     }
 
-    fetchServicesData();
+    fetchNeonServicesData();
   }, []);
 
   const handlePrev = () => {
@@ -208,7 +208,7 @@ export default function ServicesPage() {
           <div className="flex justify-end mb-3">
             <Link
               href="/services/all"
-              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent/10 border border-accent/30 text-accent text-xs font-medium transition-all shadow-md active:scale-95"
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent/10 border border-accent/30 text-accent text-xs font-medium transition-all shadow-md active:scale-95 cursor-pointer"
             >
               <User size={12} className="text-accent" />
               <span>{t('View all', 'Lihat semua')}</span>
@@ -234,7 +234,7 @@ export default function ServicesPage() {
                 <div
                   key={index}
                   onClick={() => scrollToIndex(index)}
-                  className={`snap-start shrink-0 w-[82%] rounded-3xl p-5 relative overflow-hidden transition-all duration-300 flex flex-col justify-between min-h-[320px] ${
+                  className={`snap-start shrink-0 w-[82%] rounded-3xl p-5 relative overflow-hidden transition-all duration-300 flex flex-col justify-between min-h-[320px] cursor-pointer ${
                     isSelected
                       ? 'bg-[var(--card-bg)] border-2 border-accent shadow-xl'
                       : 'bg-[var(--card-bg)] border border-[var(--card-border)] opacity-55'

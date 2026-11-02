@@ -152,7 +152,6 @@ export default function MediaLibraryPage() {
   return (
     <div className="min-h-screen bg-[#07090e] text-[#94a3b8] flex flex-col lg:flex-row antialiased">
 
-      {/* Toast Notification */}
       {toast && (
         <div className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl backdrop-blur-md border shadow-2xl flex items-center gap-2.5 text-xs font-medium animate-in fade-in duration-200 ${
           toast.type === 'success' ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300' : 'bg-red-500/15 border-red-500/30 text-red-300'
@@ -256,7 +255,6 @@ export default function MediaLibraryPage() {
       {/* MAIN CONTENT */}
       <main className="flex-1 px-4 sm:px-8 py-6 max-w-7xl w-full mx-auto space-y-6">
         
-        {/* Header Title & Upload Action */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
           <div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Media Library</h1>
@@ -281,7 +279,6 @@ export default function MediaLibraryPage() {
           </div>
         </div>
 
-        {/* Hero Banner Upload Dropzone Box */}
         <div className="bg-[#0b0e17] border border-white/5 rounded-2xl p-6 sm:p-8 text-center space-y-3 relative overflow-hidden group hover:border-cyan-500/30 transition-all shadow-xl">
           <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 flex items-center justify-center mx-auto mb-2 group-hover:scale-110 transition-transform">
             <ImageIcon size={24} />
@@ -299,7 +296,6 @@ export default function MediaLibraryPage() {
           </div>
         </div>
 
-        {/* Gallery Grid List */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-mono uppercase tracking-wider text-white font-bold flex items-center gap-2">
@@ -311,7 +307,7 @@ export default function MediaLibraryPage() {
           {loading ? (
             <div className="py-24 text-center text-xs font-mono text-slate-500 flex items-center justify-center gap-2">
               <Loader2 size={18} className="animate-spin text-cyan-400" />
-              <span>Memuat galeri media dari Supabase Storage...</span>
+              <span>Memuat galeri media...</span>
             </div>
           ) : mediaFiles.length === 0 ? (
             <div className="py-20 text-center bg-[#0b0e17] border border-white/5 rounded-2xl p-8 space-y-2">
@@ -326,7 +322,6 @@ export default function MediaLibraryPage() {
                   key={file.name}
                   className="bg-[#0b0e17] border border-white/5 hover:border-white/15 rounded-2xl overflow-hidden flex flex-col justify-between group shadow-xl transition-all"
                 >
-                  {/* Image Preview Box */}
                   <div className="relative w-full h-36 bg-slate-950 overflow-hidden">
                     <img
                       src={file.publicUrl}
@@ -346,7 +341,6 @@ export default function MediaLibraryPage() {
                     </div>
                   </div>
 
-                  {/* File Info */}
                   <div className="p-3.5 space-y-1.5 flex-1">
                     <p className="text-xs font-bold text-white truncate" title={file.name}>
                       {file.name}
@@ -357,7 +351,6 @@ export default function MediaLibraryPage() {
                     </div>
                   </div>
 
-                  {/* Card Actions */}
                   <div className="px-3.5 py-2.5 border-t border-white/5 flex items-center justify-between bg-[#07090e]/60">
                     <button
                       onClick={() => handleCopyUrl(file.publicUrl)}

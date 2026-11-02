@@ -88,7 +88,7 @@ export const HeroSection: React.FC = () => {
           <div className="grid grid-cols-2 gap-2.5 w-full">
             <Link
               href="/projects"
-              className="py-2.5 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 transition-all"
+              className="py-2.5 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
             >
               <span>{t('Projects', 'Proyek')}</span>
               <ArrowRight size={13} />
@@ -96,7 +96,7 @@ export const HeroSection: React.FC = () => {
 
             <Link
               href="/contact"
-              className="py-2.5 rounded-xl bg-white/5 border border-white/15 text-white font-medium text-xs flex items-center justify-center gap-1.5 transition-all"
+              className="py-2.5 rounded-xl bg-white/5 border border-white/15 text-white font-medium text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
             >
               <span>{t('Contact', 'Kontak')}</span>
               <ArrowUpRight size={13} />
@@ -168,7 +168,7 @@ export const HeroSection: React.FC = () => {
           <div className="flex items-center gap-3 pt-1">
             <Link
               href="/projects"
-              className="px-5 py-2.5 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white font-semibold text-xs flex items-center gap-2 shadow-lg transition-all hover:-translate-y-0.5 active:scale-95"
+              className="px-5 py-2.5 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white font-semibold text-xs flex items-center gap-2 shadow-lg transition-all hover:-translate-y-0.5 active:scale-95 cursor-pointer"
             >
               <span>{t('Explore My Work', 'Lihat Hasil Proyek')}</span>
               <ArrowRight size={14} />
@@ -176,7 +176,7 @@ export const HeroSection: React.FC = () => {
 
             <Link
               href="/contact"
-              className="px-5 py-2.5 rounded-xl bg-[#090e1f] hover:bg-white/5 border border-white/15 text-slate-200 font-semibold text-xs flex items-center gap-2 transition-all hover:-translate-y-0.5"
+              className="px-5 py-2.5 rounded-xl bg-[#090e1f] hover:bg-white/5 border border-white/15 text-slate-200 font-semibold text-xs flex items-center gap-2 transition-all hover:-translate-y-0.5 cursor-pointer"
             >
               <span>{t('Contact Me', 'Hubungi Saya')}</span>
               <ArrowUpRight size={14} className="text-purple-400" />
@@ -216,7 +216,7 @@ export const HeroSection: React.FC = () => {
               </div>
             </div>
 
-            {/* Badge 1: Clean Code (Animasi Bergerak Naik-Turun Halus) */}
+            {/* Badge 1: Clean Code */}
             <div className="absolute -top-2 -right-2 flex items-center gap-2.5 px-3 py-2 rounded-xl bg-[#090e1f]/95 border border-white/15 shadow-xl animate-float-slow cursor-default select-none hover:border-purple-400/50 transition-colors">
               <div className="p-1.5 rounded-lg bg-purple-500/10 text-purple-400">
                 <Code2 size={14} />
@@ -227,7 +227,7 @@ export const HeroSection: React.FC = () => {
               </div>
             </div>
 
-            {/* Badge 2: Scalable (Animasi Bergerak Berlawanan Ritme) */}
+            {/* Badge 2: Scalable */}
             <div className="absolute -bottom-2 -left-2 flex items-center gap-2.5 px-3 py-2 rounded-xl bg-[#090e1f]/95 border border-white/15 shadow-xl animate-float-reverse cursor-default select-none hover:border-emerald-400/50 transition-colors">
               <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400">
                 <Gauge size={14} />

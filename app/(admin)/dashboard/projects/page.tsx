@@ -29,7 +29,6 @@ import {
   Sparkles,
   Wand2
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 
 interface SubProjectItem {
   id: string;
@@ -115,49 +114,49 @@ function ProjectsManagementContent() {
 
   const fetchCountAndCheckEdit = async (editId: string | null) => {
     setLoading(true);
-    const { count } = await supabase
-      .from('projects')
-      .select('*', { count: 'exact', head: true });
+    try {
+      const res = await fetch('/api/projects');
+      const json = await res.json();
 
-    if (count !== null) setTotalCount(count);
+      if (json.success && Array.isArray(json.data)) {
+        setTotalCount(json.data.length);
 
-    if (editId) {
-      const { data, error } = await supabase
-        .from('projects')
-        .select('*')
-        .eq('id', editId)
-        .single();
+        if (editId) {
+          const found = json.data.find((p: any) => String(p.id) === String(editId));
+          if (found) {
+            setEditingId(found.id);
+            const rawItems = Array.isArray(found.collection_items) ? found.collection_items : [];
+            const isModular = rawItems.length > 0 && 'type' in rawItems[0];
 
-      if (!error && data) {
-        setEditingId(data.id);
-        
-        const rawItems = Array.isArray(data.collection_items) ? data.collection_items : [];
-        const isModular = rawItems.length > 0 && 'type' in rawItems[0];
-
-        setForm({
-          type: data.type || 'single',
-          title: data.title || '',
-          slug: data.slug || '',
-          category: data.category || 'Web Application',
-          status: data.status || 'PUBLISHED',
-          overview: data.overview || '',
-          tags: Array.isArray(data.tags) ? data.tags.join(', ') : '',
-          thumbnail: data.thumbnail || '',
-          github_url: data.github_url || '',
-          live_url: data.live_url || '',
-          role: data.role || 'Full-Stack Developer',
-          client: data.client || 'Personal Project',
-          year: data.year || '2026',
-          problem: data.problem || '',
-          solution: data.solution || '',
-          deliverables: Array.isArray(data.deliverables) ? data.deliverables.join('\n') : '',
-          collection_items: !isModular ? rawItems : [],
-          modular_blocks: isModular ? rawItems : []
-        });
-        setActiveView('form');
+            setForm({
+              type: found.type || 'single',
+              title: found.title || '',
+              slug: found.slug || '',
+              category: found.category || 'Web Application',
+              status: found.status || 'PUBLISHED',
+              overview: found.overview || '',
+              tags: Array.isArray(found.tags) ? found.tags.join(', ') : '',
+              thumbnail: found.thumbnail || '',
+              github_url: found.github_url || '',
+              live_url: found.live_url || '',
+              role: found.role || 'Full-Stack Developer',
+              client: found.client || 'Personal Project',
+              year: found.year || '2026',
+              problem: found.problem || '',
+              solution: found.solution || '',
+              deliverables: Array.isArray(found.deliverables) ? found.deliverables.join('\n') : '',
+              collection_items: !isModular ? rawItems : [],
+              modular_blocks: isModular ? rawItems : []
+            });
+            setActiveView('form');
+          }
+        }
       }
+    } catch (err) {
+      console.warn('Gagal memuat data projects:', err);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -265,6 +264,7 @@ function ProjectsManagementContent() {
       .filter(Boolean);
 
     const payload = {
+      id: editingId,
       type: form.type,
       title: form.title,
       slug: form.slug.toLowerCase().replace(/\s+/g, '-'),
@@ -284,26 +284,28 @@ function ProjectsManagementContent() {
       collection_items: form.type === 'multi' ? form.collection_items : form.modular_blocks
     };
 
-    let resError;
-    if (editingId) {
-      const { error } = await supabase.from('projects').update(payload).eq('id', editingId);
-      resError = error;
-    } else {
-      const { error } = await supabase.from('projects').insert([payload]);
-      resError = error;
-    }
+    try {
+      const response = await fetch('/api/projects', {
+        method: editingId ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const json = await response.json();
+      setSaving(false);
 
-    setSaving(false);
-    if (resError) {
-      showToast(`Gagal menyimpan: ${resError.message}`, 'error');
-    } else {
-      showToast(editingId ? 'Proyek & Blok berhasil diperbarui!' : 'Proyek baru berhasil disimpan!');
-      router.push('/dashboard/projects/list');
+      if (response.ok && json.success) {
+        showToast(editingId ? 'Proyek berhasil diperbarui ke Neon!' : 'Proyek baru berhasil disimpan ke Neon!');
+        router.push('/dashboard/projects/list');
+      } else {
+        showToast(`Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`, 'error');
+      }
+    } catch (err: any) {
+      setSaving(false);
+      showToast(`Error: ${err.message}`, 'error');
     }
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
     router.replace('/login');
   };
 
@@ -429,7 +431,7 @@ function ProjectsManagementContent() {
               <span>CUSTOM PROJECTS BUILDER</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Projects Management Hub</h1>
-            <p className="text-xs text-slate-400 mt-1">Pusat kontrol untuk merancang, menyusun blok modular, dan mengelola portofolio proyek.</p>
+            <p className="text-xs text-slate-400 mt-1">Pusat kontrol untuk merancang, menyusun blok modular, dan mengelola portofolio proyek via Neon.</p>
           </div>
           <div className="flex items-center gap-3">
             <Link
@@ -942,7 +944,7 @@ function ProjectsManagementContent() {
                   className="px-8 py-3 rounded-2xl bg-gradient-to-r from-cyan-400 to-purple-500 hover:opacity-90 text-slate-950 font-bold flex items-center gap-2 transition-all shadow-xl shadow-cyan-500/20 active:scale-95 disabled:opacity-50 cursor-pointer"
                 >
                   {saving && <Loader2 size={15} className="animate-spin" />}
-                  <span>💾 Simpan Halaman & Section Proyek</span>
+                  <span>💾 Simpan Halaman & Section Proyek ke Neon</span>
                 </button>
               </div>
 

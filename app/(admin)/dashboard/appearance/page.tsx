@@ -28,7 +28,6 @@ import {
   Moon,
   Sun
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 
 export default function AppearanceManagementPage() {
   const router = useRouter();
@@ -53,13 +52,11 @@ export default function AppearanceManagementPage() {
   useEffect(() => {
     async function loadAppearance() {
       try {
-        const { data, error } = await supabase
-          .from('appearance_settings')
-          .select('*')
-          .eq('id', 'default')
-          .maybeSingle();
+        const response = await fetch('/api/appearance');
+        const json = await response.json();
 
-        if (data && !error) {
+        if (json.success && json.data) {
+          const data = json.data;
           setForm({
             theme_mode: data.theme_mode || 'dark',
             accent_color: data.accent_color || 'cyan',
@@ -69,7 +66,7 @@ export default function AppearanceManagementPage() {
           });
         }
       } catch (err) {
-        console.warn('Load appearance error:', err);
+        console.warn('Gagal memuat pengaturan appearance:', err);
       } finally {
         setLoading(false);
       }
@@ -81,51 +78,27 @@ export default function AppearanceManagementPage() {
     e.preventDefault();
     setSaving(true);
 
-    const payload = {
-      id: 'default',
-      theme_mode: form.theme_mode,
-      accent_color: form.accent_color,
-      border_radius: form.border_radius,
-      font_family: form.font_family,
-      glassmorphism: form.glassmorphism,
-      updated_at: new Date().toISOString()
-    };
-
     try {
-      const { data: existing } = await supabase
-        .from('appearance_settings')
-        .select('id')
-        .eq('id', 'default')
-        .maybeSingle();
-
-      let resError;
-      if (existing) {
-        const { error } = await supabase
-          .from('appearance_settings')
-          .update(payload)
-          .eq('id', 'default');
-        resError = error;
-      } else {
-        const { error } = await supabase
-          .from('appearance_settings')
-          .insert([payload]);
-        resError = error;
-      }
-
+      const response = await fetch('/api/appearance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form)
+      });
+      const json = await response.json();
       setSaving(false);
-      if (!resError) {
-        showToast('Pengaturan Appearance berhasil disimpan!');
+
+      if (response.ok && json.success) {
+        showToast('Pengaturan Appearance berhasil disimpan ke Neon!');
       } else {
-        showToast(`Gagal menyimpan: ${resError.message}`, 'error');
+        showToast(`Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`, 'error');
       }
     } catch (err: any) {
       setSaving(false);
-      showToast(`Error: ${err.message || 'Terjadi kesalahan'}`, 'error');
+      showToast(`Error: ${err.message}`, 'error');
     }
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
     router.replace('/login');
   };
 
@@ -246,7 +219,7 @@ export default function AppearanceManagementPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
           <div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Appearance Settings</h1>
-            <p className="text-xs text-slate-400 mt-1">Kelola tema visual, warna aksen, dan gaya komponen antarmuka portofolio publik.</p>
+            <p className="text-xs text-slate-400 mt-1">Kelola tema visual, warna aksen, dan gaya komponen antarmuka portofolio publik via Neon.</p>
           </div>
           <Link href="/" target="_blank" className="px-3.5 py-2 rounded-xl bg-[#0b0e17] border border-white/10 hover:border-white/20 text-xs font-mono text-slate-300 hover:text-white flex items-center gap-2 transition-colors self-start sm:self-auto">
             <Eye size={13} className="text-cyan-400" />
@@ -257,7 +230,7 @@ export default function AppearanceManagementPage() {
         {loading ? (
           <div className="py-24 text-center text-xs font-mono text-slate-500 flex items-center justify-center gap-2">
             <Loader2 size={18} className="animate-spin text-cyan-400" />
-            <span>Memuat pengaturan tampilan...</span>
+            <span>Memuat pengaturan tampilan dari Neon API...</span>
           </div>
         ) : (
           <form onSubmit={handleSave} className="space-y-6">

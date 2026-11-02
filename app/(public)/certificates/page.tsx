@@ -16,7 +16,6 @@ import {
   Loader2
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
-import { supabase } from '@/lib/supabase';
 
 interface CertificateItem {
   id: string;
@@ -45,39 +44,42 @@ export default function CertificatesPage() {
   const [certificates, setCertificates] = useState<CertificateItem[]>([]);
 
   useEffect(() => {
-    async function loadPublicData() {
+    async function loadPublicNeonData() {
       try {
-        // Ambil Header dari Supabase
-        const { data: hData } = await supabase
-          .from('certificates_header')
-          .select('*')
-          .eq('id', 'default')
-          .maybeSingle();
+        const response = await fetch('/api/certificates');
+        const json = await response.json();
 
-        if (hData) {
-          setHeaderData({
-            badge_text: hData.badge_text || 'VERIFIED CREDENTIALS & LICENSES',
-            title: hData.title || 'All Certificates',
-            subtitle: hData.subtitle || 'A verified index of technical certifications, developer accreditations, and coursework completed from recognized institutions.'
-          });
-        }
+        if (json.success) {
+          if (json.header) {
+            setHeaderData({
+              badge_text: json.header.badge_text || 'VERIFIED CREDENTIALS & LICENSES',
+              title: json.header.title || 'All Certificates',
+              subtitle: json.header.subtitle || 'A verified index of technical certifications, developer accreditations, and coursework completed from recognized institutions.'
+            });
+          }
 
-        // Ambil Daftar Sertifikat dari Supabase
-        const { data: cData } = await supabase
-          .from('certificates')
-          .select('*')
-          .order('created_at', { ascending: false });
-
-        if (cData) {
-          setCertificates(cData);
+          if (Array.isArray(json.data)) {
+            const mapped: CertificateItem[] = json.data.map((item: any) => ({
+              id: item.id.toString(),
+              badge: item.badge || item.issuer || 'Certificate',
+              title: item.title,
+              issuer: item.issuer || 'Verified Institution',
+              description: item.description || item.overview || 'Professional certification and technical training.',
+              skills: Array.isArray(item.skills) ? item.skills : (item.tags || ['Web Development', 'Engineering']),
+              date_str: item.date_str || item.date || '2026',
+              image_url: item.image_url || item.credential_url || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=800&q=80',
+              credential_url: item.credential_url || '#'
+            }));
+            setCertificates(mapped);
+          }
         }
       } catch (err) {
-        console.warn('Error fetching public certificates:', err);
+        console.warn('Gagal memuat certificates dari Neon API:', err);
       } finally {
         setLoading(false);
       }
     }
-    loadPublicData();
+    loadPublicNeonData();
   }, []);
 
   const filterTabs = [
@@ -99,7 +101,7 @@ export default function CertificatesPage() {
     return (
       <main className="w-full min-h-[60vh] flex flex-col items-center justify-center gap-3">
         <Loader2 size={24} className="animate-spin text-accent" />
-        <span className="text-xs font-mono text-[var(--text-muted)]">Memuat sertifikat resmi...</span>
+        <span className="text-xs font-mono text-[var(--text-muted)]">Memuat sertifikat resmi dari Neon API...</span>
       </main>
     );
   }
@@ -165,8 +167,8 @@ export default function CertificatesPage() {
 
       {/* Grid Kartu Sertifikat */}
       {filteredData.length === 0 ? (
-        <div className="py-20 text-center text-xs font-mono text-[var(--text-muted)]">
-          Belum ada sertifikat yang ditemukan.
+        <div className="py-20 text-center text-xs font-mono text-[var(--text-muted)] border border-dashed border-[var(--card-border)] rounded-2xl">
+          Belum ada sertifikat yang ditemukan di database Neon.
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -188,6 +190,9 @@ export default function CertificatesPage() {
                     src={item.image_url || '/placeholder.svg'}
                     alt={item.title}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-90 group-hover:opacity-100"
+                    onError={(e) => {
+                      (e.target as HTMLElement).style.display = 'none';
+                    }}
                   />
                   <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-xs font-mono text-white gap-1.5 backdrop-blur-[2px]">
                     <Maximize2 size={13} />
@@ -211,7 +216,7 @@ export default function CertificatesPage() {
 
                   {/* Badge Keahlian */}
                   <div className="flex flex-wrap gap-1.5 pt-4 mt-2 border-t border-[var(--card-border)]">
-                    {item.skills && item.skills.map((skill) => (
+                    {Array.isArray(item.skills) && item.skills.map((skill) => (
                       <span
                         key={skill}
                         className="px-2 py-0.5 rounded bg-white/5 border border-[var(--card-border)] text-[10px] font-mono text-[var(--text-muted)]"
@@ -307,7 +312,7 @@ export default function CertificatesPage() {
                   {t('VERIFIED SKILLS', 'KEAHLIAN TERVERIFIKASI')}
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {selectedCert.skills && selectedCert.skills.map((skill) => (
+                  {Array.isArray(selectedCert.skills) && selectedCert.skills.map((skill) => (
                     <div key={skill} className="flex items-center gap-2 text-xs text-[var(--text-main)]">
                       <CheckCircle2 size={14} className="text-accent shrink-0" />
                       <span>{skill}</span>

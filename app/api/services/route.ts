@@ -5,6 +5,7 @@ export async function GET() {
   try {
     const data = await sql`
       SELECT * FROM services
+      ORDER BY created_at DESC
     `;
 
     return NextResponse.json({ success: true, data }, { status: 200 });

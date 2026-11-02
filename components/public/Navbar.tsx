@@ -67,7 +67,7 @@ export const Navbar: React.FC<NavbarProps> = ({ siteName: initialSiteName }) => 
     <>
       <header className="sticky top-0 z-50 w-full bg-[#050711]/90 backdrop-blur-md border-b border-white/5">
         <div className="max-w-7xl mx-auto px-4 sm:px-8 h-16 flex items-center justify-between">
-          <Link href="/" className="text-base sm:text-lg font-extrabold tracking-tight text-white">
+          <Link href="/" className="text-base sm:text-lg font-extrabold tracking-tight text-white cursor-pointer">
             {siteName.includes('.') ? (
               <>
                 {siteName.split('.')[0]}
@@ -86,7 +86,7 @@ export const Navbar: React.FC<NavbarProps> = ({ siteName: initialSiteName }) => 
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`relative h-full flex items-center text-xs font-medium transition-colors ${
+                  className={`relative h-full flex items-center text-xs font-medium transition-colors cursor-pointer ${
                     isActive
                       ? 'text-white font-semibold'
                       : 'text-slate-400 hover:text-slate-200'
@@ -107,7 +107,7 @@ export const Navbar: React.FC<NavbarProps> = ({ siteName: initialSiteName }) => 
               href={personalSiteUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-slate-200 hover:text-white transition-all"
+              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-slate-200 hover:text-white transition-all cursor-pointer"
             >
               <Globe size={13} className="text-cyan-400" />
               <span>Personal Site</span>
@@ -116,7 +116,7 @@ export const Navbar: React.FC<NavbarProps> = ({ siteName: initialSiteName }) => 
 
             <button
               onClick={() => setIsOpen(true)}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/90 border border-white/10 text-xs font-medium text-slate-300 hover:text-white transition-colors"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/90 border border-white/10 text-xs font-medium text-slate-300 hover:text-white transition-colors cursor-pointer"
               aria-label="Buka Menu"
             >
               <span>Menu</span>
@@ -142,7 +142,8 @@ export const Navbar: React.FC<NavbarProps> = ({ siteName: initialSiteName }) => 
                 </span>
                 <button
                   onClick={() => setIsOpen(false)}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+                  aria-label="Tutup Menu"
                 >
                   <X size={18} />
                 </button>
@@ -157,7 +158,7 @@ export const Navbar: React.FC<NavbarProps> = ({ siteName: initialSiteName }) => 
                       key={item.href}
                       href={item.href}
                       onClick={() => setIsOpen(false)}
-                      className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-medium transition-all ${
+                      className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-medium transition-all cursor-pointer ${
                         isActive
                           ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
                           : 'text-slate-300 hover:text-white hover:bg-white/5'
@@ -179,7 +180,7 @@ export const Navbar: React.FC<NavbarProps> = ({ siteName: initialSiteName }) => 
                   href={personalSiteUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-white/5 transition-all"
+                  className="flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-white/5 transition-all cursor-pointer"
                 >
                   <div className="flex items-center gap-3">
                     <Globe size={16} className="text-cyan-400" />
@@ -201,7 +202,7 @@ export const Navbar: React.FC<NavbarProps> = ({ siteName: initialSiteName }) => 
                   <div className="flex items-center gap-1 text-[11px] font-bold">
                     <button
                       onClick={() => setLanguage('ID')}
-                      className={`px-1.5 py-0.5 rounded transition-colors ${
+                      className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer ${
                         language === 'ID' ? 'bg-cyan-500/20 text-cyan-400' : 'text-slate-500 hover:text-slate-300'
                       }`}
                     >
@@ -210,7 +211,7 @@ export const Navbar: React.FC<NavbarProps> = ({ siteName: initialSiteName }) => 
                     <span className="text-slate-600">/</span>
                     <button
                       onClick={() => setLanguage('EN')}
-                      className={`px-1.5 py-0.5 rounded transition-colors ${
+                      className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer ${
                         language === 'EN' ? 'bg-cyan-500/20 text-cyan-400' : 'text-slate-500 hover:text-slate-300'
                       }`}
                     >
@@ -223,7 +224,7 @@ export const Navbar: React.FC<NavbarProps> = ({ siteName: initialSiteName }) => 
                   href="/assets/resume.pdf"
                   target="_blank"
                   rel="noreferrer"
-                  className="flex items-center justify-between px-3 py-2 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-white/10 text-xs text-slate-300 hover:text-cyan-300 transition-colors"
+                  className="flex items-center justify-between px-3 py-2 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-white/10 text-xs text-slate-300 hover:text-cyan-300 transition-colors cursor-pointer"
                 >
                   <span className="text-[11px] font-medium">{t('Resume', 'Resume')}</span>
                   <FileText size={13} className="text-purple-400" />
@@ -233,7 +234,7 @@ export const Navbar: React.FC<NavbarProps> = ({ siteName: initialSiteName }) => 
               <Link
                 href="/login"
                 onClick={() => setIsOpen(false)}
-                className="flex items-center justify-center gap-2 w-full py-2 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-white/10 text-slate-300 hover:text-white text-xs font-medium transition-all"
+                className="flex items-center justify-center gap-2 w-full py-2 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-white/10 text-slate-300 hover:text-white text-xs font-medium transition-all cursor-pointer"
               >
                 <LogIn size={14} className="text-purple-400" />
                 <span>{t('Admin Login', 'Masuk Admin')}</span>

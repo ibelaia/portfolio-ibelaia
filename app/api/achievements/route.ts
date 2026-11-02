@@ -10,20 +10,20 @@ export async function GET() {
 
     // Ambil daftar achievements
     const data = await sql`
-      SELECT * FROM achievements 
+      SELECT * FROM achievements
       ORDER BY created_at DESC
     `;
 
     return NextResponse.json({
       success: true,
       header: headerRows[0] || null,
-      data: data
+      data: data,
     }, { status: 200 });
 
   } catch (err: any) {
-    return NextResponse.json({ 
-      success: false, 
-      error: err.message || 'Terjadi kesalahan saat mengambil data achievements' 
+    return NextResponse.json({
+      success: false,
+      error: err.message || 'terjadi kesalahan saat mengambil data achievements',
     }, { status: 500 });
   }
 }

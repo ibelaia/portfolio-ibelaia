@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
 import { Loader2, Trash2, Mail, MailOpen, Check, X } from 'lucide-react';
 
 interface MessageItem {
@@ -25,17 +24,23 @@ export default function ManageMessagesPage() {
 
   const fetchMessages = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('messages')
-      .select('*')
-      .order('created_at', { ascending: false });
+    try {
+      const response = await fetch('/api/contact');
+      const json = await response.json();
 
-    if (error) {
+      if (json.success && Array.isArray(json.messages)) {
+        setMessages(json.messages);
+      } else if (json.success && Array.isArray(json.data)) {
+        setMessages(json.data);
+      } else {
+        setMessages([]);
+      }
+    } catch (err) {
+      console.warn('Gagal memuat pesan masuk:', err);
       showToast('Gagal memuat pesan masuk', 'error');
-    } else {
-      setMessages(data || []);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   useEffect(() => {
@@ -45,16 +50,20 @@ export default function ManageMessagesPage() {
   const handleDelete = async (id: string) => {
     if (!confirm('Apakah Anda yakin ingin menghapus pesan ini?')) return;
 
-    const { error } = await supabase
-      .from('messages')
-      .delete()
-      .eq('id', id);
+    try {
+      const response = await fetch(`/api/contact?id=${id}`, {
+        method: 'DELETE'
+      });
+      const json = await response.json();
 
-    if (error) {
-      showToast('Gagal menghapus pesan', 'error');
-    } else {
-      showToast('Pesan berhasil dihapus!');
-      fetchMessages();
+      if (response.ok && json.success) {
+        showToast('Pesan berhasil dihapus!');
+        fetchMessages();
+      } else {
+        showToast(`Gagal menghapus: ${json.error || 'Terjadi kesalahan'}`, 'error');
+      }
+    } catch (err: any) {
+      showToast(`Error: ${err.message}`, 'error');
     }
   };
 
@@ -69,13 +78,13 @@ export default function ManageMessagesPage() {
 
       <div>
         <h1 className="text-3xl font-extrabold text-white">Pesan Masuk</h1>
-        <p className="text-slate-400 text-sm mt-1">Daftar pesan atau pertanyaan dari pengunjung melalui formulir kontak.</p>
+        <p className="text-slate-400 text-sm mt-1">Daftar pesan atau pertanyaan dari pengunjung melalui formulir kontak via Neon.</p>
       </div>
 
       {loading ? (
         <div className="w-full py-20 flex flex-col items-center justify-center gap-3">
           <Loader2 className="animate-spin text-cyan-400" size={32} />
-          <span className="text-sm text-slate-400 font-mono">Memuat pesan masuk...</span>
+          <span className="text-sm text-slate-400 font-mono">Memuat pesan masuk dari Neon API...</span>
         </div>
       ) : messages.length === 0 ? (
         <div className="text-center py-20 bg-slate-900/40 border border-white/5 rounded-2xl space-y-2">
@@ -87,7 +96,7 @@ export default function ManageMessagesPage() {
           {messages.map((item) => (
             <div key={item.id} className="bg-slate-900/60 border border-white/10 p-5 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
               <div className="space-y-1.5 flex-1">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-wrap">
                   <h3 className="text-base font-bold text-white">{item.name}</h3>
                   <span className="text-xs font-mono text-cyan-400 bg-cyan-500/10 px-2.5 py-0.5 rounded-full border border-cyan-500/20">{item.email}</span>
                   <span className="text-xs text-slate-500 font-mono">{new Date(item.created_at).toLocaleDateString()}</span>
@@ -97,7 +106,7 @@ export default function ManageMessagesPage() {
 
               <button
                 onClick={() => handleDelete(item.id)}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-xs font-medium text-rose-400 transition-colors self-end md:self-center"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-xs font-medium text-rose-400 transition-colors self-end md:self-center cursor-pointer"
               >
                 <Trash2 size={16} />
                 <span>Hapus</span>

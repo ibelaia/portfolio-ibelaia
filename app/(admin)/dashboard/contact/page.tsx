@@ -27,7 +27,6 @@ import {
   Eye,
   MessageSquare
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 
 interface ContactContent {
   badge_text: string;
@@ -51,7 +50,6 @@ interface ContactMessage {
 export default function AdminContactPage() {
   const router = useRouter();
 
-  // State Pengaturan Konten Kontak
   const [contentForm, setContentForm] = useState<ContactContent>({
     badge_text: 'GET IN TOUCH',
     email: 'hello@ibelaia.dev',
@@ -62,7 +60,6 @@ export default function AdminContactPage() {
     response_time: '< 24 Jam Kerja'
   });
 
-  // State Pesan Masuk
   const [messages, setMessages] = useState<ContactMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingContent, setSavingContent] = useState(false);
@@ -73,39 +70,29 @@ export default function AdminContactPage() {
     setTimeout(() => setToast(null), 3500);
   };
 
-  // Ambil data form konten & daftar pesan masuk
   const loadData = async () => {
     try {
-      // 1. Ambil Konten Halaman Kontak
-      const { data: contentData } = await supabase
-        .from('contact_content')
-        .select('*')
-        .eq('id', 'default')
-        .maybeSingle();
+      const response = await fetch('/api/contact');
+      const json = await response.json();
 
-      if (contentData) {
-        setContentForm({
-          badge_text: contentData.badge_text || '',
-          email: contentData.email || '',
-          title: contentData.title || '',
-          subtitle: contentData.subtitle || '',
-          phone: contentData.phone || '',
-          location: contentData.location || '',
-          response_time: contentData.response_time || ''
-        });
-      }
-
-      // 2. Ambil Pesan Masuk dari Pengunjung
-      const { data: messagesData, error: msgError } = await supabase
-        .from('contact_messages')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (!msgError && messagesData) {
-        setMessages(messagesData);
+      if (json.success) {
+        if (json.content) {
+          setContentForm({
+            badge_text: json.content.badge_text || '',
+            email: json.content.email || '',
+            title: json.content.title || '',
+            subtitle: json.content.subtitle || '',
+            phone: json.content.phone || '',
+            location: json.content.location || '',
+            response_time: json.content.response_time || ''
+          });
+        }
+        if (json.messages) {
+          setMessages(json.messages);
+        }
       }
     } catch (err) {
-      console.warn('Gagal memuat data:', err);
+      console.warn('Gagal memuat data contact:', err);
     } finally {
       setLoading(false);
     }
@@ -115,49 +102,51 @@ export default function AdminContactPage() {
     loadData();
   }, []);
 
-  // Simpan perubahan form informasi kontak
   const handleSaveContent = async (e: React.FormEvent) => {
     e.preventDefault();
     setSavingContent(true);
 
     try {
-      const { error } = await supabase
-        .from('contact_content')
-        .upsert({
-          id: 'default',
-          ...contentForm,
-          updated_at: new Date().toISOString()
-        });
-
-      if (error) throw error;
-      showToast('Informasi kontak berhasil diperbarui!');
-    } catch (err: any) {
-      showToast(`Gagal menyimpan: ${err.message}`, 'error');
-    } finally {
+      const response = await fetch('/api/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(contentForm)
+      });
+      const json = await response.json();
       setSavingContent(false);
+
+      if (response.ok && json.success) {
+        showToast('Informasi kontak berhasil disimpan ke Neon!');
+      } else {
+        showToast(`Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`, 'error');
+      }
+    } catch (err: any) {
+      setSavingContent(false);
+      showToast(`Error: ${err.message}`, 'error');
     }
   };
 
-  // Hapus pesan tertentu
   const handleDeleteMessage = async (id: string) => {
     if (!confirm('Hapus pesan ini secara permanen?')) return;
 
     try {
-      const { error } = await supabase
-        .from('contact_messages')
-        .delete()
-        .eq('id', id);
+      const response = await fetch(`/api/contact?id=${id}`, {
+        method: 'DELETE'
+      });
+      const json = await response.json();
 
-      if (error) throw error;
-      setMessages((prev) => prev.filter((msg) => msg.id !== id));
-      showToast('Pesan berhasil dihapus!');
+      if (response.ok && json.success) {
+        setMessages((prev) => prev.filter((msg) => msg.id !== id));
+        showToast('Pesan berhasil dihapus!');
+      } else {
+        showToast(`Gagal menghapus pesan: ${json.error || 'Terjadi kesalahan'}`, 'error');
+      }
     } catch (err: any) {
-      showToast(`Gagal menghapus pesan: ${err.message}`, 'error');
+      showToast(`Error: ${err.message}`, 'error');
     }
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
     router.replace('/login');
   };
 
@@ -277,7 +266,7 @@ export default function AdminContactPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
           <div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Contact Management & Inbox</h1>
-            <p className="text-xs text-slate-400 mt-1">Kelola informasi kontak, email, nomor telepon, dan baca pesan masuk dari pengunjung.</p>
+            <p className="text-xs text-slate-400 mt-1">Kelola informasi kontak, email, dan baca pesan masuk dari pengunjung via Neon.</p>
           </div>
           <Link href="/contact" target="_blank" className="px-3.5 py-2 rounded-xl bg-[#0b0e17] border border-white/10 hover:border-white/20 text-xs font-mono text-slate-300 hover:text-white flex items-center gap-2 transition-colors self-start sm:self-auto">
             <Eye size={13} className="text-cyan-400" />
@@ -288,7 +277,7 @@ export default function AdminContactPage() {
         {loading ? (
           <div className="py-24 text-center text-xs font-mono text-slate-500 flex items-center justify-center gap-2">
             <Loader2 size={18} className="animate-spin text-cyan-400" />
-            <span>Memuat data kontak & pesan...</span>
+            <span>Memuat data kontak & pesan dari Neon API...</span>
           </div>
         ) : (
           <div className="space-y-10">

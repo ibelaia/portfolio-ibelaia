@@ -10,7 +10,6 @@ import {
   ArrowUp
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
-import { supabase } from '@/lib/supabase';
 
 export const Footer: React.FC = () => {
   const { t } = useApp();
@@ -31,27 +30,25 @@ export const Footer: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    async function fetchFooterSettings() {
+    async function fetchNeonFooterSettings() {
       try {
-        const { data, error } = await supabase
-          .from('general_settings')
-          .select('*')
-          .eq('id', 'default')
-          .maybeSingle();
+        const response = await fetch('/api/settings');
+        const json = await response.json();
 
-        if (data && !error) {
+        if (json.success && json.data) {
+          const res = json.data;
           setFooterData({
-            site_name: data.site_name || 'IbeLaia.Dev',
-            footer_description: data.footer_description || 'Building digital solutions with code, creativity, and purpose.',
-            copyright_text: data.copyright_text || '2026 IbeLaia.Dev. All rights reserved.'
+            site_name: res.site_name || 'IbeLaia.Dev',
+            footer_description: res.footer_description || 'Building digital solutions with code, creativity, and purpose.',
+            copyright_text: res.copyright_text || '2026 IbeLaia.Dev. All rights reserved.'
           });
         }
       } catch (err) {
-        console.warn('Error loading footer settings:', err);
+        console.warn('Gagal memuat footer settings dari Neon API:', err);
       }
     }
 
-    fetchFooterSettings();
+    fetchNeonFooterSettings();
   }, []);
 
   const scrollToTop = () => {
@@ -70,7 +67,7 @@ export const Footer: React.FC = () => {
           {/* ================= KHUSUS MOBILE ================= */}
           <div className="flex flex-col gap-3.5 sm:hidden">
             <div className="flex items-center justify-between">
-              <Link href="/" className="text-base font-extrabold tracking-tight text-white">
+              <Link href="/" className="text-base font-extrabold tracking-tight text-white cursor-pointer">
                 {baseName}<span className="text-cyan-400">{extension}</span>
               </Link>
 
@@ -103,7 +100,7 @@ export const Footer: React.FC = () => {
           {/* ================= KHUSUS DESKTOP ================= */}
           <div className="hidden sm:grid sm:grid-cols-12 gap-8 pb-5">
             <div className="col-span-4 space-y-2">
-              <Link href="/" className="text-lg font-extrabold tracking-tight text-white inline-block">
+              <Link href="/" className="text-lg font-extrabold tracking-tight text-white inline-block cursor-pointer">
                 {baseName}<span className="text-cyan-400">{extension}</span>
               </Link>
               <p className="text-xs text-slate-400 max-w-xs leading-relaxed">
@@ -116,9 +113,9 @@ export const Footer: React.FC = () => {
                 {t('EXPLORE', 'JELAJAHI')}
               </h4>
               <ul className="space-y-1.5 text-xs">
-                <li><Link href="/about" className="hover:text-cyan-400 transition-colors">{t('About', 'Tentang')}</Link></li>
-                <li><Link href="/projects" className="hover:text-cyan-400 transition-colors">{t('Projects', 'Proyek')}</Link></li>
-                <li><Link href="/services" className="hover:text-cyan-400 transition-colors">{t('Services', 'Layanan')}</Link></li>
+                <li><Link href="/about" className="hover:text-cyan-400 transition-colors cursor-pointer">{t('About', 'Tentang')}</Link></li>
+                <li><Link href="/projects" className="hover:text-cyan-400 transition-colors cursor-pointer">{t('Projects', 'Proyek')}</Link></li>
+                <li><Link href="/services" className="hover:text-cyan-400 transition-colors cursor-pointer">{t('Services', 'Layanan')}</Link></li>
               </ul>
             </div>
 
@@ -127,8 +124,8 @@ export const Footer: React.FC = () => {
                 {t('RESOURCES', 'SUMBER')}
               </h4>
               <ul className="space-y-1.5 text-xs">
-                <li><Link href="/achievements" className="hover:text-cyan-400 transition-colors">{t('Achievements', 'Prestasi')}</Link></li>
-                <li><Link href="/certificates" className="hover:text-cyan-400 transition-colors">{t('Certificates', 'Sertifikat')}</Link></li>
+                <li><Link href="/achievements" className="hover:text-cyan-400 transition-colors cursor-pointer">{t('Achievements', 'Prestasi')}</Link></li>
+                <li><Link href="/certificates" className="hover:text-cyan-400 transition-colors cursor-pointer">{t('Certificates', 'Sertifikat')}</Link></li>
                 <li><span className="text-slate-600 cursor-not-allowed">Documentation</span></li>
               </ul>
             </div>
@@ -139,8 +136,8 @@ export const Footer: React.FC = () => {
                   {t('CONNECT', 'HUBUNGI')}
                 </h4>
                 <ul className="space-y-1 text-xs">
-                  <li><Link href="/contact" className="hover:text-cyan-400 transition-colors">{t('Contact Me', 'Kontak Saya')}</Link></li>
-                  <li><Link href="/contact" className="hover:text-cyan-400 transition-colors">Let&apos;s Talk</Link></li>
+                  <li><Link href="/contact" className="hover:text-cyan-400 transition-colors cursor-pointer">{t('Contact Me', 'Kontak Saya')}</Link></li>
+                  <li><Link href="/contact" className="hover:text-cyan-400 transition-colors cursor-pointer">Let&apos;s Talk</Link></li>
                 </ul>
               </div>
 
@@ -189,7 +186,7 @@ export const Footer: React.FC = () => {
       <button
         onClick={scrollToTop}
         aria-label="Scroll to top"
-        className={`fixed bottom-5 right-5 z-40 w-10 h-10 rounded-full bg-[#0c1328]/90 border border-cyan-500/40 text-cyan-400 flex items-center justify-center shadow-[0_4px_20px_rgba(0,0,0,0.6)] backdrop-blur-md transition-all duration-300 hover:scale-110 active:scale-95 ${
+        className={`fixed bottom-5 right-5 z-40 w-10 h-10 rounded-full bg-[#0c1328]/90 border border-cyan-500/40 text-cyan-400 flex items-center justify-center shadow-[0_4px_20px_rgba(0,0,0,0.6)] backdrop-blur-md transition-all duration-300 hover:scale-110 active:scale-95 cursor-pointer ${
           showTopBtn ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'
         }`}
       >

@@ -25,11 +25,8 @@ import {
   Trash2,
   Edit3,
   Eye,
-  Menu,
-  X,
   Upload
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 
 interface AchievementItem {
   id: string;
@@ -60,7 +57,6 @@ export default function AchievementsManagementPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   
-  // State untuk form modal & file upload device
   const [modalForm, setModalForm] = useState({
     badge: 'Competitions',
     title: '',
@@ -81,30 +77,23 @@ export default function AchievementsManagementPage() {
   useEffect(() => {
     async function loadData() {
       try {
-        const { data: headerData } = await supabase
-          .from('achievements_header')
-          .select('*')
-          .eq('id', 'default')
-          .maybeSingle();
+        const response = await fetch('/api/achievements');
+        const json = await response.json();
 
-        if (headerData) {
-          setHeaderForm({
-            badge_text: headerData.badge_text || 'HONORS & RECOGNITION',
-            title: headerData.title || 'Honors & Milestones',
-            subtitle: headerData.subtitle || 'A timeline of competitive awards, hackathon recognitions, and academic milestones achieved throughout my software engineering journey.'
-          });
-        }
-
-        const { data: achData } = await supabase
-          .from('achievements')
-          .select('*')
-          .order('created_at', { ascending: false });
-
-        if (achData) {
-          setAchievements(achData);
+        if (json.success) {
+          if (json.header) {
+            setHeaderForm({
+              badge_text: json.header.badge_text || 'HONORS & RECOGNITION',
+              title: json.header.title || 'Honors & Milestones',
+              subtitle: json.header.subtitle || 'A timeline of competitive awards, hackathon recognitions, and academic milestones achieved throughout my software engineering journey.'
+            });
+          }
+          if (json.data) {
+            setAchievements(json.data);
+          }
         }
       } catch (err) {
-        console.warn('Load error:', err);
+        console.warn('Gagal memuat data achievements:', err);
       } finally {
         setLoading(false);
       }
@@ -116,30 +105,23 @@ export default function AchievementsManagementPage() {
     e.preventDefault();
     setSaving(true);
 
-    const payload = {
-      id: 'default',
-      badge_text: headerForm.badge_text,
-      title: headerForm.title,
-      subtitle: headerForm.subtitle,
-      updated_at: new Date().toISOString()
-    };
+    try {
+      const response = await fetch('/api/achievements/header', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(headerForm)
+      });
+      const json = await response.json();
+      setSaving(false);
 
-    const { data: existing } = await supabase.from('achievements_header').select('id').eq('id', 'default').maybeSingle();
-
-    let error;
-    if (existing) {
-      const res = await supabase.from('achievements_header').update(payload).eq('id', 'default');
-      error = res.error;
-    } else {
-      const res = await supabase.from('achievements_header').insert([payload]);
-      error = res.error;
-    }
-
-    setSaving(false);
-    if (!error) {
-      showToast('Header Achievements berhasil disimpan!');
-    } else {
-      showToast(`Gagal menyimpan: ${error.message}`, 'error');
+      if (response.ok && json.success) {
+        showToast('Header Achievements berhasil disimpan ke Neon!');
+      } else {
+        showToast(`Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`, 'error');
+      }
+    } catch (err: any) {
+      setSaving(false);
+      showToast(`Error: ${err.message}`, 'error');
     }
   };
 
@@ -182,29 +164,17 @@ export default function AchievementsManagementPage() {
     let finalImageUrl = modalForm.image_url;
 
     if (selectedFile) {
-      const fileExt = selectedFile.name.split('.').pop();
-      const fileName = `${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('portfolio-images')
-        .upload(fileName, selectedFile);
-
-      if (uploadError) {
-        showToast(`Gagal upload gambar: ${uploadError.message}`, 'error');
-        setSaving(false);
-        return;
-      }
-
-      const { data: publicUrlData } = supabase.storage
-        .from('portfolio-images')
-        .getPublicUrl(fileName);
-
-      finalImageUrl = publicUrlData.publicUrl;
+      const reader = new FileReader();
+      finalImageUrl = await new Promise((resolve) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.readAsDataURL(selectedFile);
+      });
     }
 
     const highlightsArray = modalForm.highlightsStr.split(',').map(h => h.trim()).filter(Boolean);
 
     const payload = {
+      id: editingId,
       badge: modalForm.badge,
       title: modalForm.title,
       description: modalForm.description,
@@ -215,53 +185,55 @@ export default function AchievementsManagementPage() {
       credential_url: modalForm.credential_url
     };
 
-    if (editingId) {
-      const { error } = await supabase
-        .from('achievements')
-        .update(payload)
-        .eq('id', editingId);
+    try {
+      const response = await fetch('/api/achievements', {
+        method: editingId ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const json = await response.json();
+      setSaving(false);
 
-      if (!error) {
-        setAchievements(achievements.map(a => a.id === editingId ? { ...a, ...payload } : a));
-        showToast('Achievement berhasil diperbarui!');
+      if (response.ok && json.success) {
+        if (editingId) {
+          setAchievements(achievements.map(a => a.id === editingId ? { ...a, ...payload } : a));
+          showToast('Achievement berhasil diperbarui!');
+        } else {
+          setAchievements([json.data || payload, ...achievements]);
+          showToast('Achievement baru berhasil ditambahkan!');
+        }
         setIsModalOpen(false);
         setSelectedFile(null);
       } else {
-        showToast(`Gagal memperbarui: ${error.message}`, 'error');
+        showToast(`Gagal menyimpan: ${json.error || 'Kesalahan database'}`, 'error');
       }
-    } else {
-      const { data, error } = await supabase
-        .from('achievements')
-        .insert([payload])
-        .select()
-        .single();
-
-      if (!error && data) {
-        setAchievements([data, ...achievements]);
-        showToast('Achievement baru berhasil ditambahkan!');
-        setIsModalOpen(false);
-        setSelectedFile(null);
-      } else {
-        showToast(`Gagal menambah: ${error?.message || 'Kesalahan database'}`, 'error');
-      }
+    } catch (err: any) {
+      setSaving(false);
+      showToast(`Error: ${err.message}`, 'error');
     }
-    setSaving(false);
   };
 
   const handleDeleteAchievement = async (id: string) => {
     if (!confirm('Hapus achievement ini secara permanen?')) return;
 
-    const { error } = await supabase.from('achievements').delete().eq('id', id);
-    if (!error) {
-      setAchievements(achievements.filter(a => a.id !== id));
-      showToast('Achievement berhasil dihapus!');
-    } else {
-      showToast(`Gagal menghapus: ${error.message}`, 'error');
+    try {
+      const response = await fetch(`/api/achievements?id=${id}`, {
+        method: 'DELETE'
+      });
+      const json = await response.json();
+
+      if (response.ok && json.success) {
+        setAchievements(achievements.filter(a => a.id !== id));
+        showToast('Achievement berhasil dihapus!');
+      } else {
+        showToast(`Gagal menghapus: ${json.error || 'Terjadi kesalahan'}`, 'error');
+      }
+    } catch (err: any) {
+      showToast(`Error: ${err.message}`, 'error');
     }
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
     router.replace('/login');
   };
 
@@ -373,7 +345,7 @@ export default function AchievementsManagementPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
           <div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Achievements Management</h1>
-            <p className="text-xs text-slate-400 mt-1">Kelola header penghargaan, milestone, dan pencapaian kompetisi.</p>
+            <p className="text-xs text-slate-400 mt-1">Kelola header penghargaan, milestone, dan pencapaian kompetisi via Neon PostgreSQL.</p>
           </div>
           <Link href="/achievements" target="_blank" className="px-3.5 py-2 rounded-xl bg-[#0b0e17] border border-white/10 hover:border-white/20 text-xs font-mono text-slate-300 hover:text-white flex items-center gap-2 transition-colors self-start sm:self-auto">
             <Eye size={13} className="text-cyan-400" />
@@ -384,7 +356,7 @@ export default function AchievementsManagementPage() {
         {loading ? (
           <div className="py-24 text-center text-xs font-mono text-slate-500 flex items-center justify-center gap-2">
             <Loader2 size={18} className="animate-spin text-cyan-400" />
-            <span>Memuat data Achievements...</span>
+            <span>Memuat data Achievements dari Neon API...</span>
           </div>
         ) : (
           <div className="space-y-8">
@@ -467,13 +439,12 @@ export default function AchievementsManagementPage() {
             <form onSubmit={handleSaveAchievement} className="space-y-4 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] font-mono text-slate-400 mb-1">Kategori / Badge (Bebas)</label>
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">Kategori / Badge</label>
                   <input 
                     type="text" 
                     required
                     value={modalForm.badge} 
                     onChange={(e) => setModalForm({ ...modalForm, badge: e.target.value })} 
-                    placeholder="Contoh: Awards, Hackathon"
                     className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400" 
                   />
                 </div>
@@ -500,7 +471,7 @@ export default function AchievementsManagementPage() {
               </div>
 
               <div>
-                <label className="block text-[11px] font-mono text-slate-400 mb-1">Upload Gambar dari Perangkat</label>
+                <label className="block text-[11px] font-mono text-slate-400 mb-1">Upload Gambar / Berkas</label>
                 <input 
                   type="file" 
                   accept="image/*"
@@ -511,7 +482,6 @@ export default function AchievementsManagementPage() {
                   }}
                   className="w-full px-3 py-1.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono text-[11px] file:mr-4 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-cyan-500 file:text-slate-950 hover:file:bg-cyan-400 cursor-pointer" 
                 />
-                <span className="text-[10px] text-slate-500 mt-1 block">Atau gunakan URL teks di bawah jika gambar online.</span>
                 <input 
                   type="text" 
                   value={modalForm.image_url} 

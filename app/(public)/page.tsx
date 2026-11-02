@@ -42,7 +42,33 @@ export default function HomePage() {
   });
 
   useEffect(() => {
-    // Menggunakan data lokal aman untuk mencegah error DNS client-side di Vercel
+    async function fetchNeonHomeData() {
+      try {
+        const response = await fetch('/api/settings');
+        const json = await response.json();
+
+        if (json.success && json.data) {
+          const res = json.data;
+          setData({
+            title: res.site_name || 'Ibe Laia , S.Kom',
+            subtitle: res.site_tagline || 'Building the future of digital products',
+            highlight_text: res.hero_highlight || 'Full-Stack Developer',
+            description: res.hero_description || res.site_tagline || 'I build modern, secure, and scalable web applications with clean code and exceptional user experience.',
+            profile_photo_url: res.avatar_url || res.banner_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
+            projects_completed: res.projects_completed ?? 6,
+            happy_clients: res.happy_clients ?? 4,
+            years_experience: res.years_experience ?? 8,
+            availability_status: res.availability_status || 'Available for Hire',
+            location: res.location || 'Surabaya, Indonesia',
+            site_tagline: res.site_tagline || 'Software Engineer & Full-Stack Developer'
+          });
+        }
+      } catch (err) {
+        console.warn('Gagal memuat home data dari Neon API:', err);
+      }
+    }
+
+    fetchNeonHomeData();
   }, []);
 
   return (
@@ -68,6 +94,9 @@ export default function HomePage() {
                   src={data.profile_photo_url} 
                   alt={data.title}
                   className="w-full h-full object-cover"
+                  onError={(e) => {
+                    (e.target as HTMLElement).style.display = 'none';
+                  }}
                 />
               </div>
 
@@ -133,14 +162,14 @@ export default function HomePage() {
             <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3 pt-2">
               <Link
                 href="/projects"
-                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-accent hover:opacity-90 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-95"
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-accent hover:opacity-90 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 cursor-pointer"
               >
                 <span>Explore My Work</span>
                 <ArrowRight size={14} />
               </Link>
               <Link
                 href="/contact"
-                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-[var(--card-border)] font-semibold text-xs flex items-center justify-center transition-all"
+                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-[var(--card-border)] font-semibold text-xs flex items-center justify-center transition-all cursor-pointer"
               >
                 Contact Me ↗
               </Link>

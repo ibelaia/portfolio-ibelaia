@@ -19,7 +19,6 @@ import {
   Loader2
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
-import { supabase } from '@/lib/supabase';
 
 export default function ContactPage() {
   const { t } = useApp();
@@ -27,7 +26,7 @@ export default function ContactPage() {
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // State untuk data kontak dinamis dari Supabase
+  // State untuk data kontak dinamis dari Neon API
   const [contactInfo, setContactInfo] = useState({
     badge_text: 'GET IN TOUCH',
     title: "Let's Build Something Meaningful.",
@@ -47,32 +46,30 @@ export default function ContactPage() {
   });
 
   useEffect(() => {
-    async function fetchContactData() {
+    async function fetchNeonContactData() {
       try {
-        const { data } = await supabase
-          .from('contact_content')
-          .select('*')
-          .eq('id', 'default')
-          .maybeSingle();
+        const response = await fetch('/api/settings');
+        const json = await response.json();
 
-        if (data) {
+        if (json.success && json.data) {
+          const data = json.data;
           setContactInfo({
-            badge_text: data.badge_text || 'GET IN TOUCH',
-            title: data.title || "Let's Build Something Meaningful.",
-            subtitle: data.subtitle || "I'm always open to discussing web engineering projects...",
-            email: data.email || 'hello@ibelaia.dev',
-            phone: data.phone || '+62 812 3456 7890',
+            badge_text: 'GET IN TOUCH',
+            title: "Let's Build Something Meaningful.",
+            subtitle: data.site_tagline || "I'm always open to discussing web engineering projects...",
+            email: data.contact_email || 'hello@ibelaia.dev',
+            phone: '+62 812 3456 7890',
             location: data.location || 'Surabaya, Indonesia',
-            response_time: data.response_time || '< 24 Jam Kerja'
+            response_time: '< 24 Jam Kerja'
           });
         }
       } catch (err) {
-        console.warn('Error fetching contact content:', err);
+        console.warn('Gagal memuat contact content dari Neon API:', err);
       } finally {
         setLoading(false);
       }
     }
-    fetchContactData();
+    fetchNeonContactData();
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -80,22 +77,20 @@ export default function ContactPage() {
     setIsSubmitting(true);
 
     try {
-      // Simpan pesan ke tabel contact_messages agar masuk ke inbox admin dashboard
-      const { error } = await supabase
-        .from('contact_messages')
-        .insert([
-          {
-            name: formData.name,
-            email: formData.email,
-            subject: formData.subject,
-            message: formData.message,
-          }
-        ]);
+      // Kirim pesan melalui endpoint API backend ke Neon PostgreSQL
+      const response = await fetch('/api/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      });
+      const json = await response.json();
 
-      if (error) throw error;
-
-      setIsSubmitting(false);
-      setSubmitted(true);
+      if (response.ok && json.success) {
+        setIsSubmitting(false);
+        setSubmitted(true);
+      } else {
+        throw new Error(json.error || 'Terjadi kesalahan saat mengirim pesan.');
+      }
     } catch (err: any) {
       console.warn('Error submitting message:', err);
       alert(`Gagal mengirim pesan: ${err.message || 'Terjadi kesalahan'}`);
@@ -107,7 +102,7 @@ export default function ContactPage() {
     return (
       <main className="w-full min-h-[60vh] flex flex-col items-center justify-center gap-3">
         <Loader2 size={24} className="animate-spin text-accent" />
-        <span className="text-xs font-mono text-[var(--text-muted)]">Memuat halaman kontak...</span>
+        <span className="text-xs font-mono text-[var(--text-muted)]">Memuat halaman kontak dari Neon API...</span>
       </main>
     );
   }

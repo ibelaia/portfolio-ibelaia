@@ -72,14 +72,14 @@ export default function AchievementsPage() {
               let cat: 'COMPETITION' | 'HACKATHON' | 'ACADEMIC' | 'AWARDS' = 'COMPETITION';
               let color = 'text-amber-400 border-amber-500/30 bg-amber-500/10';
               
-              const badgeLower = (item.badge || '').toLowerCase();
+              const badgeLower = (item.badge || item.issuer || '').toLowerCase();
               if (badgeLower.includes('hackathon')) {
                 cat = 'HACKATHON';
                 color = 'text-accent border-accent/30 bg-accent/10';
-              } else if (badgeLower.includes('academic') || badgeLower.includes('akademik')) {
+              } else if (badgeLower.includes('academic') || badgeLower.includes('akademik') || badgeLower.includes('university')) {
                 cat = 'ACADEMIC';
                 color = 'text-purple-400 border-purple-500/30 bg-purple-500/10';
-              } else if (badgeLower.includes('award') || badgeLower.includes('finalist')) {
+              } else if (badgeLower.includes('award') || badgeLower.includes('finalist') || badgeLower.includes('sertifikat')) {
                 cat = 'AWARDS';
                 color = 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10';
               }
@@ -91,15 +91,15 @@ export default function AchievementsPage() {
               return {
                 id: item.id.toString(),
                 category: cat,
-                badge: { en: item.badge, id: item.badge },
+                badge: { en: item.badge || item.issuer || 'Achievement', id: item.badge || item.issuer || 'Pencapaian' },
                 badgeColor: color,
-                organizer: item.location || 'Surabaya, Jawa Timur',
-                date: { en: item.date_str || '2026', id: item.date_str || '2026' },
+                organizer: item.issuer || 'Surabaya, Jawa Timur',
+                date: { en: item.date || '2026', id: item.date || '2026' },
                 location: item.location || 'Indonesia',
                 title: { en: item.title, id: item.title },
                 desc: { en: item.description, id: item.description },
                 highlights: highlightsArr,
-                image: item.image_url || '/placeholder.svg',
+                image: item.image_url || item.credential_url || 'https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=800&q=80',
                 imageCaption: { 
                   en: 'Documentation photo of achievement recognition.', 
                   id: 'Dokumentasi foto penghargaan.' 
@@ -113,7 +113,7 @@ export default function AchievementsPage() {
           }
         }
       } catch (err) {
-        console.warn('Gagal memuat achievements dari API Neon:', err);
+        console.warn('Gagal memuat achievements dari Neon API:', err);
       } finally {
         setLoading(false);
       }
@@ -180,7 +180,7 @@ export default function AchievementsPage() {
 
       {/* Timeline List Container */}
       {loading ? (
-        <div className="py-20 text-center text-xs font-mono text-accent">Memuat achievements dari Neon...</div>
+        <div className="py-20 text-center text-xs font-mono text-accent">Memuat achievements dari Neon API...</div>
       ) : filteredItems.length === 0 ? (
         <div className="py-20 text-center text-xs font-mono text-[var(--text-muted)] border border-dashed border-[var(--card-border)] rounded-2xl">
           Belum ada achievement tercatat di database Neon.
@@ -285,6 +285,9 @@ export default function AchievementsPage() {
                         src={item.image}
                         alt={typeof item.title.en === 'string' ? item.title.en : 'Achievement preview'}
                         className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-500 opacity-90 group-hover/img:opacity-100"
+                        onError={(e) => {
+                          (e.target as HTMLElement).style.display = 'none';
+                        }}
                       />
                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity flex items-center justify-center gap-1.5 text-xs font-mono text-white backdrop-blur-[2px]">
                         <Maximize2 size={14} />

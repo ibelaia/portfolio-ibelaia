@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
 import { Loader2, Plus, Trash2, Edit3, Check, X, FolderGit2 } from 'lucide-react';
 
 interface ProjectItem {
@@ -37,17 +36,21 @@ export default function ManageProjectsPage() {
 
   const fetchProjects = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('projects')
-      .select('*')
-      .order('created_at', { ascending: false });
+    try {
+      const response = await fetch('/api/projects');
+      const json = await response.json();
 
-    if (error) {
+      if (json.success && Array.isArray(json.data)) {
+        setProjects(json.data);
+      } else {
+        showToast('Gagal memuat data proyek', 'error');
+      }
+    } catch (err) {
+      console.warn('Gagal mengambil data projects:', err);
       showToast('Gagal memuat data proyek', 'error');
-    } else {
-      setProjects(data || []);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   useEffect(() => {
@@ -59,8 +62,8 @@ export default function ManageProjectsPage() {
       setEditingId(project.id);
       setTitle(project.title);
       setCategory(project.category);
-      setDescription(project.description);
-      setImageUrl(project.image_url || '');
+      setDescription(project.description || (project as any).overview || '');
+      setImageUrl(project.image_url || (project as any).thumbnail || '');
       setLiveUrl(project.live_url || '');
       setGithubUrl(project.github_url || '');
       setIsFeatured(project.is_featured || false);
@@ -85,56 +88,55 @@ export default function ManageProjectsPage() {
     }
 
     const payload = {
+      id: editingId,
       title,
       category,
       description,
+      overview: description,
       image_url: imageUrl,
+      thumbnail: imageUrl,
       live_url: liveUrl,
       github_url: githubUrl,
       is_featured: isFeatured,
     };
 
-    if (editingId) {
-      const { error } = await supabase
-        .from('projects')
-        .update(payload)
-        .eq('id', editingId);
+    try {
+      const response = await fetch('/api/projects', {
+        method: editingId ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const json = await response.json();
 
-      if (error) {
-        showToast('Gagal memperbarui proyek', 'error');
-      } else {
-        showToast('Proyek berhasil diperbarui!');
+      if (response.ok && json.success) {
+        showToast(editingId ? 'Proyek berhasil diperbarui ke Neon!' : 'Proyek berhasil ditambahkan ke Neon!');
         setIsModalOpen(false);
         fetchProjects();
-      }
-    } else {
-      const { error } = await supabase
-        .from('projects')
-        .insert([payload]);
-
-      if (error) {
-        showToast('Gagal menambah proyek baru', 'error');
       } else {
-        showToast('Proyek berhasil ditambahkan!');
-        setIsModalOpen(false);
-        fetchProjects();
+        showToast(`Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`, 'error');
       }
+    } catch (err: any) {
+      showToast(`Error: ${err.message}`, 'error');
     }
   };
 
   const handleDelete = async (id: string) => {
     if (!confirm('Apakah Anda yakin ingin menghapus proyek ini?')) return;
 
-    const { error } = await supabase
-      .from('projects')
-      .delete()
-      .eq('id', id);
+    try {
+      const response = await fetch(`/api/projects?id=${id}`, {
+        method: 'DELETE'
+      });
+      const json = await response.json();
 
-    if (error) {
-      showToast('Gagal menghapus proyek', 'error');
-    } else {
-      showToast('Proyek berhasil dihapus!');
-      fetchProjects();
+      if (response.ok && json.success) {
+        showToast('Proyek berhasil dihapus!');
+        fetchProjects();
+      } else {
+        showToast(`Gagal menghapus: ${json.error || 'Terjadi kesalahan'}`, 'error');
+      }
+    } catch (err: any) {
+      showToast(`Error: ${err.message}`, 'error');
     }
   };
 
@@ -150,11 +152,11 @@ export default function ManageProjectsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-extrabold text-white">Kelola Proyek Utama</h1>
-          <p className="text-slate-400 text-sm mt-1">Tambah, ubah, atau hapus daftar portofolio proyek utama Anda.</p>
+          <p className="text-slate-400 text-sm mt-1">Tambah, ubah, atau hapus daftar portofolio proyek utama Anda via Neon.</p>
         </div>
         <button
           onClick={() => handleOpenModal()}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-cyan-500 text-slate-950 font-bold hover:bg-cyan-400 transition-colors"
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-cyan-500 text-slate-950 font-bold hover:bg-cyan-400 transition-colors cursor-pointer"
         >
           <Plus size={18} />
           <span>Tambah Proyek</span>
@@ -164,7 +166,7 @@ export default function ManageProjectsPage() {
       {loading ? (
         <div className="w-full py-20 flex flex-col items-center justify-center gap-3">
           <Loader2 className="animate-spin text-cyan-400" size={32} />
-          <span className="text-sm text-slate-400 font-mono">Memuat daftar proyek...</span>
+          <span className="text-sm text-slate-400 font-mono">Memuat daftar proyek dari Neon API...</span>
         </div>
       ) : projects.length === 0 ? (
         <div className="text-center py-20 bg-slate-900/40 border border-white/5 rounded-2xl space-y-2">
@@ -180,7 +182,7 @@ export default function ManageProjectsPage() {
                   <h3 className="text-lg font-bold text-white">{item.title}</h3>
                   <span className="text-xs font-mono px-2.5 py-1 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">{item.category}</span>
                 </div>
-                <p className="text-xs text-slate-300 leading-relaxed line-clamp-2">{item.description}</p>
+                <p className="text-xs text-slate-300 leading-relaxed line-clamp-2">{item.description || (item as any).overview}</p>
                 {item.is_featured && (
                   <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">Featured</span>
                 )}
@@ -189,14 +191,14 @@ export default function ManageProjectsPage() {
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-white/5">
                 <button
                   onClick={() => handleOpenModal(item)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-medium text-slate-200 transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-medium text-slate-200 transition-colors cursor-pointer"
                 >
                   <Edit3 size={14} />
                   <span>Edit</span>
                 </button>
                 <button
                   onClick={() => handleDelete(item.id)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-xs font-medium text-rose-400 transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-xs font-medium text-rose-400 transition-colors cursor-pointer"
                 >
                   <Trash2 size={14} />
                   <span>Hapus</span>
@@ -212,7 +214,7 @@ export default function ManageProjectsPage() {
           <div className="w-full max-w-lg bg-slate-900 border border-white/10 rounded-2xl p-6 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-bold text-white">{editingId ? 'Edit Proyek' : 'Tambah Proyek Baru'}</h2>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white">
+              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white cursor-pointer">
                 <X size={20} />
               </button>
             </div>
@@ -293,22 +295,22 @@ export default function ManageProjectsPage() {
                   id="featured"
                   checked={isFeatured}
                   onChange={(e) => setIsFeatured(e.target.checked)}
-                  className="w-4 h-4 rounded bg-slate-950 border-white/10 text-cyan-500 focus:ring-cyan-500"
+                  className="w-4 h-4 rounded bg-slate-950 border-white/10 text-cyan-500 focus:ring-cyan-500 cursor-pointer"
                 />
-                <label htmlFor="featured" className="text-xs font-medium text-slate-300">Tandai sebagai Proyek Unggulan (Featured)</label>
+                <label htmlFor="featured" className="text-xs font-medium text-slate-300 cursor-pointer">Tandai sebagai Proyek Unggulan (Featured)</label>
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-medium text-slate-300 transition-colors"
+                  className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-medium text-slate-300 transition-colors cursor-pointer"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold transition-colors"
+                  className="px-5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold transition-colors cursor-pointer"
                 >
                   Simpan
                 </button>

@@ -30,7 +30,6 @@ import {
   Code2,
   PanelBottom
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 
 interface GeneralData {
   site_name: string;
@@ -71,13 +70,11 @@ export default function GeneralSettingsAdminPage() {
   useEffect(() => {
     async function loadGeneral() {
       try {
-        const { data, error } = await supabase
-          .from('general_settings')
-          .select('*')
-          .eq('id', 'default')
-          .maybeSingle();
+        const response = await fetch('/api/settings');
+        const json = await response.json();
 
-        if (data && !error) {
+        if (json.success && json.data) {
+          const data = json.data;
           setForm({
             site_name: data.site_name || '',
             site_tagline: data.site_tagline || '',
@@ -91,7 +88,7 @@ export default function GeneralSettingsAdminPage() {
           });
         }
       } catch (err) {
-        console.warn('Load general settings error:', err);
+        console.warn('Gagal memuat pengaturan general:', err);
       } finally {
         setLoading(false);
       }
@@ -104,26 +101,26 @@ export default function GeneralSettingsAdminPage() {
     setSaving(true);
 
     try {
-      const { error } = await supabase
-        .from('general_settings')
-        .upsert({
-          id: 'default',
-          ...form,
-          updated_at: new Date().toISOString()
-        });
-
-      if (error) throw error;
-
+      const response = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form)
+      });
+      const json = await response.json();
       setSaving(false);
-      showToast('Pengaturan General & Footer berhasil disimpan!');
+
+      if (response.ok && json.success) {
+        showToast('Pengaturan General & Footer berhasil disimpan ke Neon!');
+      } else {
+        showToast(`Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`, 'error');
+      }
     } catch (err: any) {
       setSaving(false);
-      showToast(`Gagal menyimpan: ${err.message || 'Terjadi kesalahan'}`, 'error');
+      showToast(`Error: ${err.message}`, 'error');
     }
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
     router.replace('/login');
   };
 
@@ -236,7 +233,7 @@ export default function GeneralSettingsAdminPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
           <div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">General & Footer Settings</h1>
-            <p className="text-xs text-slate-400 mt-1">Kelola identitas dasar website, status kerja, tautan sosial, serta konten bagian Footer publik.</p>
+            <p className="text-xs text-slate-400 mt-1">Kelola identitas dasar website, status kerja, tautan sosial, serta konten bagian Footer publik via Neon.</p>
           </div>
           <Link href="/" target="_blank" className="px-3.5 py-2 rounded-xl bg-[#0b0e17] border border-white/10 hover:border-white/20 text-xs font-mono text-slate-300 hover:text-white flex items-center gap-2 transition-colors self-start sm:self-auto">
             <Eye size={13} className="text-cyan-400" />
@@ -247,7 +244,7 @@ export default function GeneralSettingsAdminPage() {
         {loading ? (
           <div className="py-24 text-center text-xs font-mono text-slate-500 flex items-center justify-center gap-2">
             <Loader2 size={18} className="animate-spin text-cyan-400" />
-            <span>Memuat pengaturan umum...</span>
+            <span>Memuat pengaturan umum dari Neon API...</span>
           </div>
         ) : (
           <form onSubmit={handleSave} className="space-y-6">

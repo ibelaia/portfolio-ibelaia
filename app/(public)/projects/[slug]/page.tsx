@@ -43,71 +43,6 @@ interface ProjectDetail {
   githubUrl?: string;
 }
 
-const fallbackDatabase: Record<string, ProjectDetail> = {
-  'food-delivery-app-interface': {
-    slug: 'food-delivery-app-interface',
-    title: 'Food Delivery App Interface',
-    category: 'UI/UX Design',
-    year: '2026',
-    role: 'Lead UI/UX Designer',
-    client: 'Design Portfolio Case Study',
-    bannerImage: 'https://images.unsplash.com/photo-1526367790999-0150786686a2?auto=format&fit=crop&w=1200&q=80',
-    summary: {
-      en: 'A comprehensive mobile UI/UX engineering project focused on minimizing user checkout friction, enabling fluid real-time driver geo-tracking, and creating a unified design token system.',
-      id: 'Proyek perancangan UI/UX mobile komprehensif yang berfokus pada pengurangan friksi saat checkout, pelacakan kurir real-time yang mulus, dan standardisasi design token.',
-    },
-    problem: {
-      en: 'Most food delivery applications clutter the screen with inconsistent typography, confusing micro-interactions, and lengthy checkout funnels that drive high cart abandonment rates.',
-      id: 'Banyak aplikasi pesan-antar makanan memiliki antarmuka yang terlalu padat, mikro-interaksi yang membingungkan, serta tahapan checkout yang panjang sehingga memicu tingginya angka pembatalan pesanan.',
-    },
-    solution: {
-      en: 'Engineered high-fidelity Figma components with auto-layout, intuitive 3-tap checkout flows, clear micro-animations for cart updates, and accessible color contrasts verified against WCAG AA standards.',
-      id: 'Merancang komponen Figma berkualitas tinggi dengan auto-layout presisi, menyederhanakan alur checkout menjadi 3 ketukan praktis, animasi transisi keranjang, dan kontras warna standar WCAG AA.',
-    },
-    keyDeliverables: [
-      'Interactive Figma prototype with 40+ responsive mobile artboards',
-      'Unified design system: typography tokens, 8pt spacing grid, reusable UI kit',
-      'Complete end-to-end user journey: exploration, cart, tracking, post-purchase review',
-      'Usability testing report showing a 35% reduction in task completion time'
-    ],
-    modularBlocks: [],
-    techStack: ['Figma', 'FigJam', 'Prototyping', 'Design System', 'User Journey Mapping'],
-    liveUrl: 'https://figma.com',
-    githubUrl: 'https://github.com/ibelaia'
-  },
-  'jawatrip-mobile-travel-platform': {
-    slug: 'jawatrip-mobile-travel-platform',
-    title: 'JawaTrip Mobile Travel Platform',
-    category: 'Mobile & UI/UX',
-    year: '2026',
-    role: 'UI/UX & Mobile Developer',
-    client: 'Tourism Digital Initiative',
-    bannerImage: 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?auto=format&fit=crop&w=1200&q=80',
-    summary: {
-      en: 'An interactive itinerary planner and ticket booking application designed to streamline domestic tourism across Java with rich micro-interactions and offline ticketing support.',
-      id: 'Aplikasi perencana jadwal perjalanan interaktif dan pemesanan tiket wisata di Pulau Jawa dengan mikro-interaksi dinamis dan dukungan tiket digital offline.',
-    },
-    problem: {
-      en: 'Travelers often face fragmented booking systems across transport, local guides, and regional attraction tickets with little to no offline reliability.',
-      id: 'Wisatawan kerap menemui sistem pemesanan yang terpisah-pisah antara tiket transportasi, pemandu lokal, dan tiket wisata, serta kendala sinyal di area tujuan.',
-    },
-    solution: {
-      en: 'Built an integrated mobile experience combining interactive trip scheduling, cached QR-ticket passes, and cross-platform responsive layouts.',
-      id: 'Membangun aplikasi mobile terintegrasi dengan sinkronisasi rencana perjalanan, tiket QR terenkripsi yang dapat dibuka offline, dan tata letak responsif.',
-    },
-    keyDeliverables: [
-      'Full-flow UI/UX screen sequence from onboarding to ticket redemption',
-      'Offline-first architecture with local cache state synchronization',
-      'Modular React Native navigation with fluid gesture transitions',
-      'API schema integration for real-time schedule & quota checks'
-    ],
-    modularBlocks: [],
-    techStack: ['React Native', 'Figma', 'TypeScript', 'Tailwind CSS', 'REST API'],
-    liveUrl: '#',
-    githubUrl: 'https://github.com/ibelaia'
-  }
-};
-
 export default function ProjectDetailPage() {
   const params = useParams();
   const slug = params?.slug as string;
@@ -118,7 +53,7 @@ export default function ProjectDetailPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function loadProjectData() {
+    async function loadNeonProjectDetail() {
       if (!slug) return;
       setLoading(true);
       try {
@@ -131,11 +66,8 @@ export default function ProjectDetailPage() {
 
           const matched = json.data.find((d: any) => d.slug === slug);
           if (matched) {
-            const fallback = fallbackDatabase[slug];
             const tagsArray = Array.isArray(matched.tags) ? matched.tags : [];
-            const deliverablesArray = Array.isArray(matched.deliverables) && matched.deliverables.length > 0
-              ? matched.deliverables
-              : (fallback?.keyDeliverables || []);
+            const deliverablesArray = Array.isArray(matched.deliverables) ? matched.deliverables : [];
 
             const rawItems = Array.isArray(matched.collection_items) ? matched.collection_items : [];
             const modularBlocks = rawItems.filter((item: any) => 'type' in item);
@@ -143,55 +75,46 @@ export default function ProjectDetailPage() {
             setProject({
               slug: matched.slug,
               title: matched.title,
-              category: matched.category || fallback?.category || 'Development',
-              year: matched.year || fallback?.year || '2026',
-              role: matched.role || fallback?.role || 'Full-Stack Developer',
-              client: matched.client || fallback?.client || 'Personal Project',
-              bannerImage: matched.thumbnail || matched.image_url || fallback?.bannerImage || 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=1200&q=80',
+              category: matched.category || 'Web Application',
+              year: matched.year || '2026',
+              role: matched.role || 'Full-Stack Developer',
+              client: matched.client || 'Personal Project',
+              bannerImage: matched.thumbnail || matched.image_url || 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=1200&q=80',
               summary: {
-                en: matched.overview || matched.description || fallback?.summary.en || '',
-                id: matched.overview || matched.description || fallback?.summary.id || ''
+                en: matched.overview || matched.description || '',
+                id: matched.overview || matched.description || ''
               },
               problem: {
-                en: matched.problem || fallback?.problem.en || matched.overview || '',
-                id: matched.problem || fallback?.problem.id || matched.overview || ''
+                en: matched.problem || matched.overview || '',
+                id: matched.problem || matched.overview || ''
               },
               solution: {
-                en: matched.solution || fallback?.solution.en || '',
-                id: matched.solution || fallback?.solution.id || ''
+                en: matched.solution || '',
+                id: matched.solution || ''
               },
               keyDeliverables: deliverablesArray,
               modularBlocks: modularBlocks,
-              techStack: tagsArray.length > 0 ? tagsArray : (fallback?.techStack || ['Next.js', 'TypeScript', 'Tailwind CSS']),
-              liveUrl: matched.live_url || fallback?.liveUrl || '',
-              githubUrl: matched.github_url || fallback?.githubUrl || 'https://github.com/ibelaia'
+              techStack: tagsArray.length > 0 ? tagsArray : ['Next.js', 'PostgreSQL', 'Tailwind CSS'],
+              liveUrl: matched.live_url || '',
+              githubUrl: matched.github_url || 'https://github.com/ibelaia'
             });
-          } else if (fallbackDatabase[slug]) {
-            setProject(fallbackDatabase[slug]);
-            setAllSlugs(Object.keys(fallbackDatabase));
           }
-        } else if (fallbackDatabase[slug]) {
-          setProject(fallbackDatabase[slug]);
-          setAllSlugs(Object.keys(fallbackDatabase));
         }
       } catch (err) {
-        if (fallbackDatabase[slug]) {
-          setProject(fallbackDatabase[slug]);
-          setAllSlugs(Object.keys(fallbackDatabase));
-        }
+        console.warn('Gagal memuat detail proyek dari Neon API:', err);
       } finally {
         setLoading(false);
       }
     }
 
-    loadProjectData();
+    loadNeonProjectDetail();
   }, [slug]);
 
   if (loading) {
     return (
       <main className="w-full max-w-6xl mx-auto px-4 py-32 text-center flex items-center justify-center gap-3">
         <Loader2 size={20} className="animate-spin text-accent" />
-        <span className="text-xs font-mono text-[var(--text-muted)]">Memuat detail studi kasus dari Neon...</span>
+        <span className="text-xs font-mono text-[var(--text-muted)]">Memuat detail studi kasus dari Neon API...</span>
       </main>
     );
   }
@@ -203,7 +126,7 @@ export default function ProjectDetailPage() {
         <p className="text-sm text-[var(--text-muted)] mb-6">Proyek yang Anda cari tidak tersedia atau tautan salah.</p>
         <Link
           href="/projects"
-          className="px-4 py-2 rounded-xl bg-accent text-slate-950 font-bold text-xs inline-flex items-center gap-2"
+          className="px-4 py-2 rounded-xl bg-accent text-slate-950 font-bold text-xs inline-flex items-center gap-2 cursor-pointer"
         >
           <ArrowLeft size={14} /> Kembali ke Proyek
         </Link>
@@ -257,7 +180,7 @@ export default function ProjectDetailPage() {
               href={project.liveUrl}
               target="_blank"
               rel="noreferrer"
-              className="px-4 py-2.5 rounded-xl bg-accent hover:opacity-90 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition-all shadow-md active:scale-95"
+              className="px-4 py-2.5 rounded-xl bg-accent hover:opacity-90 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition-all shadow-md active:scale-95 cursor-pointer"
             >
               <span>{t('Live Preview', 'Lihat Pratinjau')}</span>
               <ExternalLink size={13} />
@@ -283,6 +206,9 @@ export default function ProjectDetailPage() {
           src={project.bannerImage}
           alt={project.title}
           className="w-full h-full object-cover"
+          onError={(e) => {
+            (e.target as HTMLElement).style.display = 'none';
+          }}
         />
       </div>
 
@@ -316,7 +242,7 @@ export default function ProjectDetailPage() {
             </div>
           )}
 
-          {project.keyDeliverables.length > 0 && (
+          {Array.isArray(project.keyDeliverables) && project.keyDeliverables.length > 0 && (
             <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-2xl p-6 backdrop-blur-xl">
               <h2 className="text-base font-bold text-[var(--text-main)] mb-4 flex items-center gap-2">
                 <span className="w-2 h-2 rounded bg-accent" />
@@ -364,7 +290,7 @@ export default function ProjectDetailPage() {
               {t('TECH STACK & TOOLS', 'PERKAKAS & TEKNOLOGI')}
             </h3>
             <div className="flex flex-wrap gap-1.5">
-              {project.techStack.map((tech) => (
+              {Array.isArray(project.techStack) && project.techStack.map((tech) => (
                 <span
                   key={tech}
                   className="px-2.5 py-1 rounded-lg bg-white/5 border border-[var(--card-border)] text-[11px] font-mono text-[var(--text-muted)]"
@@ -380,7 +306,7 @@ export default function ProjectDetailPage() {
       </div>
 
       {/* RENDER MODULAR BLOCKS */}
-      {project.modularBlocks.length > 0 && (
+      {Array.isArray(project.modularBlocks) && project.modularBlocks.length > 0 && (
         <div className="space-y-6 pt-6 border-t border-[var(--card-border)]">
           <h2 className="text-lg font-extrabold text-[var(--text-main)] tracking-tight flex items-center gap-2">
             <Layers size={18} className="text-accent" />
@@ -424,7 +350,7 @@ export default function ProjectDetailPage() {
                       href={block.link || '#'}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent hover:opacity-90 text-slate-950 font-bold text-xs transition-all shadow-md active:scale-95"
+                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent hover:opacity-90 text-slate-950 font-bold text-xs transition-all shadow-md active:scale-95 cursor-pointer"
                     >
                       <span>{block.content || 'Buka Tautan'}</span>
                       <ExternalLink size={13} />

@@ -27,7 +27,6 @@ import {
   Save,
   Eye
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 
 interface ServiceItem {
   id: string;
@@ -45,17 +44,14 @@ export default function ServicesManagementPage() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
-  // Bagian Header Halaman Services
   const [headerForm, setHeaderForm] = useState({
     badge_text: 'MY SERVICES',
     title: 'My Services',
     subtitle: 'Things I can build, design, and contribute to.'
   });
 
-  // Daftar Card Services
   const [services, setServices] = useState<ServiceItem[]>([]);
 
-  // Modal State untuk Tambah / Edit Card Service
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [modalForm, setModalForm] = useState({
@@ -74,65 +70,58 @@ export default function ServicesManagementPage() {
   useEffect(() => {
     async function loadData() {
       try {
-        const { data: headerData } = await supabase
-          .from('services_header')
-          .select('*')
-          .eq('id', 'default')
-          .maybeSingle();
+        const response = await fetch('/api/services');
+        const json = await response.json();
 
-        if (headerData) {
-          setHeaderForm({
-            badge_text: headerData.badge_text || 'MY SERVICES',
-            title: headerData.title || 'My Services',
-            subtitle: headerData.subtitle || 'Things I can build, design, and contribute to.'
-          });
-        }
-
-        const { data: servicesData } = await supabase
-          .from('services')
-          .select('*')
-          .order('created_at', { ascending: true });
-
-        if (servicesData && servicesData.length > 0) {
-          setServices(servicesData);
-        } else {
-          setServices([
-            {
-              id: '1',
-              title: 'WEB DEVELOPMENT',
-              description: 'Building responsive websites and commerce experiences with modern web technologies.',
-              badge: '01',
-              tags: ['HTML', 'CSS', 'JavaScript', 'E-COMMERCE'],
-              icon_name: 'Code2'
-            },
-            {
-              id: '2',
-              title: 'UI/UX DESIGN',
-              description: 'Designing intuitive wireframes, mockups, and high-fidelity user interface prototypes.',
-              badge: '02',
-              tags: ['FIGMA', 'WIREFRAME', 'PROTOTYPE'],
-              icon_name: 'Palette'
-            },
-            {
-              id: '3',
-              title: 'DATABASE & BACKEND',
-              description: 'Developing scalable backend architectures, RESTful APIs, and optimized databases.',
-              badge: '03',
-              tags: ['MYSQL', 'DATABASE', 'API'],
-              icon_name: 'Server'
-            },
-            {
-              id: '4',
-              title: 'WEB3 DEVELOPMENT',
-              description: 'Exploring smart contract interactions, dApps integration, and decentralized ecosystems.',
-              badge: '04',
-              tags: ['SOLIDITY', 'WEB3', 'SMART CONTRACTS'],
-              icon_name: 'Cpu'
-            }
-          ]);
+        if (json.success) {
+          if (json.header) {
+            setHeaderForm({
+              badge_text: json.header.badge_text || 'MY SERVICES',
+              title: json.header.title || 'My Services',
+              subtitle: json.header.subtitle || 'Things I can build, design, and contribute to.'
+            });
+          }
+          if (Array.isArray(json.data) && json.data.length > 0) {
+            setServices(json.data);
+          } else {
+            setServices([
+              {
+                id: '1',
+                title: 'WEB DEVELOPMENT',
+                description: 'Building responsive websites and commerce experiences with modern web technologies.',
+                badge: '01',
+                tags: ['HTML', 'CSS', 'JavaScript', 'E-COMMERCE'],
+                icon_name: 'Code2'
+              },
+              {
+                id: '2',
+                title: 'UI/UX DESIGN',
+                description: 'Designing intuitive wireframes, mockups, and high-fidelity user interface prototypes.',
+                badge: '02',
+                tags: ['FIGMA', 'WIREFRAME', 'PROTOTYPE'],
+                icon_name: 'Palette'
+              },
+              {
+                id: '3',
+                title: 'DATABASE & BACKEND',
+                description: 'Developing scalable backend architectures, RESTful APIs, and optimized databases.',
+                badge: '03',
+                tags: ['MYSQL', 'DATABASE', 'API'],
+                icon_name: 'Server'
+              },
+              {
+                id: '4',
+                title: 'WEB3 DEVELOPMENT',
+                description: 'Exploring smart contract interactions, dApps integration, and decentralized ecosystems.',
+                badge: '04',
+                tags: ['SOLIDITY', 'WEB3', 'SMART CONTRACTS'],
+                icon_name: 'Cpu'
+              }
+            ]);
+          }
         }
       } catch (err) {
-        console.warn('Load error:', err);
+        console.warn('Gagal memuat data services:', err);
       } finally {
         setLoading(false);
       }
@@ -144,30 +133,23 @@ export default function ServicesManagementPage() {
     e.preventDefault();
     setSaving(true);
 
-    const payload = {
-      id: 'default',
-      badge_text: headerForm.badge_text,
-      title: headerForm.title,
-      subtitle: headerForm.subtitle,
-      updated_at: new Date().toISOString()
-    };
+    try {
+      const response = await fetch('/api/services/header', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(headerForm)
+      });
+      const json = await response.json();
+      setSaving(false);
 
-    const { data: existing } = await supabase.from('services_header').select('id').eq('id', 'default').maybeSingle();
-
-    let error;
-    if (existing) {
-      const res = await supabase.from('services_header').update(payload).eq('id', 'default');
-      error = res.error;
-    } else {
-      const res = await supabase.from('services_header').insert([payload]);
-      error = res.error;
-    }
-
-    setSaving(false);
-    if (!error) {
-      showToast('Judul dan Deskripsi Services berhasil disimpan!');
-    } else {
-      showToast(`Gagal menyimpan: ${error.message}`, 'error');
+      if (response.ok && json.success) {
+        showToast('Judul dan Deskripsi Services berhasil disimpan ke Neon!');
+      } else {
+        showToast(`Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`, 'error');
+      }
+    } catch (err: any) {
+      setSaving(false);
+      showToast(`Error: ${err.message}`, 'error');
     }
   };
 
@@ -200,6 +182,7 @@ export default function ServicesManagementPage() {
     const tagsArray = modalForm.tagsStr.split(',').map(t => t.trim()).filter(Boolean);
 
     const cardPayload = {
+      id: editingId,
       title: modalForm.title,
       description: modalForm.description,
       badge: modalForm.badge,
@@ -207,52 +190,52 @@ export default function ServicesManagementPage() {
       icon_name: modalForm.icon_name
     };
 
-    if (editingId) {
-      const { error } = await supabase
-        .from('services')
-        .update(cardPayload)
-        .eq('id', editingId);
+    try {
+      const response = await fetch('/api/services', {
+        method: editingId ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cardPayload)
+      });
+      const json = await response.json();
 
-      if (!error) {
-        setServices(services.map(s => s.id === editingId ? { ...s, ...cardPayload } : s));
-        showToast('Card Service berhasil diperbarui!');
+      if (response.ok && json.success) {
+        if (editingId) {
+          setServices(services.map(s => s.id === editingId ? { ...s, ...cardPayload } : s));
+          showToast('Card Service berhasil diperbarui!');
+        } else {
+          setServices([...services, json.data || cardPayload]);
+          showToast('Card Service baru berhasil ditambahkan!');
+        }
         setIsModalOpen(false);
       } else {
-        showToast(`Gagal memperbarui: ${error.message}`, 'error');
+        showToast(`Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`, 'error');
       }
-    } else {
-      const { data, error } = await supabase
-        .from('services')
-        .insert([cardPayload])
-        .select()
-        .single();
-
-      if (!error && data) {
-        setServices([...services, data]);
-        showToast('Card Service baru berhasil ditambahkan!');
-        setIsModalOpen(false);
-      } else {
-        const fallbackNew: ServiceItem = {
-          id: Date.now().toString(),
-          ...cardPayload
-        };
-        setServices([...services, fallbackNew]);
-        showToast('Card Service ditambahkan secara lokal!');
-        setIsModalOpen(false);
-      }
+    } catch (err: any) {
+      showToast(`Error: ${err.message}`, 'error');
     }
   };
 
   const handleDeleteService = async (id: string) => {
     if (!confirm('Hapus card layanan ini?')) return;
 
-    await supabase.from('services').delete().eq('id', id);
-    setServices(services.filter(s => s.id !== id));
-    showToast('Card Service berhasil dihapus!');
+    try {
+      const response = await fetch(`/api/services?id=${id}`, {
+        method: 'DELETE'
+      });
+      const json = await response.json();
+
+      if (response.ok && json.success) {
+        setServices(services.filter(s => s.id !== id));
+        showToast('Card Service berhasil dihapus!');
+      } else {
+        showToast(`Gagal menghapus: ${json.error || 'Terjadi kesalahan'}`, 'error');
+      }
+    } catch (err: any) {
+      showToast(`Error: ${err.message}`, 'error');
+    }
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
     router.replace('/login');
   };
 
@@ -365,7 +348,7 @@ export default function ServicesManagementPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
           <div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Services Management</h1>
-            <p className="text-xs text-slate-400 mt-1">Kelola judul halaman, subjudul, dan kartu layanan (services cards).</p>
+            <p className="text-xs text-slate-400 mt-1">Kelola judul halaman, subjudul, dan kartu layanan (services cards) via Neon.</p>
           </div>
           <Link href="/services" target="_blank" className="px-3.5 py-2 rounded-xl bg-[#0b0e17] border border-white/10 hover:border-white/20 text-xs font-mono text-slate-300 hover:text-white flex items-center gap-2 transition-colors self-start sm:self-auto">
             <Eye size={13} className="text-cyan-400" />
@@ -376,7 +359,7 @@ export default function ServicesManagementPage() {
         {loading ? (
           <div className="py-24 text-center text-xs font-mono text-slate-500 flex items-center justify-center gap-2">
             <Loader2 size={18} className="animate-spin text-cyan-400" />
-            <span>Memuat data Services...</span>
+            <span>Memuat data Services dari Neon API...</span>
           </div>
         ) : (
           <div className="space-y-8">

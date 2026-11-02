@@ -19,8 +19,6 @@ import {
   ExternalLink,
   LogOut,
   RotateCcw,
-  Plus,
-  Image as ImageIcon,
   CheckCircle2,
   Loader2,
   Eye,
@@ -28,7 +26,6 @@ import {
   X,
   Upload
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 
 export default function HomeManagementPage() {
   const router = useRouter();
@@ -40,7 +37,6 @@ export default function HomeManagementPage() {
   const profileInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
 
-  // Form State
   const [formData, setFormData] = useState({
     subtitle: 'Building the future of digital products',
     title: 'Ibe Laia , S.Kom',
@@ -59,22 +55,34 @@ export default function HomeManagementPage() {
 
   useEffect(() => {
     async function loadSettings() {
-      const { data } = await supabase.from('home_settings').select('*').eq('id', 'default').single();
-      if (data) {
-        setFormData((prev) => ({
-          ...prev,
-          subtitle: data.subtitle || prev.subtitle,
-          title: data.title || prev.title,
-          highlight_text: data.highlight_text || prev.highlight_text,
-          description: data.description || prev.description,
-          hero_cover_url: data.hero_cover_url || prev.hero_cover_url,
-          profile_photo_url: data.profile_photo_url || prev.profile_photo_url,
-          projects_completed: data.projects_completed ?? prev.projects_completed,
-          happy_clients: data.happy_clients ?? prev.happy_clients,
-          years_experience: data.years_experience ?? prev.years_experience,
-        }));
+      try {
+        const response = await fetch('/api/home');
+        const json = await response.json();
+
+        if (json.success && json.data) {
+          const data = json.data;
+          setFormData((prev) => ({
+            ...prev,
+            subtitle: data.subtitle || prev.subtitle,
+            title: data.title || prev.title,
+            highlight_text: data.highlight_text || prev.highlight_text,
+            description: data.description || prev.description,
+            hero_cover_url: data.hero_cover_url || prev.hero_cover_url,
+            profile_photo_url: data.profile_photo_url || prev.profile_photo_url,
+            primary_btn_text: data.primary_btn_text || prev.primary_btn_text,
+            primary_btn_link: data.primary_btn_link || prev.primary_btn_link,
+            secondary_btn_text: data.secondary_btn_text || prev.secondary_btn_text,
+            secondary_btn_link: data.secondary_btn_link || prev.secondary_btn_link,
+            projects_completed: data.projects_completed ?? prev.projects_completed,
+            happy_clients: data.happy_clients ?? prev.happy_clients,
+            years_experience: data.years_experience ?? prev.years_experience,
+          }));
+        }
+      } catch (err) {
+        console.warn('Gagal memuat data home:', err);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     }
     loadSettings();
   }, []);
@@ -99,38 +107,34 @@ export default function HomeManagementPage() {
 
   const handleSave = async () => {
     setSaving(true);
-    const { error } = await supabase.from('home_settings').upsert({
-      id: 'default',
-      subtitle: formData.subtitle,
-      title: formData.title,
-      highlight_text: formData.highlight_text,
-      description: formData.description,
-      hero_cover_url: formData.hero_cover_url,
-      profile_photo_url: formData.profile_photo_url,
-      projects_completed: Number(formData.projects_completed),
-      happy_clients: Number(formData.happy_clients),
-      years_experience: Number(formData.years_experience),
-      updated_at: new Date().toISOString()
-    });
+    try {
+      const response = await fetch('/api/home', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      });
+      const json = await response.json();
+      setSaving(false);
 
-    setSaving(false);
-    if (!error) {
-      setSavedSuccess(true);
-      setTimeout(() => setSavedSuccess(false), 3000);
-    } else {
-      alert(`Gagal menyimpan: ${error.message}`);
+      if (response.ok && json.success) {
+        setSavedSuccess(true);
+        setTimeout(() => setSavedSuccess(false), 3000);
+      } else {
+        alert(`Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`);
+      }
+    } catch (err: any) {
+      setSaving(false);
+      alert(`Error: ${err.message}`);
     }
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
     router.replace('/login');
   };
 
   return (
     <div className="min-h-screen bg-[#07090e] text-[#94a3b8] flex flex-col lg:flex-row antialiased">
       
-      {/* Hidden File Inputs */}
       <input 
         type="file" 
         ref={profileInputRef} 
@@ -146,15 +150,14 @@ export default function HomeManagementPage() {
         className="hidden" 
       />
 
-      {/* Toast Notifikasi */}
       {savedSuccess && (
         <div className="fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 backdrop-blur-md shadow-2xl flex items-center gap-2 text-xs font-medium animate-in fade-in">
           <CheckCircle2 size={16} />
-          <span>Home settings saved successfully!</span>
+          <span>Home settings saved successfully to Neon!</span>
         </div>
       )}
 
-      {/* ===================== SIDEBAR ===================== */}
+      {/* SIDEBAR */}
       <aside className="hidden lg:flex w-64 flex-col justify-between bg-[#0b0e17] border-r border-white/5 p-5 shrink-0 min-h-screen sticky top-0">
         <div>
           <div className="flex items-center gap-1.5 px-3 py-2 mb-6">
@@ -187,10 +190,10 @@ export default function HomeManagementPage() {
                 {[
                   { name: 'About', icon: User, link: '/dashboard/about' },
                   { name: 'Services', icon: Wrench, link: '/dashboard/services' },
-                  { name: 'Projects', icon: FolderGit2, link: '/dashboard' },
-                  { name: 'Achievements', icon: Award, link: '/dashboard' },
-                  { name: 'Certificates', icon: FileBadge, link: '/dashboard' },
-                  { name: 'Contact', icon: Mail, link: '/dashboard' },
+                  { name: 'Projects', icon: FolderGit2, link: '/dashboard/projects' },
+                  { name: 'Achievements', icon: Award, link: '/dashboard/achievements' },
+                  { name: 'Certificates', icon: FileBadge, link: '/dashboard/certificates' },
+                  { name: 'Contact', icon: Mail, link: '/dashboard/contact' },
                 ].map((item) => (
                   <Link
                     key={item.name}
@@ -206,27 +209,27 @@ export default function HomeManagementPage() {
 
             <div>
               <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Assets</p>
-              <button className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
+              <Link href="/dashboard/media" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
                 <FolderArchive size={15} />
                 <span>Media Library</span>
-              </button>
+              </Link>
             </div>
 
             <div>
               <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Settings</p>
               <div className="space-y-1">
-                <button className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
+                <Link href="/dashboard/appearance" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
                   <Palette size={15} />
                   <span>Appearance</span>
-                </button>
-                <button className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
+                </Link>
+                <Link href="/dashboard/seo" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
                   <SearchCheck size={15} />
                   <span>SEO Settings</span>
-                </button>
-                <button className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
+                </Link>
+                <Link href="/dashboard/settings" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
                   <Settings size={15} />
                   <span>General Settings</span>
-                </button>
+                </Link>
               </div>
             </div>
           </div>
@@ -248,40 +251,16 @@ export default function HomeManagementPage() {
             <LogOut size={15} />
             <span>Logout</span>
           </button>
-          <div className="flex items-center gap-3 px-3 py-2 pt-2 border-t border-white/5">
-            <div className="w-8 h-8 rounded-full bg-slate-800 border border-white/10 flex items-center justify-center text-white font-bold text-xs">
-              IB
-            </div>
-            <div>
-              <p className="text-xs font-bold text-white leading-tight">Ibe Laia</p>
-              <p className="text-[10px] text-slate-500">Owner</p>
-            </div>
-          </div>
         </div>
       </aside>
 
-      {/* ===================== MOBILE HEADER ===================== */}
-      <header className="lg:hidden flex items-center justify-between px-5 py-4 bg-[#0b0e17] border-b border-white/5 sticky top-0 z-30">
-        <div className="flex items-center gap-1">
-          <span className="text-lg font-black text-white">IbeLaia</span>
-          <span className="text-lg font-black text-[#a855f7]">.Dev</span>
-        </div>
-        <button
-          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-          className="p-2 rounded-xl bg-white/5 border border-white/10 text-white"
-        >
-          {isMobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
-        </button>
-      </header>
-
-      {/* ===================== MAIN CONTENT ===================== */}
+      {/* MAIN CONTENT */}
       <main className="flex-1 px-4 sm:px-8 py-6 max-w-5xl w-full mx-auto space-y-6">
         
-        {/* Header Title & View Live Page */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
           <div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Home Management</h1>
-            <p className="text-xs text-slate-400 mt-1">Manage and customize the content displayed on your portfolio home page.</p>
+            <p className="text-xs text-slate-400 mt-1">Manage and customize the content displayed on your portfolio home page via Neon.</p>
           </div>
           <Link
             href="/"
@@ -297,12 +276,11 @@ export default function HomeManagementPage() {
         {loading ? (
           <div className="py-24 text-center text-xs font-mono text-slate-500 flex items-center justify-center gap-2">
             <Loader2 size={18} className="animate-spin text-cyan-400" />
-            <span>Memuat konfigurasi beranda...</span>
+            <span>Memuat konfigurasi beranda dari Neon API...</span>
           </div>
         ) : (
           <div className="space-y-6">
             
-            {/* Card 1: Hero Section Editor */}
             <div className="bg-[#0b0e17] border border-white/5 rounded-2xl p-5 sm:p-7 space-y-6">
               <div className="flex items-center justify-between pb-3 border-b border-white/5">
                 <div>
@@ -325,11 +303,9 @@ export default function HomeManagementPage() {
                 </button>
               </div>
 
-              {/* Hero Visuals */}
               <div className="space-y-5">
                 <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-bold block">Hero Visuals</span>
                 
-                {/* Hero Cover Image */}
                 <div>
                   <label className="block text-[11px] text-slate-400 mb-1.5 font-mono">Hero Cover Image</label>
                   <div className="relative w-full h-40 sm:h-52 rounded-2xl overflow-hidden border border-white/10 bg-slate-950 group">
@@ -351,7 +327,6 @@ export default function HomeManagementPage() {
                   </div>
                 </div>
 
-                {/* Profile Photo */}
                 <div>
                   <label className="block text-[11px] text-slate-400 mb-1.5 font-mono">Profile Photo</label>
                   <div className="flex items-center gap-4">
@@ -377,7 +352,6 @@ export default function HomeManagementPage() {
                 </div>
               </div>
 
-              {/* Subtitle, Title, Highlight */}
               <div className="space-y-4 pt-2">
                 <div>
                   <label className="block text-[11px] font-mono text-slate-400 mb-1">Subtitle</label>
@@ -422,7 +396,6 @@ export default function HomeManagementPage() {
                 </div>
               </div>
 
-              {/* CTA Buttons */}
               <div className="pt-4 border-t border-white/5 space-y-3">
                 <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-bold block">CTA Buttons</span>
                 
@@ -469,7 +442,6 @@ export default function HomeManagementPage() {
                 </div>
               </div>
 
-              {/* Statistics */}
               <div className="pt-4 border-t border-white/5 space-y-3">
                 <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-bold block">Key Statistics</span>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -505,7 +477,6 @@ export default function HomeManagementPage() {
 
             </div>
 
-            {/* Sticky Action Footer */}
             <div className="pt-4 flex items-center justify-end gap-3 sticky bottom-4 z-20 p-4 bg-[#07090e]/80 backdrop-blur-md rounded-2xl border border-white/5">
               <Link
                 href="/"
@@ -528,7 +499,6 @@ export default function HomeManagementPage() {
         )}
 
       </main>
-
     </div>
   );
 }

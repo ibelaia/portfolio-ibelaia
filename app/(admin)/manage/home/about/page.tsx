@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
 import { Loader2, Save, Check, X } from 'lucide-react';
 
 export default function ManageAboutPage() {
@@ -21,18 +20,23 @@ export default function ManageAboutPage() {
 
   const fetchAboutData = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('about_profile')
-      .select('*')
-      .single();
+    try {
+      const response = await fetch('/api/about');
+      const json = await response.json();
 
-    if (data) {
-      setBio(data.bio || '');
-      setTitle(data.title || '');
-      setExperienceYears(data.experience_years || '');
-      setAvatarUrl(data.avatar_url || '');
+      if (json.success && json.data) {
+        const data = json.data;
+        setBio(data.bio || data.bio_paragraph_1 || '');
+        setTitle(data.title || data.badge_text || '');
+        setExperienceYears(data.experience_years || '');
+        setAvatarUrl(data.avatar_url || data.cv_url || '');
+      }
+    } catch (err) {
+      console.warn('Gagal memuat data about profile:', err);
+      showToast('Gagal memuat data profil', 'error');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   useEffect(() => {
@@ -50,24 +54,31 @@ export default function ManageAboutPage() {
       avatar_url: avatarUrl,
     };
 
-    // Cek apakah data sudah ada, lakukan upsert
-    const { error } = await supabase
-      .from('about_profile')
-      .upsert({ id: 1, ...payload });
+    try {
+      const response = await fetch('/api/about', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const json = await response.json();
+      setSaving(false);
 
-    if (error) {
-      showToast('Gagal menyimpan profil About', 'error');
-    } else {
-      showToast('Profil About berhasil diperbarui!');
+      if (response.ok && json.success) {
+        showToast('Profil About berhasil diperbarui ke Neon!');
+      } else {
+        showToast(`Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`, 'error');
+      }
+    } catch (err: any) {
+      setSaving(false);
+      showToast(`Error: ${err.message}`, 'error');
     }
-    setSaving(false);
   };
 
   if (loading) {
     return (
       <div className="w-full py-20 flex flex-col items-center justify-center gap-3">
         <Loader2 className="animate-spin text-cyan-400" size={32} />
-        <span className="text-sm text-slate-400 font-mono">Memuat data About...</span>
+        <span className="text-sm text-slate-400 font-mono">Memuat data About dari Neon API...</span>
       </div>
     );
   }
@@ -83,7 +94,7 @@ export default function ManageAboutPage() {
 
       <div>
         <h1 className="text-3xl font-extrabold text-white">Kelola Halaman About</h1>
-        <p className="text-slate-400 text-sm mt-1">Perbarui informasi profil dan bio utama portofolio Anda.</p>
+        <p className="text-slate-400 text-sm mt-1">Perbarui informasi profil dan bio utama portofolio Anda via Neon.</p>
       </div>
 
       <form onSubmit={handleSave} className="bg-slate-900/60 border border-white/10 rounded-2xl p-6 space-y-5">
@@ -135,7 +146,7 @@ export default function ManageAboutPage() {
           <button
             type="submit"
             disabled={saving}
-            className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold transition-colors disabled:opacity-50 cursor-pointer"
           >
             {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
             <span>Simpan Perubahan</span>

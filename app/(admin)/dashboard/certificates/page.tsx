@@ -26,7 +26,6 @@ import {
   Edit3,
   Eye
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 
 interface CertificateItem {
   id: string;
@@ -77,30 +76,23 @@ export default function CertificatesManagementPage() {
   useEffect(() => {
     async function loadData() {
       try {
-        const { data: headerData } = await supabase
-          .from('certificates_header')
-          .select('*')
-          .eq('id', 'default')
-          .maybeSingle();
+        const response = await fetch('/api/certificates');
+        const json = await response.json();
 
-        if (headerData) {
-          setHeaderForm({
-            badge_text: headerData.badge_text || 'VERIFIED CREDENTIALS & LICENSES',
-            title: headerData.title || 'All Certificates',
-            subtitle: headerData.subtitle || 'A verified index of technical certifications, developer accreditations, and coursework completed from recognized institutions.'
-          });
-        }
-
-        const { data: certData } = await supabase
-          .from('certificates')
-          .select('*')
-          .order('created_at', { ascending: false });
-
-        if (certData) {
-          setCertificates(certData);
+        if (json.success) {
+          if (json.header) {
+            setHeaderForm({
+              badge_text: json.header.badge_text || 'VERIFIED CREDENTIALS & LICENSES',
+              title: json.header.title || 'All Certificates',
+              subtitle: json.header.subtitle || 'A verified index of technical certifications, developer accreditations, and coursework completed from recognized institutions.'
+            });
+          }
+          if (json.data) {
+            setCertificates(json.data);
+          }
         }
       } catch (err) {
-        console.warn('Load error:', err);
+        console.warn('Gagal memuat data certificates:', err);
       } finally {
         setLoading(false);
       }
@@ -112,30 +104,23 @@ export default function CertificatesManagementPage() {
     e.preventDefault();
     setSaving(true);
 
-    const payload = {
-      id: 'default',
-      badge_text: headerForm.badge_text,
-      title: headerForm.title,
-      subtitle: headerForm.subtitle,
-      updated_at: new Date().toISOString()
-    };
+    try {
+      const response = await fetch('/api/certificates/header', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(headerForm)
+      });
+      const json = await response.json();
+      setSaving(false);
 
-    const { data: existing } = await supabase.from('certificates_header').select('id').eq('id', 'default').maybeSingle();
-
-    let error;
-    if (existing) {
-      const res = await supabase.from('certificates_header').update(payload).eq('id', 'default');
-      error = res.error;
-    } else {
-      const res = await supabase.from('certificates_header').insert([payload]);
-      error = res.error;
-    }
-
-    setSaving(false);
-    if (!error) {
-      showToast('Header Certificates berhasil disimpan!');
-    } else {
-      showToast(`Gagal menyimpan: ${error.message}`, 'error');
+      if (response.ok && json.success) {
+        showToast('Header Certificates berhasil disimpan ke Neon!');
+      } else {
+        showToast(`Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`, 'error');
+      }
+    } catch (err: any) {
+      setSaving(false);
+      showToast(`Error: ${err.message}`, 'error');
     }
   };
 
@@ -178,29 +163,17 @@ export default function CertificatesManagementPage() {
     let finalImageUrl = modalForm.image_url;
 
     if (selectedFile) {
-      const fileExt = selectedFile.name.split('.').pop();
-      const fileName = `cert-${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('portfolio-images')
-        .upload(fileName, selectedFile);
-
-      if (uploadError) {
-        showToast(`Gagal upload gambar: ${uploadError.message}`, 'error');
-        setSaving(false);
-        return;
-      }
-
-      const { data: publicUrlData } = supabase.storage
-        .from('portfolio-images')
-        .getPublicUrl(fileName);
-
-      finalImageUrl = publicUrlData.publicUrl;
+      const reader = new FileReader();
+      finalImageUrl = await new Promise((resolve) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.readAsDataURL(selectedFile);
+      });
     }
 
     const skillsArray = modalForm.skillsStr.split(',').map(s => s.trim()).filter(Boolean);
 
     const payload = {
+      id: editingId,
       badge: modalForm.badge,
       title: modalForm.title,
       issuer: modalForm.issuer,
@@ -211,53 +184,55 @@ export default function CertificatesManagementPage() {
       credential_url: modalForm.credential_url
     };
 
-    if (editingId) {
-      const { error } = await supabase
-        .from('certificates')
-        .update(payload)
-        .eq('id', editingId);
+    try {
+      const response = await fetch('/api/certificates', {
+        method: editingId ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const json = await response.json();
+      setSaving(false);
 
-      if (!error) {
-        setCertificates(certificates.map(c => c.id === editingId ? { ...c, ...payload } : c));
-        showToast('Certificate berhasil diperbarui!');
+      if (response.ok && json.success) {
+        if (editingId) {
+          setCertificates(certificates.map(c => c.id === editingId ? { ...c, ...payload } : c));
+          showToast('Certificate berhasil diperbarui!');
+        } else {
+          setCertificates([json.data || payload, ...certificates]);
+          showToast('Certificate baru berhasil ditambahkan!');
+        }
         setIsModalOpen(false);
         setSelectedFile(null);
       } else {
-        showToast(`Gagal memperbarui: ${error.message}`, 'error');
+        showToast(`Gagal menyimpan: ${json.error || 'Kesalahan database'}`, 'error');
       }
-    } else {
-      const { data, error } = await supabase
-        .from('certificates')
-        .insert([payload])
-        .select()
-        .single();
-
-      if (!error && data) {
-        setCertificates([data, ...certificates]);
-        showToast('Certificate baru berhasil ditambahkan!');
-        setIsModalOpen(false);
-        setSelectedFile(null);
-      } else {
-        showToast(`Gagal menambah: ${error?.message || 'Kesalahan database'}`, 'error');
-      }
+    } catch (err: any) {
+      setSaving(false);
+      showToast(`Error: ${err.message}`, 'error');
     }
-    setSaving(false);
   };
 
   const handleDeleteCertificate = async (id: string) => {
     if (!confirm('Hapus certificate ini secara permanen?')) return;
 
-    const { error } = await supabase.from('certificates').delete().eq('id', id);
-    if (!error) {
-      setCertificates(certificates.filter(c => c.id !== id));
-      showToast('Certificate berhasil dihapus!');
-    } else {
-      showToast(`Gagal menghapus: ${error.message}`, 'error');
+    try {
+      const response = await fetch(`/api/certificates?id=${id}`, {
+        method: 'DELETE'
+      });
+      const json = await response.json();
+
+      if (response.ok && json.success) {
+        setCertificates(certificates.filter(c => c.id !== id));
+        showToast('Certificate berhasil dihapus!');
+      } else {
+        showToast(`Gagal menghapus: ${json.error || 'Terjadi kesalahan'}`, 'error');
+      }
+    } catch (err: any) {
+      showToast(`Error: ${err.message}`, 'error');
     }
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
     router.replace('/login');
   };
 
@@ -369,7 +344,7 @@ export default function CertificatesManagementPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
           <div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Certificates Management</h1>
-            <p className="text-xs text-slate-400 mt-1">Kelola header sertifikasi, lisensi, dan kredensial profesional.</p>
+            <p className="text-xs text-slate-400 mt-1">Kelola header sertifikasi, lisensi, dan kredensial profesional via Neon.</p>
           </div>
           <Link href="/certificates" target="_blank" className="px-3.5 py-2 rounded-xl bg-[#0b0e17] border border-white/10 hover:border-white/20 text-xs font-mono text-slate-300 hover:text-white flex items-center gap-2 transition-colors self-start sm:self-auto">
             <Eye size={13} className="text-cyan-400" />
@@ -380,7 +355,7 @@ export default function CertificatesManagementPage() {
         {loading ? (
           <div className="py-24 text-center text-xs font-mono text-slate-500 flex items-center justify-center gap-2">
             <Loader2 size={18} className="animate-spin text-cyan-400" />
-            <span>Memuat data Certificates...</span>
+            <span>Memuat data Certificates dari Neon API...</span>
           </div>
         ) : (
           <div className="space-y-8">
@@ -463,13 +438,12 @@ export default function CertificatesManagementPage() {
             <form onSubmit={handleSaveCertificate} className="space-y-4 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] font-mono text-slate-400 mb-1">Kategori / Badge (Bebas)</label>
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">Kategori / Badge</label>
                   <input 
                     type="text" 
                     required
                     value={modalForm.badge} 
                     onChange={(e) => setModalForm({ ...modalForm, badge: e.target.value })} 
-                    placeholder="Contoh: Web Development"
                     className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400" 
                   />
                 </div>
@@ -502,7 +476,7 @@ export default function CertificatesManagementPage() {
               </div>
 
               <div>
-                <label className="block text-[11px] font-mono text-slate-400 mb-1">Upload Gambar dari Perangkat</label>
+                <label className="block text-[11px] font-mono text-slate-400 mb-1">Upload Gambar / Berkas</label>
                 <input 
                   type="file" 
                   accept="image/*"

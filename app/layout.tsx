@@ -2,7 +2,6 @@ import React from 'react';
 import type { Metadata } from 'next';
 import { Inter, JetBrains_Mono } from 'next/font/google';
 import '@/app/globals.css';
-import { supabase } from '@/lib/supabase';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -16,7 +15,7 @@ const jetbrainsMono = JetBrains_Mono({
   display: 'swap',
 });
 
-// Fungsi Dinamis untuk Menarik Metadata SEO dari Supabase
+// Fungsi Dinamis untuk Menarik Metadata SEO dari Neon API
 export async function generateMetadata(): Promise<Metadata> {
   let seoData = {
     meta_title: 'Ibe Laia | Software Engineer & Full-Stack Developer',
@@ -27,23 +26,21 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 
   try {
-    const { data } = await supabase
-      .from('seo_settings')
-      .select('*')
-      .eq('id', 'default')
-      .maybeSingle();
-
-    if (data) {
-      seoData = {
-        meta_title: data.meta_title || seoData.meta_title,
-        meta_description: data.meta_description || seoData.meta_description,
-        keywords: data.keywords || seoData.keywords,
-        author_name: data.author_name || seoData.author_name,
-        og_image: data.og_image || seoData.og_image,
-      };
+    const response = await fetch('https://ibelaia.dev/api/settings', { cache: 'no-store' }).catch(() => null);
+    if (response && response.ok) {
+      const json = await response.json();
+      if (json.success && json.data) {
+        seoData = {
+          meta_title: json.data.meta_title || seoData.meta_title,
+          meta_description: json.data.meta_description || seoData.meta_description,
+          keywords: json.data.keywords || seoData.keywords,
+          author_name: json.data.author_name || seoData.author_name,
+          og_image: json.data.og_image || seoData.og_image,
+        };
+      }
     }
   } catch (err) {
-    console.warn('Failed to load SEO settings for metadata:', err);
+    console.warn('Gagal memuat pengaturan SEO dari Neon API:', err);
   }
 
   return {
@@ -71,16 +68,17 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  let appearance = null;
+  let appearance: any = null;
   try {
-    const { data } = await supabase
-      .from('appearance_settings')
-      .select('*')
-      .eq('id', 'default')
-      .maybeSingle();
-    appearance = data;
+    const response = await fetch('https://ibelaia.dev/api/settings', { cache: 'no-store' }).catch(() => null);
+    if (response && response.ok) {
+      const json = await response.json();
+      if (json.success) {
+        appearance = json.data;
+      }
+    }
   } catch (err) {
-    console.warn('Failed to load appearance settings:', err);
+    console.warn('Gagal memuat pengaturan appearance dari Neon API:', err);
   }
 
   const themeMode = appearance?.theme_mode === 'light' ? 'light' : 'dark';

@@ -107,14 +107,14 @@ export const ServicesSection: React.FC = () => {
         <div className="hidden sm:flex items-center gap-2">
           <button
             onClick={handlePrev}
-            className="p-2.5 rounded-full border border-white/10 bg-[#090e1f] hover:bg-white/5 text-slate-300 hover:text-white transition-all"
+            className="p-2.5 rounded-full border border-white/10 bg-[#090e1f] hover:bg-white/5 text-slate-300 hover:text-white transition-all cursor-pointer"
             aria-label="Previous service"
           >
             <ChevronLeft size={16} />
           </button>
           <button
             onClick={handleNext}
-            className="p-2.5 rounded-full border border-white/10 bg-[#090e1f] hover:bg-white/5 text-slate-300 hover:text-white transition-all"
+            className="p-2.5 rounded-full border border-white/10 bg-[#090e1f] hover:bg-white/5 text-slate-300 hover:text-white transition-all cursor-pointer"
             aria-label="Next service"
           >
             <ChevronRight size={16} />
@@ -128,7 +128,7 @@ export const ServicesSection: React.FC = () => {
         <div className="flex sm:hidden justify-end mb-4">
           <button 
             onClick={() => setShowAllModal(true)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#1e1b4b]/80 border border-purple-500/30 text-purple-200 text-xs font-semibold active:scale-95 transition-all"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#1e1b4b]/80 border border-purple-500/30 text-purple-200 text-xs font-semibold active:scale-95 transition-all cursor-pointer"
           >
             <Layers size={13} />
             <span>{t('View all', 'Lihat semua')}</span>
@@ -199,7 +199,7 @@ export const ServicesSection: React.FC = () => {
                   setCurrentIndex(dotIdx);
                   scrollToCard(dotIdx);
                 }}
-                className={`h-1.5 rounded-full transition-all duration-300 ${
+                className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${
                   currentIndex === dotIdx ? 'w-5 bg-cyan-400' : 'w-1.5 bg-slate-700 hover:bg-slate-500'
                 }`}
                 aria-label={`Slide ${dotIdx + 1}`}
@@ -225,7 +225,8 @@ export const ServicesSection: React.FC = () => {
               </div>
               <button
                 onClick={() => setShowAllModal(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10"
+                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 cursor-pointer"
+                aria-label="Tutup Modal"
               >
                 <X size={18} />
               </button>

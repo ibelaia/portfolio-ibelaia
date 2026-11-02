@@ -4,7 +4,7 @@ import sql from '@/lib/db';
 export async function GET() {
   try {
     const data = await sql`
-      SELECT * FROM services 
+      SELECT * FROM services
       ORDER BY created_at DESC
     `;
 
@@ -25,7 +25,7 @@ export async function POST(request: Request) {
 
     const data = await sql`
       INSERT INTO services (title, description, icon, price)
-      VALUES (${title}, ${description}, ${icon}, ${price})
+      VALUES (${title}, ${description || ''}, ${icon || ''}, ${price || ''})
       RETURNING *
     `;
 

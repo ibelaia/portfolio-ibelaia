@@ -167,7 +167,7 @@ export default function AllProjectsPage() {
       {loading ? (
         <div className="py-24 text-center text-accent font-mono text-xs flex items-center justify-center gap-2">
           <div className="w-2.5 h-2.5 rounded-full bg-accent animate-ping" />
-          <span>{t('Loading projects...', 'Memuat data proyek dari Neon...')}</span>
+          <span>{t('Loading projects...', 'Memuat data proyek dari Neon API...')}</span>
         </div>
       ) : filteredProjects.length === 0 ? (
         <div className="py-20 text-center text-[var(--text-muted)] font-mono text-xs bg-[var(--card-bg)] border border-[var(--card-border)] rounded-3xl">
@@ -216,6 +216,9 @@ export default function AllProjectsPage() {
                       src={proj.image}
                       alt={proj.title}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      onError={(e) => {
+                        (e.target as HTMLElement).style.display = 'none';
+                      }}
                     />
                   </div>
 
@@ -232,7 +235,7 @@ export default function AllProjectsPage() {
                     </p>
 
                     <div className="flex flex-wrap gap-1.5 pt-4 mt-2 border-t border-[var(--card-border)]">
-                      {proj.tags.map((tag) => (
+                      {Array.isArray(proj.tags) && proj.tags.map((tag) => (
                         <span
                           key={tag}
                           className="px-2.5 py-0.5 rounded-lg bg-white/5 border border-[var(--card-border)] text-[10px] font-mono text-[var(--text-muted)]"

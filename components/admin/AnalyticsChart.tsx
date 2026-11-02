@@ -13,6 +13,7 @@ export default function AnalyticsChart() {
         </h3>
         <span className="text-xs font-mono px-2.5 py-1 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">Bulan Ini</span>
       </div>
+
       <div className="h-64 flex flex-col items-center justify-center bg-slate-950/40 rounded-xl border border-white/5 space-y-2">
         <p className="text-sm text-slate-400">Grafik analitik aktif dan berjalan normal.</p>
         <span className="text-xs font-mono text-cyan-400">Total Views: 1,240+</span>

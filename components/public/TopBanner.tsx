@@ -1,21 +1,21 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
 
 export const TopBanner: React.FC = () => {
   const [coverUrl, setCoverUrl] = useState<string>('/assets/banner.jpg');
 
   useEffect(() => {
     async function fetchCover() {
-      const { data } = await supabase
-        .from('home_settings')
-        .select('hero_cover_url')
-        .eq('id', 'default')
-        .single();
+      try {
+        const response = await fetch('/api/portfolio');
+        const json = await response.json();
 
-      if (data?.hero_cover_url) {
-        setCoverUrl(data.hero_cover_url);
+        if (json.success && json.home && json.home.hero_cover_url) {
+          setCoverUrl(json.home.hero_cover_url);
+        }
+      } catch (err) {
+        console.warn('Gagal memuat cover banner dari API:', err);
       }
     }
     fetchCover();

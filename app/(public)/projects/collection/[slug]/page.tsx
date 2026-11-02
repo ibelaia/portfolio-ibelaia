@@ -26,7 +26,7 @@ export default function CollectionDetailPage() {
   const [activeSubDetail, setActiveSubDetail] = useState<any | null>(null);
 
   useEffect(() => {
-    async function loadProjectData() {
+    async function loadNeonCollectionData() {
       if (!slug) return;
       setLoading(true);
       try {
@@ -68,20 +68,20 @@ export default function CollectionDetailPage() {
           }
         }
       } catch (err) {
-        console.error('Error loading project collection:', err);
+        console.warn('Gagal memuat koleksi proyek dari Neon API:', err);
       } finally {
         setLoading(false);
       }
     }
 
-    loadProjectData();
+    loadNeonCollectionData();
   }, [slug]);
 
   if (loading) {
     return (
       <main className="w-full max-w-6xl mx-auto px-4 py-32 text-center flex items-center justify-center gap-3">
         <Loader2 size={20} className="animate-spin text-accent" />
-        <span className="text-xs font-mono text-[var(--text-muted)]">Memuat koleksi dari Neon...</span>
+        <span className="text-xs font-mono text-[var(--text-muted)]">Memuat koleksi dari Neon API...</span>
       </main>
     );
   }
@@ -93,7 +93,7 @@ export default function CollectionDetailPage() {
         <p className="text-sm text-[var(--text-muted)] mb-6">Koleksi proyek yang Anda cari tidak tersedia.</p>
         <Link
           href="/projects"
-          className="px-4 py-2 rounded-xl bg-accent text-slate-950 font-bold text-xs inline-flex items-center gap-2"
+          className="px-4 py-2 rounded-xl bg-accent text-slate-950 font-bold text-xs inline-flex items-center gap-2 cursor-pointer"
         >
           <ArrowLeft size={14} /> Kembali ke Semua Proyek
         </Link>
@@ -143,7 +143,7 @@ export default function CollectionDetailPage() {
               href={project.liveUrl}
               target="_blank"
               rel="noreferrer"
-              className="px-4 py-2.5 rounded-xl bg-accent hover:opacity-90 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition-all shadow-md active:scale-95"
+              className="px-4 py-2.5 rounded-xl bg-accent hover:opacity-90 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition-all shadow-md active:scale-95 cursor-pointer"
             >
               <span>Lihat Pratinjau</span>
               <ExternalLink size={13} />
@@ -168,6 +168,9 @@ export default function CollectionDetailPage() {
           src={project.bannerImage}
           alt={project.title}
           className="w-full h-full object-cover"
+          onError={(e) => {
+            (e.target as HTMLElement).style.display = 'none';
+          }}
         />
       </div>
 
@@ -288,7 +291,7 @@ export default function CollectionDetailPage() {
                       href={block.link || '#'}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent hover:opacity-90 text-slate-950 font-bold text-xs transition-all shadow-md active:scale-95"
+                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-accent hover:opacity-90 text-slate-950 font-bold text-xs transition-all shadow-md active:scale-95 cursor-pointer"
                     >
                       <span>{block.content || 'Buka Tautan'}</span>
                       <ExternalLink size={13} />
@@ -370,7 +373,7 @@ export default function CollectionDetailPage() {
                   href={activeSubDetail.link}
                   target="_blank"
                   rel="noreferrer"
-                  className="px-4 py-2.5 rounded-xl bg-accent hover:opacity-90 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition-all shadow-lg active:scale-95"
+                  className="px-4 py-2.5 rounded-xl bg-accent hover:opacity-90 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition-all shadow-lg active:scale-95 cursor-pointer"
                 >
                   <span>Buka Tautan Repositori / Live Demo</span>
                   <ExternalLink size={13} />
@@ -393,7 +396,7 @@ export default function CollectionDetailPage() {
         {prevSlug ? (
           <Link
             href={`/projects/collection/${prevSlug}`}
-            className="inline-flex items-center gap-2 text-xs font-mono text-[var(--text-muted)] hover:text-accent transition-colors"
+            className="inline-flex items-center gap-2 text-xs font-mono text-[var(--text-muted)] hover:text-accent transition-colors cursor-pointer"
           >
             <ArrowLeft size={13} />
             <span>Studi Kasus Sebelumnya</span>
@@ -403,7 +406,7 @@ export default function CollectionDetailPage() {
         {nextSlug ? (
           <Link
             href={`/projects/collection/${nextSlug}`}
-            className="inline-flex items-center gap-2 text-xs font-mono text-[var(--text-muted)] hover:text-accent transition-colors"
+            className="inline-flex items-center gap-2 text-xs font-mono text-[var(--text-muted)] hover:text-accent transition-colors cursor-pointer"
           >
             <span>Studi Kasus Berikutnya</span>
             <ArrowRight size={13} />

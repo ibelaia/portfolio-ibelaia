@@ -32,7 +32,6 @@ import {
   Monitor,
   Eye
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 
 interface SeoData {
   meta_title: string;
@@ -65,13 +64,11 @@ export default function SeoSettingsAdminPage() {
   useEffect(() => {
     async function fetchSeo() {
       try {
-        const { data, error } = await supabase
-          .from('seo_settings')
-          .select('*')
-          .eq('id', 'default')
-          .maybeSingle();
+        const response = await fetch('/api/seo');
+        const json = await response.json();
 
-        if (data && !error) {
+        if (json.success && json.data) {
+          const data = json.data;
           setSeo({
             meta_title: data.meta_title || '',
             meta_description: data.meta_description || '',
@@ -81,7 +78,7 @@ export default function SeoSettingsAdminPage() {
           });
         }
       } catch (err) {
-        console.warn('Error fetching SEO settings:', err);
+        console.warn('Gagal memuat pengaturan SEO:', err);
       } finally {
         setLoading(false);
       }
@@ -94,26 +91,26 @@ export default function SeoSettingsAdminPage() {
     setSaving(true);
 
     try {
-      const { error } = await supabase
-        .from('seo_settings')
-        .upsert({
-          id: 'default',
-          ...seo,
-          updated_at: new Date().toISOString()
-        });
-
-      if (error) throw error;
-
+      const response = await fetch('/api/seo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(seo)
+      });
+      const json = await response.json();
       setSaving(false);
-      showToast('Pengaturan SEO berhasil disimpan & diperbarui!');
+
+      if (response.ok && json.success) {
+        showToast('Pengaturan SEO berhasil disimpan & diperbarui ke Neon!');
+      } else {
+        showToast(`Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`, 'error');
+      }
     } catch (err: any) {
       setSaving(false);
-      showToast(`Gagal menyimpan: ${err.message || 'Terjadi kesalahan'}`, 'error');
+      showToast(`Error: ${err.message}`, 'error');
     }
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
     router.replace('/login');
   };
 
@@ -129,7 +126,7 @@ export default function SeoSettingsAdminPage() {
         </div>
       )}
 
-      {/* SIDEBAR (Sama persis seperti halaman Appearance) */}
+      {/* SIDEBAR */}
       <aside className="hidden lg:flex w-64 flex-col justify-between bg-[#0b0e17] border-r border-white/5 p-5 shrink-0 min-h-screen sticky top-0">
         <div>
           <div className="flex items-center gap-1.5 px-3 py-2 mb-6">
@@ -226,7 +223,7 @@ export default function SeoSettingsAdminPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
           <div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">SEO & Meta Settings</h1>
-            <p className="text-xs text-slate-400 mt-1">Kelola identitas mesin pencari, metadata Google, dan pratinjau sosial media portofolio Anda.</p>
+            <p className="text-xs text-slate-400 mt-1">Kelola identitas mesin pencari, metadata Google, dan pratinjau sosial media portofolio via Neon.</p>
           </div>
           <Link href="/" target="_blank" className="px-3.5 py-2 rounded-xl bg-[#0b0e17] border border-white/10 hover:border-white/20 text-xs font-mono text-slate-300 hover:text-white flex items-center gap-2 transition-colors self-start sm:self-auto">
             <Eye size={13} className="text-cyan-400" />
@@ -237,7 +234,7 @@ export default function SeoSettingsAdminPage() {
         {loading ? (
           <div className="py-24 text-center text-xs font-mono text-slate-500 flex items-center justify-center gap-2">
             <Loader2 size={18} className="animate-spin text-cyan-400" />
-            <span>Memuat konfigurasi SEO...</span>
+            <span>Memuat konfigurasi SEO dari Neon API...</span>
           </div>
         ) : (
           <form onSubmit={handleSave} className="space-y-6">

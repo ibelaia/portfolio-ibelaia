@@ -88,51 +88,68 @@ export default function ProjectsListPage() {
 
   const fetchProjects = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('projects')
-      .select('*')
-      .order('created_at', { ascending: false });
+    try {
+      const response = await fetch('/api/projects');
+      const json = await response.json();
 
-    if (!error && data) {
-      const sortedData = [...data].sort((a, b) => {
-        if (a.is_featured === b.is_featured) return 0;
-        return a.is_featured ? -1 : 1;
-      });
-      setProjects(sortedData);
+      if (json.success && Array.isArray(json.data)) {
+        const sortedData = [...json.data].sort((a, b) => {
+          if (a.is_featured === b.is_featured) return 0;
+          return a.is_featured ? -1 : 1;
+        });
+        setProjects(sortedData);
+      }
+    } catch (err) {
+      console.warn('Gagal memuat daftar proyek dari Neon:', err);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleToggleFeatured = async (id: string, currentStatus: boolean, title: string) => {
     const newStatus = !currentStatus;
-    const { error } = await supabase
-      .from('projects')
-      .update({ is_featured: newStatus })
-      .eq('id', id);
-
-    if (error) {
-      showToast(`Gagal memperbarui status bintang: ${error.message}`, 'error');
-    } else {
-      setProjects(prev => {
-        const updated = prev.map(p => p.id === id ? { ...p, is_featured: newStatus } : p);
-        return updated.sort((a, b) => {
-          if (a.is_featured === b.is_featured) return 0;
-          return a.is_featured ? -1 : 1;
-        });
+    try {
+      const response = await fetch('/api/projects', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, is_featured: newStatus })
       });
-      showToast(newStatus ? `Proyek "${title}" disematkan ke halaman utama!` : `Proyek "${title}" dilepas dari sematan.`);
+      const json = await response.json();
+
+      if (response.ok && json.success) {
+        setProjects(prev => {
+          const updated = prev.map(p => p.id === id ? { ...p, is_featured: newStatus } : p);
+          return updated.sort((a, b) => {
+            if (a.is_featured === b.is_featured) return 0;
+            return a.is_featured ? -1 : 1;
+          });
+        });
+        showToast(newStatus ? `Proyek "${title}" disematkan ke halaman utama!` : `Proyek "${title}" dilepas dari sematan.`);
+      } else {
+        showToast(`Gagal memperbarui status: ${json.error || 'Terjadi kesalahan'}`, 'error');
+      }
+    } catch (err: any) {
+      showToast(`Error: ${err.message}`, 'error');
     }
   };
 
   const handleDelete = async (id: string, title: string) => {
     if (!confirm(`Hapus proyek "${title}" secara permanen?`)) return;
 
-    const { error } = await supabase.from('projects').delete().eq('id', id);
-    if (error) {
-      showToast(`Gagal menghapus: ${error.message}`, 'error');
-    } else {
-      setProjects(prev => prev.filter(p => p.id !== id));
-      showToast(`Proyek "${title}" berhasil dihapus.`);
+    try {
+      const response = await fetch(`/api/projects?id=${id}`, {
+        method: 'DELETE'
+      });
+      const json = await response.json();
+
+      if (response.ok && json.success) {
+        setProjects(prev => prev.filter(p => p.id !== id));
+        showToast(`Proyek "${title}" berhasil dihapus.`);
+      } else {
+        showToast(`Gagal menghapus: ${json.error || 'Terjadi kesalahan'}`, 'error');
+      }
+    } catch (err: any) {
+      showToast(`Error: ${err.message}`, 'error');
     }
   };
 
@@ -186,23 +203,29 @@ export default function ProjectsListPage() {
     if (!selectedMultiProject) return;
     setSavingSub(true);
 
-    const { error } = await supabase
-      .from('projects')
-      .update({ collection_items: subItems })
-      .eq('id', selectedMultiProject.id);
+    try {
+      const response = await fetch('/api/projects', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: selectedMultiProject.id, collection_items: subItems })
+      });
+      const json = await response.json();
+      setSavingSub(false);
 
-    setSavingSub(false);
-    if (error) {
-      showToast(`Gagal menyimpan item koleksi: ${error.message}`, 'error');
-    } else {
-      showToast('Item koleksi multi-proyek berhasil diperbarui!');
-      setIsMultiModalOpen(false);
-      fetchProjects();
+      if (response.ok && json.success) {
+        showToast('Item koleksi multi-proyek berhasil diperbarui ke Neon!');
+        setIsMultiModalOpen(false);
+        fetchProjects();
+      } else {
+        showToast(`Gagal menyimpan item koleksi: ${json.error || 'Terjadi kesalahan'}`, 'error');
+      }
+    } catch (err: any) {
+      setSavingSub(false);
+      showToast(`Error: ${err.message}`, 'error');
     }
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
     router.replace('/login');
   };
 
@@ -334,7 +357,7 @@ export default function ProjectsListPage() {
               <span>Kembali ke Projects Hub</span>
             </Link>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Kelola & Daftar Proyek Terpublikasi</h1>
-            <p className="text-xs text-slate-400">Pusat daftar seluruh studi kasus dan koleksi portofolio yang aktif.</p>
+            <p className="text-xs text-slate-400">Pusat daftar seluruh studi kasus dan koleksi portofolio yang aktif via Neon.</p>
           </div>
 
           <div className="relative w-full sm:w-72">
@@ -387,7 +410,7 @@ export default function ProjectsListPage() {
         {loading ? (
           <div className="py-24 text-center text-xs font-mono text-slate-500 flex items-center justify-center gap-2">
             <Loader2 size={18} className="animate-spin text-cyan-400" />
-            <span>Memuat daftar proyek...</span>
+            <span>Memuat daftar proyek dari Neon API...</span>
           </div>
         ) : filteredProjects.length === 0 ? (
           <div className="py-20 text-center bg-[#0b0e17] border border-white/5 rounded-3xl p-8 space-y-3">
@@ -658,7 +681,7 @@ export default function ProjectsListPage() {
               >
                 {savingSub && <Loader2 size={13} className="animate-spin" />}
                 <Save size={13} />
-                <span>Simpan Item Koleksi</span>
+                <span>Simpan Item Koleksi ke Neon</span>
               </button>
             </div>
 

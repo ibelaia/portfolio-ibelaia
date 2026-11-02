@@ -63,14 +63,14 @@ export const ContactSection: React.FC = () => {
           <div className="flex flex-col gap-2.5 w-full mb-6">
             <a
               href="#contact-form"
-              className="w-full py-2.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 text-cyan-300 font-semibold text-xs flex items-center justify-center gap-2 transition-all"
+              className="w-full py-2.5 rounded-xl bg-cyan-500/25 hover:bg-cyan-500/35 border border-cyan-500/40 text-cyan-300 font-semibold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
             >
               <span>{t('Get in Touch', 'Hubungi Sekarang')}</span>
               <ArrowRight size={13} />
             </a>
             <Link
               href="/projects"
-              className="w-full py-2.5 rounded-xl bg-[#1e1b4b]/70 hover:bg-[#1e1b4b] border border-purple-500/30 text-purple-200 font-semibold text-xs flex items-center justify-center gap-2 transition-all"
+              className="w-full py-2.5 rounded-xl bg-[#1e1b4b]/70 hover:bg-[#1e1b4b] border border-purple-500/30 text-purple-200 font-semibold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
             >
               <span>{t('View My Projects', 'Lihat Proyek Saya')}</span>
               <ArrowRight size={13} />
@@ -82,7 +82,7 @@ export const ContactSection: React.FC = () => {
               <Mail size={12} className="text-cyan-400" /> hello@ibelaia.dev
             </span>
             <span>|</span>
-            <a href="/assets/resume.pdf" target="_blank" className="flex items-center gap-1.5 hover:text-white transition-colors">
+            <a href="/assets/resume.pdf" target="_blank" rel="noreferrer" className="flex items-center gap-1.5 hover:text-white transition-colors cursor-pointer">
               <FileText size={12} className="text-purple-400" /> {t('View Resume', 'Lihat Resume')}
             </a>
           </div>
@@ -114,14 +114,14 @@ export const ContactSection: React.FC = () => {
             <div className="flex items-center gap-3 pt-2">
               <a
                 href="#contact-form"
-                className="px-5 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs flex items-center gap-2 shadow-[0_0_20px_rgba(6,182,212,0.3)] transition-all"
+                className="px-5 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-semibold text-xs flex items-center gap-2 shadow-[0_0_20px_rgba(6,182,212,0.3)] transition-all cursor-pointer"
               >
                 <span>{t('Get in Touch', 'Hubungi Sekarang')}</span>
                 <ArrowRight size={14} />
               </a>
               <Link
                 href="/projects"
-                className="px-5 py-2.5 rounded-xl bg-[#090e1e] hover:bg-white/5 border border-white/10 text-slate-200 font-semibold text-xs flex items-center gap-2 transition-all"
+                className="px-5 py-2.5 rounded-xl bg-[#090e1e] hover:bg-white/5 border border-white/10 text-slate-200 font-semibold text-xs flex items-center gap-2 transition-all cursor-pointer"
               >
                 <span>{t('View My Projects', 'Lihat Proyek Saya')}</span>
                 <ArrowRight size={14} />
@@ -132,7 +132,7 @@ export const ContactSection: React.FC = () => {
               <span className="flex items-center gap-2">
                 <Mail size={14} className="text-cyan-400" /> hello@ibelaia.dev
               </span>
-              <a href="/assets/resume.pdf" target="_blank" className="flex items-center gap-2 hover:text-white transition-colors">
+              <a href="/assets/resume.pdf" target="_blank" rel="noreferrer" className="flex items-center gap-2 hover:text-white transition-colors cursor-pointer">
                 <FileText size={14} className="text-purple-400" /> {t('View Resume', 'Lihat Resume')}
               </a>
             </div>
@@ -258,7 +258,7 @@ export const ContactSection: React.FC = () => {
 
               <button
                 type="submit"
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-[#b6b2ff] to-cyan-400 hover:opacity-95 text-[#0a0d20] font-bold text-xs flex items-center justify-center gap-2 shadow-lg transition-all"
+                className="w-full py-3 rounded-xl bg-gradient-to-r from-[#b6b2ff] to-cyan-400 hover:opacity-95 text-[#0a0d20] font-bold text-xs flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer"
               >
                 <span>{t('Send Message', 'Kirim Pesan')}</span>
                 <Send size={13} />
