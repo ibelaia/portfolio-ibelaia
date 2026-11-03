@@ -6,7 +6,6 @@ export async function GET() {
     const data = await sql`
       SELECT * FROM projects
     `;
-
     return NextResponse.json({ success: true, data }, { status: 200 });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Terjadi kesalahan' }, { status: 500 });
@@ -24,7 +23,7 @@ export async function POST(request: Request) {
 
     const data = await sql`
       INSERT INTO projects (title, slug, category, type, overview, thumbnail, live_url, github_url, is_featured)
-      VALUES (${title}, ${slug || ''}, ${category}, ${type || 'single'}, ${overview || ''}, ${thumbnail || ''}, ${live_url || ''}, ${github_url || ''}, ${is_featured || false})
+      VALUES (${title}, ${slug || ''}, ${category}, ${type || 'single'}, ${overview || ''}, ${thumbnail || ''}, ${live_url || ''}, ${github_url || ''}, ${Boolean(is_featured)})
       RETURNING *
     `;
 
