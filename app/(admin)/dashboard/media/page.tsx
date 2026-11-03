@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@clerk/nextjs';
 import {
   LayoutDashboard,
   Home,
@@ -28,7 +29,6 @@ import {
   Eye,
   RefreshCcw
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 
 interface MediaFile {
   name: string;
@@ -41,6 +41,7 @@ interface MediaFile {
 
 export default function MediaLibraryPage() {
   const router = useRouter();
+  const { signOut } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -59,36 +60,21 @@ export default function MediaLibraryPage() {
   const fetchMediaFiles = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase.storage
-        .from('portfolio-images')
-        .list('', {
-          limit: 100,
-          offset: 0,
-          sortBy: { column: 'created_at', order: 'desc' }
-        });
-
-      if (error) {
-        console.warn('Error fetching storage list:', error.message);
+      // Mengambil data dari endpoint API R2/Media mandiri
+      const res = await fetch('/api/media', { cache: 'no-store' });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.data) {
+          setMediaFiles(json.data);
+        } else {
+          setMediaFiles([]);
+        }
+      } else {
         setMediaFiles([]);
-      } else if (data) {
-        const filesWithUrl = data.map((file: any) => {
-          const { data: publicUrlData } = supabase.storage
-            .from('portfolio-images')
-            .getPublicUrl(file.name);
-
-          return {
-            name: file.name,
-            id: file.id || null,
-            updated_at: file.updated_at || null,
-            created_at: file.created_at || file.updated_at || new Date().toISOString(),
-            size: file.metadata?.size || file.size || 0,
-            publicUrl: publicUrlData.publicUrl
-          };
-        });
-        setMediaFiles(filesWithUrl);
       }
     } catch (err) {
-      console.warn('System error fetching media:', err);
+      console.warn('Gagal memuat daftar media:', err);
+      setMediaFiles([]);
     } finally {
       setLoading(false);
     }
@@ -103,15 +89,23 @@ export default function MediaLibraryPage() {
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      const fileExt = file.name.split('.').pop();
-      const fileName = `media-${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
+      const formData = new FormData();
+      formData.append('file', file);
 
-      const { error } = await supabase.storage
-        .from('portfolio-images')
-        .upload(fileName, file);
+      try {
+        const res = await fetch('/api/media/upload', {
+          method: 'POST',
+          body: formData,
+        });
 
-      if (!error) {
-        successCount++;
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success) {
+            successCount++;
+          }
+        }
+      } catch (err) {
+        console.error('Upload error:', err);
       }
     }
 
@@ -132,21 +126,24 @@ export default function MediaLibraryPage() {
   const handleDeleteFile = async (fileName: string) => {
     if (!confirm(`Hapus file "${fileName}" dari Media Library?`)) return;
 
-    const { error } = await supabase.storage
-      .from('portfolio-images')
-      .remove([fileName]);
+    try {
+      const res = await fetch(`/api/media?name=${encodeURIComponent(fileName)}`, {
+        method: 'DELETE',
+      });
 
-    if (!error) {
-      setMediaFiles(mediaFiles.filter(f => f.name !== fileName));
-      showToast('File berhasil dihapus.');
-    } else {
-      showToast(`Gagal menghapus: ${error.message}`, 'error');
+      if (res.ok) {
+        setMediaFiles(mediaFiles.filter(f => f.name !== fileName));
+        showToast('File berhasil dihapus.');
+      } else {
+        showToast('Gagal menghapus file dari server.', 'error');
+      }
+    } catch (err) {
+      showToast('Terjadi kesalahan sistem saat menghapus.', 'error');
     }
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.replace('/login');
+    await signOut(() => router.push('/admin/login'));
   };
 
   return (

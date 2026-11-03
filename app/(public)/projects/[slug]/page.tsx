@@ -66,11 +66,24 @@ export default function ProjectDetailPage() {
 
           const matched = json.data.find((d: any) => d.slug === slug);
           if (matched) {
-            const tagsArray = Array.isArray(matched.tags) ? matched.tags : [];
-            const deliverablesArray = Array.isArray(matched.deliverables) ? matched.deliverables : [];
+            // Helper aman untuk parsing data JSON dari database Neon (baik berupa string maupun array)
+            const parseSafely = (data: any) => {
+              if (Array.isArray(data)) return data;
+              if (typeof data === 'string') {
+                try {
+                  const parsed = JSON.parse(data);
+                  if (Array.isArray(parsed)) return parsed;
+                } catch {
+                  return data.split(',').map((s) => s.trim()).filter(Boolean);
+                }
+              }
+              return [];
+            };
 
-            const rawItems = Array.isArray(matched.collection_items) ? matched.collection_items : [];
-            const modularBlocks = rawItems.filter((item: any) => 'type' in item);
+            const tagsArray = parseSafely(matched.tags);
+            const deliverablesArray = parseSafely(matched.deliverables);
+            const rawItems = parseSafely(matched.collection_items);
+            const modularBlocks = rawItems.filter((item: any) => item && typeof item === 'object' && 'type' in item);
 
             setProject({
               slug: matched.slug,

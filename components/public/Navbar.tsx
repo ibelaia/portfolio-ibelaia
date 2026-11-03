@@ -4,7 +4,6 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
-import { supabase } from '@/lib/supabase';
 import { 
   Home, 
   Info, 
@@ -36,17 +35,15 @@ export const Navbar: React.FC<NavbarProps> = ({ siteName: initialSiteName }) => 
   useEffect(() => {
     async function fetchSiteName() {
       try {
-        const { data, error } = await supabase
-          .from('general_settings')
-          .select('site_name')
-          .eq('id', 'default')
-          .maybeSingle();
-
-        if (data && !error && data.site_name) {
-          setSiteName(data.site_name);
+        const response = await fetch('/api/settings', { cache: 'no-store' });
+        if (response.ok) {
+          const json = await response.json();
+          if (json.success && json.data && json.data.site_name) {
+            setSiteName(json.data.site_name);
+          }
         }
       } catch (err) {
-        console.warn('Error loading navbar site name:', err);
+        console.warn('Gagal memuat nama situs dari API:', err);
       }
     }
 

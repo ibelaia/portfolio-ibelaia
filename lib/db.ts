@@ -4,7 +4,9 @@ const connectionString = process.env.DATABASE_URL || '';
 
 const sql = postgres(connectionString, {
   ssl: 'require',
-  max: 1,
+  transform: {
+    undefined: null,
+  }
 });
 
 export default sql;

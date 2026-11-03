@@ -1,6 +1,7 @@
 import React from 'react';
 import type { Metadata } from 'next';
 import { Inter, JetBrains_Mono } from 'next/font/google';
+import { ClerkProvider } from '@clerk/nextjs';
 import '@/app/globals.css';
 
 const inter = Inter({
@@ -86,18 +87,20 @@ export default async function RootLayout({
   const fontFamily = appearance?.font_family === 'font-mono' ? 'font-mono' : 'font-sans';
 
   return (
-    <html 
-      lang="en" 
-      suppressHydrationWarning 
-      className={`${inter.variable} ${jetbrainsMono.variable} ${themeMode} scroll-smooth`}
-      data-accent={accentColor}
-    >
-      <body 
+    <ClerkProvider>
+      <html 
+        lang="en" 
         suppressHydrationWarning 
-        className={`min-h-screen bg-[var(--bg-primary)] text-[var(--text-main)] ${fontFamily} antialiased`}
+        className={`${inter.variable} ${jetbrainsMono.variable} ${themeMode} scroll-smooth`}
+        data-accent={accentColor}
       >
-        {children}
-      </body>
-    </html>
+        <body 
+          suppressHydrationWarning 
+          className={`min-h-screen bg-[var(--bg-primary)] text-[var(--text-main)] ${fontFamily} antialiased`}
+        >
+          {children}
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }

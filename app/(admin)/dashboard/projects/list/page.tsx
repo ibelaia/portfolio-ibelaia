@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@clerk/nextjs';
 import {
   LayoutDashboard,
   Home,
@@ -33,7 +34,6 @@ import {
   Upload,
   Star
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 
 interface SubProjectItem {
   id: string;
@@ -63,6 +63,8 @@ interface Project {
 
 export default function ProjectsListPage() {
   const router = useRouter();
+  const { signOut } = useAuth();
+
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -137,7 +139,7 @@ export default function ProjectsListPage() {
     if (!confirm(`Hapus proyek "${title}" secara permanen?`)) return;
 
     try {
-      const response = await fetch(`/api/projects?id=${id}`, {
+      const response = await fetch(`/api/projects/${id}`, {
         method: 'DELETE'
       });
       const json = await response.json();
@@ -226,7 +228,7 @@ export default function ProjectsListPage() {
   };
 
   const handleLogout = async () => {
-    router.replace('/login');
+    await signOut(() => router.push('/admin/login'));
   };
 
   const filteredProjects = projects.filter(p => {
