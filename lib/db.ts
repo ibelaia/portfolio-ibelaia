@@ -1,6 +1,8 @@
 import { neon } from '@neondatabase/serverless';
 
-// Memastikan koneksi mengambil URL lingkungan dengan aman di Edge Runtime
-const sql = neon(process.env.DATABASE_URL!);
+const connectionString = process.env.DATABASE_URL || '';
+
+// Menginisialisasi neon client berbasis HTTP/fetch yang aman untuk Cloudflare Workers
+const sql = neon(connectionString);
 
 export default sql;
