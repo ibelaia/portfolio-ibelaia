@@ -1,12 +1,8 @@
-import postgres from 'postgres';
+import { neon } from '@neondatabase/serverless';
 
 const connectionString = process.env.DATABASE_URL || '';
 
-const sql = postgres(connectionString, {
-  ssl: 'require',
-  transform: {
-    undefined: null,
-  }
-});
+// Menggunakan neon client berbasis HTTP yang kompatibel dengan Cloudflare Edge Runtime
+const sql = neon(connectionString);
 
-export default sql;
+export default sql; 
