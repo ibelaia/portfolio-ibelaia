@@ -1,13 +1,6 @@
-import { neon, neonConfig } from '@neondatabase/serverless';
+import { neon } from '@neondatabase/serverless';
 
-neonConfig.fetchConnectionCache = true;
-
-const connectionString = process.env.DATABASE_URL;
-
-if (!connectionString) {
-  console.error("CRITICAL: DATABASE_URL is missing in environment variables!");
-}
-
-const sql = neon(connectionString || '');
+// Memastikan koneksi mengambil URL lingkungan dengan aman di Edge Runtime
+const sql = neon(process.env.DATABASE_URL!);
 
 export default sql;
