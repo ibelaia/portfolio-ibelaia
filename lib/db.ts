@@ -1,8 +1,10 @@
 import { neon } from '@neondatabase/serverless';
 
-const connectionString = process.env.DATABASE_URL || '';
-
-// Menginisialisasi neon client berbasis HTTP/fetch yang aman untuk Cloudflare Workers
-const sql = neon(connectionString);
+// Membuat fungsi wrapper agar koneksi diinisialisasi secara dinamis saat kueri dipanggil
+const sql = (strings: TemplateStringsArray, ...values: any[]) => {
+  const connectionString = process.env.DATABASE_URL || '';
+  const sqlClient = neon(connectionString);
+  return sqlClient(strings, ...values);
+};
 
 export default sql;
