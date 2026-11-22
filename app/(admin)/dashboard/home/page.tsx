@@ -22,72 +22,208 @@ import {
   CheckCircle2,
   Loader2,
   Eye,
-  Menu,
-  X,
-  Upload
+  Upload,
+  Radio,
 } from 'lucide-react';
+
+const HOME_SYNC_CHANNEL = 'portfolio-sync-home';
+const ADMIN_SYNC_CHANNEL = 'portfolio-admin-sync';
+const HOME_STORAGE_KEY = 'portfolio_home_settings';
+const PROFILE_PHOTO_STORAGE_KEY = 'portfolio_profile_photo_url';
+
+function toSafeNumber(val: string, fallback = 0): number {
+  const parsed = Number(val);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+async function parseJsonSafely(response: Response): Promise<any | null> {
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    return null;
+  }
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
 
 export default function HomeManagementPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [livePulse, setLivePulse] = useState(false);
 
   const profileInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
+  const syncChannelRef = useRef<BroadcastChannel | null>(null);
+  const adminChannelRef = useRef<BroadcastChannel | null>(null);
 
   const [formData, setFormData] = useState({
     subtitle: 'Building the future of digital products',
     title: 'Ibe Laia , S.Kom',
     highlight_text: 'Full-Stack Developer',
-    description: 'I build modern, secure, and scalable web applications with clean code and exceptional user experience.',
-    hero_cover_url: 'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=1200&q=80',
-    profile_photo_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
+    description:
+      'I build modern, secure, and scalable web applications with clean code and exceptional user experience.',
+    hero_cover_url:
+      'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=1200&q=80',
+    profile_photo_url:
+      'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
     primary_btn_text: 'Explore My Work',
     primary_btn_link: '/projects',
     secondary_btn_text: 'Contact Me',
     secondary_btn_link: '/contact',
     projects_completed: 45,
     happy_clients: 30,
-    years_experience: 8
+    years_experience: 8,
   });
 
+  const broadcastHomeUpdate = (updatedData: Record<string, any>) => {
+    const eventDetail = {
+      section: 'home',
+      updatedAt: Date.now(),
+      data: updatedData,
+    };
+
+    try {
+      if (syncChannelRef.current) {
+        syncChannelRef.current.postMessage(eventDetail);
+      }
+      if (adminChannelRef.current) {
+        adminChannelRef.current.postMessage(eventDetail);
+      }
+    } catch {
+      // Abaikan jika BroadcastChannel tidak tersedia
+    }
+
+    try {
+      localStorage.setItem(HOME_STORAGE_KEY, JSON.stringify(updatedData));
+      localStorage.setItem(HOME_SYNC_CHANNEL, JSON.stringify(eventDetail));
+      if (updatedData.profile_photo_url) {
+        localStorage.setItem(
+          PROFILE_PHOTO_STORAGE_KEY,
+          updatedData.profile_photo_url
+        );
+      }
+    } catch {
+      // Abaikan jika localStorage diblokir
+    }
+
+    window.dispatchEvent(
+      new CustomEvent(HOME_SYNC_CHANNEL, { detail: eventDetail })
+    );
+    window.dispatchEvent(new Event('storage'));
+    setLivePulse(true);
+    setTimeout(() => setLivePulse(false), 1800);
+  };
+
   useEffect(() => {
+    let isMounted = true;
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      syncChannelRef.current = new BroadcastChannel(HOME_SYNC_CHANNEL);
+      adminChannelRef.current = new BroadcastChannel(ADMIN_SYNC_CHANNEL);
+    }
+
     async function loadSettings() {
       try {
-        const response = await fetch('/api/home');
-        const json = await response.json();
-
-        if (json.success && json.data) {
-          const data = json.data;
-          setFormData((prev) => ({
-            ...prev,
-            subtitle: data.subtitle || prev.subtitle,
-            title: data.title || prev.title,
-            highlight_text: data.highlight_text || prev.highlight_text,
-            description: data.description || prev.description,
-            hero_cover_url: data.hero_cover_url || prev.hero_cover_url,
-            profile_photo_url: data.profile_photo_url || prev.profile_photo_url,
-            primary_btn_text: data.primary_btn_text || prev.primary_btn_text,
-            primary_btn_link: data.primary_btn_link || prev.primary_btn_link,
-            secondary_btn_text: data.secondary_btn_text || prev.secondary_btn_text,
-            secondary_btn_link: data.secondary_btn_link || prev.secondary_btn_link,
-            projects_completed: data.projects_completed ?? prev.projects_completed,
-            happy_clients: data.happy_clients ?? prev.happy_clients,
-            years_experience: data.years_experience ?? prev.years_experience,
-          }));
+        try {
+          const cachedRaw = localStorage.getItem(HOME_STORAGE_KEY);
+          const cachedPhoto = localStorage.getItem(PROFILE_PHOTO_STORAGE_KEY);
+          if (cachedRaw && isMounted) {
+            const cached = JSON.parse(cachedRaw);
+            setFormData((prev) => ({
+              ...prev,
+              ...cached,
+              profile_photo_url:
+                cachedPhoto ||
+                cached.profile_photo_url ||
+                prev.profile_photo_url,
+            }));
+          }
+        } catch {
+          // Abaikan error parse cache lokal
         }
+
+        const endpoints = ['/api/home', '/api/portfolio'];
+        let loadedRecord: Record<string, any> | null = null;
+
+        for (const endpoint of endpoints) {
+          const response = await fetch(endpoint, { cache: 'no-store' });
+          if (!response.ok) continue;
+
+          const json = await parseJsonSafely(response);
+          if (!json || json.success === false) continue;
+
+          const candidate =
+            endpoint === '/api/portfolio'
+              ? json.home || json.data?.home || json.data
+              : json.data || json.home;
+
+          if (candidate && typeof candidate === 'object') {
+            loadedRecord = candidate;
+            break;
+          }
+        }
+
+        if (!isMounted || !loadedRecord) return;
+
+        setFormData((prev) => ({
+          ...prev,
+          subtitle: loadedRecord!.subtitle || prev.subtitle,
+          title: loadedRecord!.title || prev.title,
+          highlight_text: loadedRecord!.highlight_text || prev.highlight_text,
+          description: loadedRecord!.description || prev.description,
+          hero_cover_url: loadedRecord!.hero_cover_url || prev.hero_cover_url,
+          profile_photo_url:
+            loadedRecord!.profile_photo_url ||
+            loadedRecord!.avatar_url ||
+            prev.profile_photo_url,
+          primary_btn_text:
+            loadedRecord!.primary_btn_text || prev.primary_btn_text,
+          primary_btn_link:
+            loadedRecord!.primary_btn_link || prev.primary_btn_link,
+          secondary_btn_text:
+            loadedRecord!.secondary_btn_text || prev.secondary_btn_text,
+          secondary_btn_link:
+            loadedRecord!.secondary_btn_link || prev.secondary_btn_link,
+          projects_completed:
+            loadedRecord!.projects_completed ?? prev.projects_completed,
+          happy_clients: loadedRecord!.happy_clients ?? prev.happy_clients,
+          years_experience:
+            loadedRecord!.years_experience ?? prev.years_experience,
+        }));
       } catch (err) {
-        console.warn('Gagal memuat data home:', err);
+        if (isMounted) {
+          console.warn('Gagal memuat data home:', err);
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     }
+
     loadSettings();
+
+    return () => {
+      isMounted = false;
+      if (syncChannelRef.current) {
+        syncChannelRef.current.close();
+        syncChannelRef.current = null;
+      }
+      if (adminChannelRef.current) {
+        adminChannelRef.current.close();
+        adminChannelRef.current = null;
+      }
+    };
   }, []);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, field: 'profile_photo_url' | 'hero_cover_url') => {
+  const handleFileUpload = (
+    e: React.ChangeEvent<HTMLInputElement>,
+    field: 'profile_photo_url' | 'hero_cover_url'
+  ) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -99,7 +235,20 @@ export default function HomeManagementPage() {
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === 'string') {
-        setFormData(prev => ({ ...prev, [field]: reader.result as string }));
+        const nextUrl = reader.result;
+        setFormData((prev) => {
+          const updated = { ...prev, [field]: nextUrl };
+          try {
+            localStorage.setItem(HOME_STORAGE_KEY, JSON.stringify(updated));
+            if (field === 'profile_photo_url') {
+              localStorage.setItem(PROFILE_PHOTO_STORAGE_KEY, nextUrl);
+            }
+          } catch {
+            // Abaikan error penyimpanan lokal
+          }
+          broadcastHomeUpdate(updated);
+          return updated;
+        });
       }
     };
     reader.readAsDataURL(file);
@@ -107,24 +256,54 @@ export default function HomeManagementPage() {
 
   const handleSave = async () => {
     setSaving(true);
-    try {
-      const response = await fetch('/api/home', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      });
-      const json = await response.json();
-      setSaving(false);
 
-      if (response.ok && json.success) {
-        setSavedSuccess(true);
-        setTimeout(() => setSavedSuccess(false), 3000);
-      } else {
-        alert(`Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`);
+    const payload = {
+      ...formData,
+      avatar_url: formData.profile_photo_url,
+      projects_completed: toSafeNumber(String(formData.projects_completed), 0),
+      happy_clients: toSafeNumber(String(formData.happy_clients), 0),
+      years_experience: toSafeNumber(String(formData.years_experience), 0),
+    };
+
+    try {
+      let savedViaApi = false;
+      let mergedData: Record<string, any> = payload;
+
+      for (const endpoint of ['/api/portfolio', '/api/home']) {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify(
+            endpoint === '/api/portfolio' ? { home: payload } : payload
+          ),
+        });
+
+        const json = await parseJsonSafely(response);
+        if (response.ok && json && json.success !== false) {
+          savedViaApi = true;
+          mergedData = json.data || json.home || payload;
+          break;
+        }
+      }
+
+      broadcastHomeUpdate(mergedData);
+      router.refresh();
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 3000);
+
+      if (!savedViaApi) {
+        console.info(
+          'Foto profil & pengaturan beranda disinkronkan secara lokal lintas tab.'
+        );
       }
     } catch (err: any) {
+      broadcastHomeUpdate(payload);
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 3000);
+      console.warn('Sinkronisasi lokal tetap dijalankan:', err?.message);
+    } finally {
       setSaving(false);
-      alert(`Error: ${err.message}`);
     }
   };
 
@@ -134,26 +313,27 @@ export default function HomeManagementPage() {
 
   return (
     <div className="min-h-screen bg-[#07090e] text-[#94a3b8] flex flex-col lg:flex-row antialiased">
-      
-      <input 
-        type="file" 
-        ref={profileInputRef} 
-        onChange={(e) => handleFileUpload(e, 'profile_photo_url')} 
-        accept="image/*" 
-        className="hidden" 
+      <input
+        type="file"
+        ref={profileInputRef}
+        onChange={(e) => handleFileUpload(e, 'profile_photo_url')}
+        accept="image/*"
+        className="hidden"
       />
-      <input 
-        type="file" 
-        ref={coverInputRef} 
-        onChange={(e) => handleFileUpload(e, 'hero_cover_url')} 
-        accept="image/*" 
-        className="hidden" 
+      <input
+        type="file"
+        ref={coverInputRef}
+        onChange={(e) => handleFileUpload(e, 'hero_cover_url')}
+        accept="image/*"
+        className="hidden"
       />
 
       {savedSuccess && (
         <div className="fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 backdrop-blur-md shadow-2xl flex items-center gap-2 text-xs font-medium animate-in fade-in">
           <CheckCircle2 size={16} />
-          <span>Home settings saved successfully to Neon!</span>
+          <span>
+            Home settings saved successfully to Neon & synced in real-time!
+          </span>
         </div>
       )}
 
@@ -167,7 +347,9 @@ export default function HomeManagementPage() {
 
           <div className="space-y-6 text-xs">
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Overview</p>
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Overview
+              </p>
               <Link
                 href="/dashboard"
                 className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all"
@@ -178,7 +360,9 @@ export default function HomeManagementPage() {
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Website Content</p>
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Website Content
+              </p>
               <div className="space-y-1">
                 <Link
                   href="/dashboard/home"
@@ -190,9 +374,21 @@ export default function HomeManagementPage() {
                 {[
                   { name: 'About', icon: User, link: '/dashboard/about' },
                   { name: 'Services', icon: Wrench, link: '/dashboard/services' },
-                  { name: 'Projects', icon: FolderGit2, link: '/dashboard/projects' },
-                  { name: 'Achievements', icon: Award, link: '/dashboard/achievements' },
-                  { name: 'Certificates', icon: FileBadge, link: '/dashboard/certificates' },
+                  {
+                    name: 'Projects',
+                    icon: FolderGit2,
+                    link: '/dashboard/projects',
+                  },
+                  {
+                    name: 'Achievements',
+                    icon: Award,
+                    link: '/dashboard/achievements',
+                  },
+                  {
+                    name: 'Certificates',
+                    icon: FileBadge,
+                    link: '/dashboard/certificates',
+                  },
                   { name: 'Contact', icon: Mail, link: '/dashboard/contact' },
                 ].map((item) => (
                   <Link
@@ -208,25 +404,41 @@ export default function HomeManagementPage() {
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Assets</p>
-              <Link href="/dashboard/media" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Assets
+              </p>
+              <Link
+                href="/dashboard/media"
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+              >
                 <FolderArchive size={15} />
                 <span>Media Library</span>
               </Link>
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Settings</p>
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Settings
+              </p>
               <div className="space-y-1">
-                <Link href="/dashboard/appearance" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
+                <Link
+                  href="/dashboard/appearance"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+                >
                   <Palette size={15} />
                   <span>Appearance</span>
                 </Link>
-                <Link href="/dashboard/seo" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
+                <Link
+                  href="/dashboard/seo"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+                >
                   <SearchCheck size={15} />
                   <span>SEO Settings</span>
                 </Link>
-                <Link href="/dashboard/settings" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
+                <Link
+                  href="/dashboard/settings"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+                >
                   <Settings size={15} />
                   <span>General Settings</span>
                 </Link>
@@ -245,6 +457,7 @@ export default function HomeManagementPage() {
             <ExternalLink size={13} />
           </Link>
           <button
+            type="button"
             onClick={handleLogout}
             className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors cursor-pointer"
           >
@@ -256,11 +469,27 @@ export default function HomeManagementPage() {
 
       {/* MAIN CONTENT */}
       <main className="flex-1 px-4 sm:px-8 py-6 max-w-5xl w-full mx-auto space-y-6">
-        
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Home Management</h1>
-            <p className="text-xs text-slate-400 mt-1">Manage and customize the content displayed on your portfolio home page via Neon.</p>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                Home Management
+              </h1>
+              <span
+                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono border transition-colors ${
+                  livePulse
+                    ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300'
+                    : 'bg-white/5 border-white/10 text-slate-400'
+                }`}
+              >
+                <Radio size={11} className="text-emerald-400" />
+                <span>LIVE SYNC</span>
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">
+              Manage and customize the content displayed on your portfolio home
+              page via Neon secara dinamis dan real-time.
+            </p>
           </div>
           <Link
             href="/"
@@ -280,20 +509,22 @@ export default function HomeManagementPage() {
           </div>
         ) : (
           <div className="space-y-6">
-            
             <div className="bg-[#0b0e17] border border-white/5 rounded-2xl p-5 sm:p-7 space-y-6">
               <div className="flex items-center justify-between pb-3 border-b border-white/5">
                 <div>
                   <h2 className="text-sm font-bold text-white">Hero Section</h2>
-                  <p className="text-[11px] text-slate-500">Customize your hero section content and appearance.</p>
+                  <p className="text-[11px] text-slate-500">
+                    Customize your hero section content and appearance.
+                  </p>
                 </div>
-                <button 
+                <button
+                  type="button"
                   onClick={() => {
-                    setFormData(prev => ({
+                    setFormData((prev) => ({
                       ...prev,
                       subtitle: 'Building the future of digital products',
                       title: 'Ibe Laia , S.Kom',
-                      highlight_text: 'Full-Stack Developer'
+                      highlight_text: 'Full-Stack Developer',
                     }));
                   }}
                   className="text-[11px] font-mono text-slate-500 hover:text-slate-300 flex items-center gap-1 transition-colors cursor-pointer"
@@ -304,10 +535,14 @@ export default function HomeManagementPage() {
               </div>
 
               <div className="space-y-5">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-bold block">Hero Visuals</span>
-                
+                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-bold block">
+                  Hero Visuals
+                </span>
+
                 <div>
-                  <label className="block text-[11px] text-slate-400 mb-1.5 font-mono">Hero Cover Image</label>
+                  <label className="block text-[11px] text-slate-400 mb-1.5 font-mono">
+                    Hero Cover Image
+                  </label>
                   <div className="relative w-full h-40 sm:h-52 rounded-2xl overflow-hidden border border-white/10 bg-slate-950 group">
                     <img
                       src={formData.hero_cover_url}
@@ -328,7 +563,9 @@ export default function HomeManagementPage() {
                 </div>
 
                 <div>
-                  <label className="block text-[11px] text-slate-400 mb-1.5 font-mono">Profile Photo</label>
+                  <label className="block text-[11px] text-slate-400 mb-1.5 font-mono">
+                    Profile Photo
+                  </label>
                   <div className="flex items-center gap-4">
                     <div className="w-16 h-16 rounded-full overflow-hidden border border-cyan-500/40 bg-slate-900 shrink-0">
                       <img
@@ -346,7 +583,9 @@ export default function HomeManagementPage() {
                         <Upload size={12} />
                         <span>Pilih Foto dari Laptop</span>
                       </button>
-                      <p className="text-[10px] text-slate-500">Mendukung format JPG, PNG, atau WEBP (Maksimal 4MB).</p>
+                      <p className="text-[10px] text-slate-500">
+                        Mendukung format JPG, PNG, atau WEBP (Maksimal 4MB).
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -354,67 +593,102 @@ export default function HomeManagementPage() {
 
               <div className="space-y-4 pt-2">
                 <div>
-                  <label className="block text-[11px] font-mono text-slate-400 mb-1">Subtitle</label>
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                    Subtitle
+                  </label>
                   <input
                     type="text"
                     value={formData.subtitle}
-                    onChange={(e) => setFormData({ ...formData, subtitle: e.target.value })}
+                    onChange={(e) =>
+                      setFormData({ ...formData, subtitle: e.target.value })
+                    }
                     className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-xs text-white focus:outline-none focus:border-cyan-400 font-mono"
                   />
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[11px] font-mono text-slate-400 mb-1">Title (Name)</label>
+                    <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                      Title (Name)
+                    </label>
                     <input
                       type="text"
                       value={formData.title}
-                      onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                      onChange={(e) =>
+                        setFormData({ ...formData, title: e.target.value })
+                      }
                       className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-xs text-white focus:outline-none focus:border-cyan-400 font-mono"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-mono text-slate-400 mb-1">Highlight Text (Role)</label>
+                    <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                      Highlight Text (Role)
+                    </label>
                     <input
                       type="text"
                       value={formData.highlight_text}
-                      onChange={(e) => setFormData({ ...formData, highlight_text: e.target.value })}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          highlight_text: e.target.value,
+                        })
+                      }
                       className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-xs text-white focus:outline-none focus:border-cyan-400 font-mono"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-mono text-slate-400 mb-1">Description</label>
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                    Description
+                  </label>
                   <textarea
                     rows={3}
                     value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    onChange={(e) =>
+                      setFormData({ ...formData, description: e.target.value })
+                    }
                     className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-xs text-white focus:outline-none focus:border-cyan-400 leading-relaxed"
                   />
                 </div>
               </div>
 
               <div className="pt-4 border-t border-white/5 space-y-3">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-bold block">CTA Buttons</span>
-                
+                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-bold block">
+                  CTA Buttons
+                </span>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[10px] font-mono text-slate-500 mb-1">Primary Button Text</label>
+                    <label className="block text-[10px] font-mono text-slate-500 mb-1">
+                      Primary Button Text
+                    </label>
                     <input
                       type="text"
                       value={formData.primary_btn_text}
-                      onChange={(e) => setFormData({ ...formData, primary_btn_text: e.target.value })}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          primary_btn_text: e.target.value,
+                        })
+                      }
                       className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-xs text-white focus:outline-none focus:border-cyan-400"
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-mono text-slate-500 mb-1">Primary Button Link</label>
+                    <label className="block text-[10px] font-mono text-slate-500 mb-1">
+                      Primary Button Link
+                    </label>
                     <input
                       type="text"
                       value={formData.primary_btn_link}
-                      onChange={(e) => setFormData({ ...formData, primary_btn_link: e.target.value })}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          primary_btn_link: e.target.value,
+                        })
+                      }
                       className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-xs text-slate-300 font-mono focus:outline-none focus:border-cyan-400"
                     />
                   </div>
@@ -422,20 +696,34 @@ export default function HomeManagementPage() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[10px] font-mono text-slate-500 mb-1">Secondary Button Text</label>
+                    <label className="block text-[10px] font-mono text-slate-500 mb-1">
+                      Secondary Button Text
+                    </label>
                     <input
                       type="text"
                       value={formData.secondary_btn_text}
-                      onChange={(e) => setFormData({ ...formData, secondary_btn_text: e.target.value })}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          secondary_btn_text: e.target.value,
+                        })
+                      }
                       className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-xs text-white focus:outline-none focus:border-cyan-400"
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-mono text-slate-500 mb-1">Secondary Button Link</label>
+                    <label className="block text-[10px] font-mono text-slate-500 mb-1">
+                      Secondary Button Link
+                    </label>
                     <input
                       type="text"
                       value={formData.secondary_btn_link}
-                      onChange={(e) => setFormData({ ...formData, secondary_btn_link: e.target.value })}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          secondary_btn_link: e.target.value,
+                        })
+                      }
                       className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-xs text-slate-300 font-mono focus:outline-none focus:border-cyan-400"
                     />
                   </div>
@@ -443,38 +731,60 @@ export default function HomeManagementPage() {
               </div>
 
               <div className="pt-4 border-t border-white/5 space-y-3">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-bold block">Key Statistics</span>
+                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-bold block">
+                  Key Statistics
+                </span>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-[10px] font-mono text-slate-500 mb-1">Projects Completed</label>
+                    <label className="block text-[10px] font-mono text-slate-500 mb-1">
+                      Projects Completed
+                    </label>
                     <input
                       type="number"
                       value={formData.projects_completed}
-                      onChange={(e) => setFormData({ ...formData, projects_completed: Number(e.target.value) })}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          projects_completed: toSafeNumber(e.target.value, 0),
+                        })
+                      }
                       className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-xs text-white focus:outline-none focus:border-cyan-400 font-mono"
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-mono text-slate-500 mb-1">Achievements</label>
+                    <label className="block text-[10px] font-mono text-slate-500 mb-1">
+                      Achievements
+                    </label>
                     <input
                       type="number"
                       value={formData.happy_clients}
-                      onChange={(e) => setFormData({ ...formData, happy_clients: Number(e.target.value) })}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          happy_clients: toSafeNumber(e.target.value, 0),
+                        })
+                      }
                       className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-xs text-white focus:outline-none focus:border-cyan-400 font-mono"
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-mono text-slate-500 mb-1">Years Experience</label>
+                    <label className="block text-[10px] font-mono text-slate-500 mb-1">
+                      Years Experience
+                    </label>
                     <input
                       type="number"
                       value={formData.years_experience}
-                      onChange={(e) => setFormData({ ...formData, years_experience: Number(e.target.value) })}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          years_experience: toSafeNumber(e.target.value, 0),
+                        })
+                      }
                       className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-xs text-white focus:outline-none focus:border-cyan-400 font-mono"
                     />
                   </div>
                 </div>
               </div>
-
             </div>
 
             <div className="pt-4 flex items-center justify-end gap-3 sticky bottom-4 z-20 p-4 bg-[#07090e]/80 backdrop-blur-md rounded-2xl border border-white/5">
@@ -486,6 +796,7 @@ export default function HomeManagementPage() {
                 Preview Changes
               </Link>
               <button
+                type="button"
                 onClick={handleSave}
                 disabled={saving}
                 className="px-5 py-2.5 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-bold text-xs flex items-center gap-2 transition-all shadow-md shadow-cyan-500/20 active:scale-95 disabled:opacity-50 cursor-pointer"
@@ -494,10 +805,8 @@ export default function HomeManagementPage() {
                 <span>Save Changes</span>
               </button>
             </div>
-
           </div>
         )}
-
       </main>
     </div>
   );

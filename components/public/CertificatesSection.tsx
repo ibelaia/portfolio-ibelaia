@@ -1,24 +1,56 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
-import { 
-  Award, 
-  ChevronLeft, 
-  ChevronRight, 
-  ArrowRight, 
-  Layers, 
+import {
+  Award,
+  ChevronLeft,
+  ChevronRight,
+  ArrowRight,
+  Layers,
   ShieldCheck,
   ExternalLink,
   Code2,
-  Terminal
+  Terminal,
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 
 export const CertificatesSection: React.FC = () => {
   const { t } = useApp();
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [syncTick, setSyncTick] = useState(0);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  void ShieldCheck;
+
+  useEffect(() => {
+    void syncTick;
+    let channel: BroadcastChannel | null = null;
+
+    const handleSyncSignal = () => {
+      setSyncTick((prev) => prev + 1);
+    };
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      channel = new BroadcastChannel('portfolio-admin-sync');
+      channel.onmessage = handleSyncSignal;
+    }
+
+    const handleStorage = (event: StorageEvent) => {
+      if (!event.key || event.key.startsWith('portfolio')) {
+        handleSyncSignal();
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      if (channel) {
+        channel.close();
+      }
+    };
+  }, [syncTick]);
 
   const certificates = [
     {
@@ -29,8 +61,10 @@ export const CertificatesSection: React.FC = () => {
       year: '2024',
       credentialId: 'FCC-8921-X90',
       desc: 'Completed the Responsive Web Design Developer Certification covering HTML, CSS, Flexbox, CSS Grid, and responsive design principles.',
-      descId: 'Menyelesaikan sertifikasi pengembang desain web responsif mencakup HTML, CSS, Flexbox, CSS Grid, dan prinsip desain ramah pengguna.',
-      image: 'https://images.unsplash.com/photo-1517694712202-14dd9538aa97?auto=format&fit=crop&w=800&q=80',
+      descId:
+        'Menyelesaikan sertifikasi pengembang desain web responsif mencakup HTML, CSS, Flexbox, CSS Grid, dan prinsip desain ramah pengguna.',
+      image:
+        'https://images.unsplash.com/photo-1517694712202-14dd9538aa97?auto=format&fit=crop&w=800&q=80',
       icon: <Award size={16} className="text-cyan-400" />,
       link: 'https://www.freecodecamp.org/certification',
     },
@@ -42,8 +76,10 @@ export const CertificatesSection: React.FC = () => {
       year: '2024',
       credentialId: 'GGL-IT-7734-AU',
       desc: 'Completed automation training including Python scripting, system administration, and IT automation best practices.',
-      descId: 'Menyelesaikan pelatihan otomasi sistem tingkat lanjut menggunakan Python, administrasi server, dan praktik terbaik IT.',
-      image: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=800&q=80',
+      descId:
+        'Menyelesaikan pelatihan otomasi sistem tingkat lanjut menggunakan Python, administrasi server, dan praktik terbaik IT.',
+      image:
+        'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=800&q=80',
       icon: <Terminal size={16} className="text-emerald-400" />,
       link: 'https://coursera.org/verify/professional-cert',
     },
@@ -55,8 +91,10 @@ export const CertificatesSection: React.FC = () => {
       year: '2024',
       credentialId: 'UC-9023-8812-JS',
       desc: 'Completed an in-depth JavaScript course covering ES6+, DOM manipulation, APIs, and modern JavaScript concepts.',
-      descId: 'Menyelesaikan kursus intensif JavaScript modern mencakup ES6+, manipulasi DOM, integrasi API, dan pemrograman asinkron.',
-      image: 'https://images.unsplash.com/photo-1555066931-4365d14bab8c?auto=format&fit=crop&w=800&q=80',
+      descId:
+        'Menyelesaikan kursus intensif JavaScript modern mencakup ES6+, manipulasi DOM, integrasi API, dan pemrograman asinkron.',
+      image:
+        'https://images.unsplash.com/photo-1555066931-4365d14bab8c?auto=format&fit=crop&w=800&q=80',
       icon: <Code2 size={16} className="text-purple-400" />,
       link: 'https://www.udemy.com/certificate/UC-EXAMPLE',
     },
@@ -89,12 +127,27 @@ export const CertificatesSection: React.FC = () => {
   };
 
   return (
-    <section id="certificates" className="w-full max-w-7xl mx-auto px-4 sm:px-8 py-10">
+    <section
+      id="certificates"
+      className="w-full max-w-7xl mx-auto px-4 sm:px-8 py-10"
+    >
       {/* Header Section */}
       <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 gap-4">
         <div>
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-[11px] text-cyan-400 font-medium mb-3 font-mono">
-            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+          <div
+            style={{
+              backgroundColor:
+                'color-mix(in srgb, var(--accent, #06b6d4) 12%, transparent)',
+              color: 'var(--accent, #22d3ee)',
+              borderColor:
+                'color-mix(in srgb, var(--accent, #06b6d4) 25%, transparent)',
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-[11px] text-cyan-400 font-medium mb-3 font-mono"
+          >
+            <span
+              style={{ backgroundColor: 'var(--accent, #22d3ee)' }}
+              className="w-1.5 h-1.5 rounded-full bg-cyan-400"
+            />
             <span>{t('CERTIFICATES', 'SERTIFIKAT')}</span>
           </div>
 
@@ -139,7 +192,10 @@ export const CertificatesSection: React.FC = () => {
       {/* ================= TAMPILAN MOBILE CONTAINER ================= */}
       <div className="md:hidden bg-[#090e1e]/80 border border-white/10 rounded-3xl p-5 backdrop-blur-xl shadow-2xl relative pb-8">
         <div className="flex items-center justify-between mb-4">
-          <span className="text-xs font-mono tracking-wider font-semibold text-cyan-400">
+          <span
+            style={{ color: 'var(--accent, #22d3ee)' }}
+            className="text-xs font-mono tracking-wider font-semibold text-cyan-400"
+          >
             {t('CERTIFICATES', 'SERTIFIKAT')}
           </span>
 
@@ -175,7 +231,10 @@ export const CertificatesSection: React.FC = () => {
                     alt={cert.title}
                     className="w-full h-full object-cover rounded-lg"
                   />
-                  <span className="absolute bottom-3 right-3 px-2 py-0.5 rounded bg-black/80 backdrop-blur-md border border-white/10 text-[9px] font-mono text-cyan-400">
+                  <span
+                    style={{ color: 'var(--accent, #22d3ee)' }}
+                    className="absolute bottom-3 right-3 px-2 py-0.5 rounded bg-black/80 backdrop-blur-md border border-white/10 text-[9px] font-mono text-cyan-400"
+                  >
                     ID: {cert.credentialId}
                   </span>
                 </div>
@@ -190,7 +249,10 @@ export const CertificatesSection: React.FC = () => {
                     </span>
                   </div>
 
-                  <span className="text-[11px] font-mono text-cyan-400 font-semibold block mb-1">
+                  <span
+                    style={{ color: 'var(--accent, #22d3ee)' }}
+                    className="text-[11px] font-mono text-cyan-400 font-semibold block mb-1"
+                  >
                     {cert.issuer}
                   </span>
                   <h3 className="text-base font-bold text-white tracking-tight mb-2">
@@ -205,9 +267,12 @@ export const CertificatesSection: React.FC = () => {
               <div className="p-5 pt-0">
                 <Link
                   href="/certificates"
+                  style={{ color: 'var(--accent, #22d3ee)' }}
                   className="inline-flex items-center gap-1.5 text-xs font-semibold text-cyan-400 hover:text-cyan-300 transition-colors cursor-pointer"
                 >
-                  <span>{t('View Certificate Details', 'Lihat Detail Sertifikat')}</span>
+                  <span>
+                    {t('View Certificate Details', 'Lihat Detail Sertifikat')}
+                  </span>
                   <ArrowRight size={13} />
                 </Link>
               </div>
@@ -225,8 +290,15 @@ export const CertificatesSection: React.FC = () => {
                   setCurrentIndex(dotIdx);
                   scrollToCard(dotIdx);
                 }}
+                style={
+                  currentIndex === dotIdx
+                    ? { backgroundColor: 'var(--accent, #22d3ee)' }
+                    : undefined
+                }
                 className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${
-                  currentIndex === dotIdx ? 'w-5 bg-cyan-400' : 'w-1.5 bg-slate-700 hover:bg-slate-500'
+                  currentIndex === dotIdx
+                    ? 'w-5 bg-cyan-400'
+                    : 'w-1.5 bg-slate-700 hover:bg-slate-500'
                 }`}
                 aria-label={`Slide ${dotIdx + 1}`}
               />
@@ -243,6 +315,10 @@ export const CertificatesSection: React.FC = () => {
         {certificates.map((cert) => (
           <div
             key={cert.id}
+            style={{
+              borderColor:
+                'color-mix(in srgb, var(--accent, #06b6d4) 18%, rgba(255,255,255,0.1))',
+            }}
             className="bg-[#090e1e]/80 border border-white/10 hover:border-cyan-500/40 rounded-2xl overflow-hidden backdrop-blur-xl shadow-xl transition-all duration-300 flex flex-col justify-between group hover:-translate-y-1"
           >
             <div>
@@ -252,7 +328,10 @@ export const CertificatesSection: React.FC = () => {
                   alt={cert.title}
                   className="w-full h-full object-cover rounded-lg group-hover:scale-102 transition-transform duration-500"
                 />
-                <span className="absolute bottom-5 right-5 px-2 py-0.5 rounded bg-black/80 backdrop-blur-md border border-white/10 text-[9px] font-mono text-cyan-400">
+                <span
+                  style={{ color: 'var(--accent, #22d3ee)' }}
+                  className="absolute bottom-5 right-5 px-2 py-0.5 rounded bg-black/80 backdrop-blur-md border border-white/10 text-[9px] font-mono text-cyan-400"
+                >
                   {cert.credentialId}
                 </span>
               </div>
@@ -267,7 +346,10 @@ export const CertificatesSection: React.FC = () => {
                   </span>
                 </div>
 
-                <span className="text-[11px] font-mono text-cyan-400 font-semibold uppercase tracking-wider block mb-1">
+                <span
+                  style={{ color: 'var(--accent, #22d3ee)' }}
+                  className="text-[11px] font-mono text-cyan-400 font-semibold uppercase tracking-wider block mb-1"
+                >
                   {cert.issuer}
                 </span>
 
@@ -283,6 +365,7 @@ export const CertificatesSection: React.FC = () => {
             <div className="p-6 pt-0">
               <Link
                 href="/certificates"
+                style={{ color: 'var(--accent, #22d3ee)' }}
                 className="inline-flex items-center gap-1.5 text-xs font-semibold text-cyan-400 hover:text-cyan-300 transition-colors cursor-pointer"
               >
                 <span>{t('View Certificate', 'Lihat Sertifikat')}</span>

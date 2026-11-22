@@ -3,16 +3,16 @@
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { 
-  ArrowLeft, 
+import {
+  ArrowLeft,
   ArrowRight,
-  ExternalLink, 
-  Code2, 
-  Calendar, 
-  CheckCircle2, 
+  ExternalLink,
+  Code2,
+  Calendar,
+  CheckCircle2,
   Loader2,
   Clock,
-  Layers
+  Layers,
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 
@@ -43,38 +43,76 @@ interface ProjectDetail {
   githubUrl?: string;
 }
 
+const DEFAULT_BANNER_IMAGE =
+  'https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=1200&q=80';
+
+function toSlug(value: string): string {
+  return decodeURIComponent(String(value || ''))
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-');
+}
+
 export default function ProjectDetailPage() {
   const params = useParams();
-  const slug = params?.slug as string;
+  const rawSlug = String(params?.slug || '');
+  const normalizedSlug = toSlug(rawSlug);
   const { t, language } = useApp();
 
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [allSlugs, setAllSlugs] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [bannerFailed, setBannerFailed] = useState(false);
 
   useEffect(() => {
+    let isMounted = true;
+
     async function loadNeonProjectDetail() {
-      if (!slug) return;
+      if (!rawSlug) {
+        if (isMounted) setLoading(false);
+        return;
+      }
+
       setLoading(true);
+      setBannerFailed(false);
+
       try {
-        const response = await fetch('/api/projects');
+        const response = await fetch('/api/projects', { cache: 'no-store' });
         const json = await response.json();
 
-        if (json.success && json.data && json.data.length > 0) {
-          const slugs = json.data.map((d: any) => d.slug);
+        if (!isMounted) return;
+
+        if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+          const slugs = json.data.map((d: any, idx: number) =>
+            d.slug ? toSlug(d.slug) : toSlug(d.title || `project-${idx + 1}`)
+          );
           setAllSlugs(slugs);
 
-          const matched = json.data.find((d: any) => d.slug === slug);
+          const matched = json.data.find((d: any, idx: number) => {
+            const itemSlug = d.slug ? toSlug(d.slug) : toSlug(d.title || `project-${idx + 1}`);
+            return (
+              d.slug === rawSlug ||
+              itemSlug === normalizedSlug ||
+              toSlug(d.title || '') === normalizedSlug
+            );
+          });
+
           if (matched) {
-            // Helper aman untuk parsing data JSON dari database Neon (baik berupa string maupun array)
-            const parseSafely = (data: any) => {
+            const parseSafely = (data: any): any[] => {
               if (Array.isArray(data)) return data;
               if (typeof data === 'string') {
+                const trimmed = data.trim();
+                if (!trimmed) return [];
                 try {
-                  const parsed = JSON.parse(data);
+                  const parsed = JSON.parse(trimmed);
                   if (Array.isArray(parsed)) return parsed;
                 } catch {
-                  return data.split(',').map((s) => s.trim()).filter(Boolean);
+                  return trimmed
+                    .split(',')
+                    .map((s) => s.trim())
+                    .filter(Boolean);
                 }
               }
               return [];
@@ -83,51 +121,99 @@ export default function ProjectDetailPage() {
             const tagsArray = parseSafely(matched.tags);
             const deliverablesArray = parseSafely(matched.deliverables);
             const rawItems = parseSafely(matched.collection_items);
-            const modularBlocks = rawItems.filter((item: any) => item && typeof item === 'object' && 'type' in item);
+            const modularBlocks: ModularBlock[] = rawItems.filter(
+              (item: any) => item && typeof item === 'object' && 'type' in item
+            );
+
+            const resolvedSlug = matched.slug
+              ? toSlug(matched.slug)
+              : toSlug(matched.title || rawSlug);
+
+            const overviewText =
+              matched.overview ||
+              matched.description ||
+              'Detailed case study, architecture notes, and implementation highlights.';
+
+            const problemText =
+              matched.problem ||
+              matched.overview ||
+              matched.description ||
+              'Key challenges addressed during development and system design.';
+
+            const solutionText =
+              matched.solution ||
+              'Structured implementation with responsive UI, maintainable components, and database integration.';
+
+            const finalDeliverables =
+              deliverablesArray.length > 0
+                ? deliverablesArray
+                : [
+                    'Responsive interface and structured case study view',
+                    'Dynamic data management via Admin & PostgreSQL (Neon)',
+                  ];
 
             setProject({
-              slug: matched.slug,
-              title: matched.title,
+              slug: resolvedSlug,
+              title: matched.title || 'Untitled Project',
               category: matched.category || 'Web Application',
-              year: matched.year || '2026',
+              year: matched.year ? String(matched.year) : '2026',
               role: matched.role || 'Full-Stack Developer',
               client: matched.client || 'Personal Project',
-              bannerImage: matched.thumbnail || matched.image_url || 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=1200&q=80',
+              bannerImage:
+                matched.thumbnail || matched.image_url || DEFAULT_BANNER_IMAGE,
               summary: {
-                en: matched.overview || matched.description || '',
-                id: matched.overview || matched.description || ''
+                en: matched.overview_en || overviewText,
+                id: matched.overview_id || overviewText,
               },
               problem: {
-                en: matched.problem || matched.overview || '',
-                id: matched.problem || matched.overview || ''
+                en: matched.problem_en || problemText,
+                id: matched.problem_id || problemText,
               },
               solution: {
-                en: matched.solution || '',
-                id: matched.solution || ''
+                en: matched.solution_en || solutionText,
+                id: matched.solution_id || solutionText,
               },
-              keyDeliverables: deliverablesArray,
-              modularBlocks: modularBlocks,
-              techStack: tagsArray.length > 0 ? tagsArray : ['Next.js', 'PostgreSQL', 'Tailwind CSS'],
+              keyDeliverables: finalDeliverables,
+              modularBlocks,
+              techStack:
+                tagsArray.length > 0
+                  ? tagsArray
+                  : ['Next.js', 'PostgreSQL', 'Tailwind CSS'],
               liveUrl: matched.live_url || '',
-              githubUrl: matched.github_url || 'https://github.com/ibelaia'
+              githubUrl: matched.github_url || 'https://github.com/ibelaia',
             });
+          } else {
+            setProject(null);
           }
+        } else {
+          setProject(null);
         }
       } catch (err) {
-        console.warn('Gagal memuat detail proyek dari Neon API:', err);
+        if (isMounted) {
+          console.warn('Gagal memuat detail proyek dari Neon API:', err);
+          setProject(null);
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     }
 
     loadNeonProjectDetail();
-  }, [slug]);
+
+    return () => {
+      isMounted = false;
+    };
+  }, [rawSlug, normalizedSlug]);
 
   if (loading) {
     return (
       <main className="w-full max-w-6xl mx-auto px-4 py-32 text-center flex items-center justify-center gap-3">
         <Loader2 size={20} className="animate-spin text-accent" />
-        <span className="text-xs font-mono text-[var(--text-muted)]">Memuat detail studi kasus dari Neon API...</span>
+        <span className="text-xs font-mono text-[var(--text-muted)]">
+          Memuat detail studi kasus dari Neon API...
+        </span>
       </main>
     );
   }
@@ -135,8 +221,12 @@ export default function ProjectDetailPage() {
   if (!project) {
     return (
       <main className="w-full max-w-6xl mx-auto px-4 py-20 text-center">
-        <h1 className="text-2xl font-bold text-[var(--text-main)] mb-2">Project Not Found</h1>
-        <p className="text-sm text-[var(--text-muted)] mb-6">Proyek yang Anda cari tidak tersedia atau tautan salah.</p>
+        <h1 className="text-2xl font-bold text-[var(--text-main)] mb-2">
+          Project Not Found
+        </h1>
+        <p className="text-sm text-[var(--text-muted)] mb-6">
+          Proyek yang Anda cari tidak tersedia atau tautan salah.
+        </p>
         <Link
           href="/projects"
           className="px-4 py-2 rounded-xl bg-accent text-slate-950 font-bold text-xs inline-flex items-center gap-2 cursor-pointer"
@@ -148,20 +238,29 @@ export default function ProjectDetailPage() {
   }
 
   const isIndo = language === 'ID';
-  const currentIndex = allSlugs.indexOf(slug);
+  const currentIndex = allSlugs.indexOf(project.slug);
   const prevSlug = currentIndex > 0 ? allSlugs[currentIndex - 1] : null;
-  const nextSlug = currentIndex !== -1 && currentIndex < allSlugs.length - 1 ? allSlugs[currentIndex + 1] : null;
+  const nextSlug =
+    currentIndex !== -1 && currentIndex < allSlugs.length - 1
+      ? allSlugs[currentIndex + 1]
+      : null;
+
+  const activeBannerSrc = bannerFailed
+    ? DEFAULT_BANNER_IMAGE
+    : project.bannerImage || DEFAULT_BANNER_IMAGE;
 
   return (
     <main className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-8">
-      
       {/* Tombol Back */}
       <div>
         <Link
           href="/projects"
           className="inline-flex items-center gap-2 text-xs font-mono text-[var(--text-muted)] hover:text-accent transition-colors group"
         >
-          <ArrowLeft size={13} className="group-hover:-translate-x-1 transition-transform" />
+          <ArrowLeft
+            size={13}
+            className="group-hover:-translate-x-1 transition-transform"
+          />
           <span>{t('Back to Projects Archive', 'Kembali ke Arsip Proyek')}</span>
         </Link>
       </div>
@@ -216,67 +315,61 @@ export default function ProjectDetailPage() {
       {/* Hero Banner Proyek */}
       <div className="w-full h-64 sm:h-96 rounded-3xl overflow-hidden border border-[var(--card-border)] bg-[#090e1f] shadow-2xl">
         <img
-          src={project.bannerImage}
+          src={activeBannerSrc}
           alt={project.title}
           className="w-full h-full object-cover"
-          onError={(e) => {
-            (e.target as HTMLElement).style.display = 'none';
-          }}
+          onError={() => setBannerFailed(true)}
         />
       </div>
 
       {/* Grid Problem, Solution, Deliverables & Metrics */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        
         {/* Kolom Kiri: Studi Kasus */}
         <div className="lg:col-span-8 space-y-6">
-          
-          {project.problem.id && (
-            <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-2xl p-6 backdrop-blur-xl">
-              <h2 className="text-base font-bold text-[var(--text-main)] mb-2 flex items-center gap-2">
-                <span className="w-2 h-2 rounded bg-amber-400" />
-                {t('Problem & Challenges', 'Tantangan & Masalah')}
-              </h2>
-              <p className="text-xs sm:text-sm text-[var(--text-muted)] leading-relaxed">
-                {isIndo ? project.problem.id : project.problem.en}
-              </p>
-            </div>
-          )}
+          <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-2xl p-6 backdrop-blur-xl">
+            <h2 className="text-base font-bold text-[var(--text-main)] mb-2 flex items-center gap-2">
+              <span className="w-2 h-2 rounded bg-amber-400" />
+              {t('Problem & Challenges', 'Tantangan & Masalah')}
+            </h2>
+            <p className="text-xs sm:text-sm text-[var(--text-muted)] leading-relaxed">
+              {isIndo ? project.problem.id : project.problem.en}
+            </p>
+          </div>
 
-          {project.solution.id && (
-            <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-2xl p-6 backdrop-blur-xl">
-              <h2 className="text-base font-bold text-[var(--text-main)] mb-2 flex items-center gap-2">
-                <span className="w-2 h-2 rounded bg-emerald-400" />
-                {t('The Solution & Approach', 'Pendekatan & Solusi')}
-              </h2>
-              <p className="text-xs sm:text-sm text-[var(--text-muted)] leading-relaxed">
-                {isIndo ? project.solution.id : project.solution.en}
-              </p>
-            </div>
-          )}
+          <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-2xl p-6 backdrop-blur-xl">
+            <h2 className="text-base font-bold text-[var(--text-main)] mb-2 flex items-center gap-2">
+              <span className="w-2 h-2 rounded bg-emerald-400" />
+              {t('The Solution & Approach', 'Pendekatan & Solusi')}
+            </h2>
+            <p className="text-xs sm:text-sm text-[var(--text-muted)] leading-relaxed">
+              {isIndo ? project.solution.id : project.solution.en}
+            </p>
+          </div>
 
-          {Array.isArray(project.keyDeliverables) && project.keyDeliverables.length > 0 && (
-            <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-2xl p-6 backdrop-blur-xl">
-              <h2 className="text-base font-bold text-[var(--text-main)] mb-4 flex items-center gap-2">
-                <span className="w-2 h-2 rounded bg-accent" />
-                {t('Key Deliverables & Results', 'Hasil & Luaran Utama')}
-              </h2>
-              <div className="space-y-2.5">
-                {project.keyDeliverables.map((item, idx) => (
-                  <div key={idx} className="flex items-start gap-2.5 text-xs sm:text-sm text-[var(--text-muted)]">
-                    <CheckCircle2 size={16} className="text-accent shrink-0 mt-0.5" />
-                    <span>{item}</span>
-                  </div>
-                ))}
-              </div>
+          <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-2xl p-6 backdrop-blur-xl">
+            <h2 className="text-base font-bold text-[var(--text-main)] mb-4 flex items-center gap-2">
+              <span className="w-2 h-2 rounded bg-accent" />
+              {t('Key Deliverables & Results', 'Hasil & Luaran Utama')}
+            </h2>
+            <div className="space-y-2.5">
+              {project.keyDeliverables.map((item, idx) => (
+                <div
+                  key={idx}
+                  className="flex items-start gap-2.5 text-xs sm:text-sm text-[var(--text-muted)]"
+                >
+                  <CheckCircle2
+                    size={16}
+                    className="text-accent shrink-0 mt-0.5"
+                  />
+                  <span>{item}</span>
+                </div>
+              ))}
             </div>
-          )}
-
+          </div>
         </div>
 
         {/* Kolom Kanan: Metrics & Tools */}
         <div className="lg:col-span-4 space-y-5">
-          
           <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-2xl p-5 backdrop-blur-xl">
             <h3 className="text-xs font-mono uppercase tracking-wider text-[var(--text-muted)] font-bold mb-4 pb-2 border-b border-[var(--card-border)]">
               {t('PROJECT METRICS', 'DETAIL PROYEK')}
@@ -284,16 +377,28 @@ export default function ProjectDetailPage() {
 
             <div className="space-y-3.5 text-xs">
               <div>
-                <span className="text-[var(--text-muted)] font-mono block text-[10px] uppercase">Role</span>
-                <span className="font-semibold text-[var(--text-main)]">{project.role}</span>
+                <span className="text-[var(--text-muted)] font-mono block text-[10px] uppercase">
+                  Role
+                </span>
+                <span className="font-semibold text-[var(--text-main)]">
+                  {project.role}
+                </span>
               </div>
               <div>
-                <span className="text-[var(--text-muted)] font-mono block text-[10px] uppercase">Client / Track</span>
-                <span className="font-semibold text-[var(--text-main)]">{project.client}</span>
+                <span className="text-[var(--text-muted)] font-mono block text-[10px] uppercase">
+                  Client / Track
+                </span>
+                <span className="font-semibold text-[var(--text-main)]">
+                  {project.client}
+                </span>
               </div>
               <div>
-                <span className="text-[var(--text-muted)] font-mono block text-[10px] uppercase">Timeline</span>
-                <span className="font-semibold text-[var(--text-main)]">{project.year}</span>
+                <span className="text-[var(--text-muted)] font-mono block text-[10px] uppercase">
+                  Timeline
+                </span>
+                <span className="font-semibold text-[var(--text-main)]">
+                  {project.year}
+                </span>
               </div>
             </div>
           </div>
@@ -303,7 +408,7 @@ export default function ProjectDetailPage() {
               {t('TECH STACK & TOOLS', 'PERKAKAS & TEKNOLOGI')}
             </h3>
             <div className="flex flex-wrap gap-1.5">
-              {Array.isArray(project.techStack) && project.techStack.map((tech) => (
+              {project.techStack.map((tech) => (
                 <span
                   key={tech}
                   className="px-2.5 py-1 rounded-lg bg-white/5 border border-[var(--card-border)] text-[11px] font-mono text-[var(--text-muted)]"
@@ -313,13 +418,11 @@ export default function ProjectDetailPage() {
               ))}
             </div>
           </div>
-
         </div>
-
       </div>
 
       {/* RENDER MODULAR BLOCKS */}
-      {Array.isArray(project.modularBlocks) && project.modularBlocks.length > 0 && (
+      {project.modularBlocks.length > 0 && (
         <div className="space-y-6 pt-6 border-t border-[var(--card-border)]">
           <h2 className="text-lg font-extrabold text-[var(--text-main)] tracking-tight flex items-center gap-2">
             <Layers size={18} className="text-accent" />
@@ -328,27 +431,40 @@ export default function ProjectDetailPage() {
 
           <div className="space-y-6">
             {project.modularBlocks.map((block, idx) => (
-              <div key={block.id || idx} className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-2xl p-6 backdrop-blur-xl space-y-4">
+              <div
+                key={block.id || idx}
+                className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-2xl p-6 backdrop-blur-xl space-y-4"
+              >
                 <div className="flex items-center gap-2">
                   <span className="px-2.5 py-0.5 rounded-md bg-accent/10 text-[10px] font-mono text-accent font-bold uppercase">
                     {block.type ? block.type.replace('_', ' ') : 'ulasan artikel'}
                   </span>
-                  <h3 className="text-sm font-bold text-[var(--text-main)]">{block.title}</h3>
+                  <h3 className="text-sm font-bold text-[var(--text-main)]">
+                    {block.title}
+                  </h3>
                 </div>
 
                 {block.type === 'narasi_foto' && (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-center">
-                    <p className="text-xs sm:text-sm text-[var(--text-muted)] leading-relaxed whitespace-pre-line">{block.content}</p>
+                    <p className="text-xs sm:text-sm text-[var(--text-muted)] leading-relaxed whitespace-pre-line">
+                      {block.content}
+                    </p>
                     {block.image && (
                       <div className="rounded-xl overflow-hidden border border-[var(--card-border)] bg-slate-950 aspect-video shadow-lg">
-                        <img src={block.image} alt={block.title} className="w-full h-full object-cover" />
+                        <img
+                          src={block.image}
+                          alt={block.title}
+                          className="w-full h-full object-cover"
+                        />
                       </div>
                     )}
                   </div>
                 )}
 
                 {block.type === 'ulasan_artikel' && (
-                  <p className="text-xs sm:text-sm text-[var(--text-muted)] leading-relaxed whitespace-pre-line">{block.content}</p>
+                  <p className="text-xs sm:text-sm text-[var(--text-muted)] leading-relaxed whitespace-pre-line">
+                    {block.content}
+                  </p>
                 )}
 
                 {block.type === 'kartu_proyek' && (
@@ -374,7 +490,9 @@ export default function ProjectDetailPage() {
                 {block.type === 'linimasa' && (
                   <div className="flex items-start gap-3 p-3.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-xs text-purple-200">
                     <Clock size={16} className="shrink-0 mt-0.5 text-purple-400" />
-                    <p className="leading-relaxed whitespace-pre-line">{block.content}</p>
+                    <p className="leading-relaxed whitespace-pre-line">
+                      {block.content}
+                    </p>
                   </div>
                 )}
               </div>
@@ -393,7 +511,9 @@ export default function ProjectDetailPage() {
             <ArrowLeft size={13} />
             <span>{t('Previous Case Study', 'Studi Kasus Sebelumnya')}</span>
           </Link>
-        ) : <div />}
+        ) : (
+          <div />
+        )}
 
         {nextSlug ? (
           <Link
@@ -403,9 +523,10 @@ export default function ProjectDetailPage() {
             <span>{t('Next Case Study', 'Studi Kasus Berikutnya')}</span>
             <ArrowRight size={13} />
           </Link>
-        ) : <div />}
+        ) : (
+          <div />
+        )}
       </div>
-
     </main>
   );
 }

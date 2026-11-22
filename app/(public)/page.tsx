@@ -2,14 +2,14 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { 
-  ArrowRight, 
-  FolderGit2, 
-  Award, 
-  MapPin, 
+import {
+  ArrowRight,
+  FolderGit2,
+  Award,
+  MapPin,
   Briefcase,
   Code2,
-  Terminal
+  Terminal,
 } from 'lucide-react';
 
 interface HomeData {
@@ -26,77 +26,130 @@ interface HomeData {
   site_tagline: string;
 }
 
+const DEFAULT_PROFILE_PHOTO =
+  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80';
+
+const INITIAL_HOME_DATA: HomeData = {
+  title: 'Ibe Laia , S.Kom',
+  subtitle: 'Building the future of digital products',
+  highlight_text: 'Full-Stack Developer',
+  description:
+    'I build modern, secure, and scalable web applications with clean code and exceptional user experience.',
+  profile_photo_url: DEFAULT_PROFILE_PHOTO,
+  projects_completed: 6,
+  happy_clients: 4,
+  years_experience: 8,
+  availability_status: 'Available for Hire',
+  location: 'Surabaya, Indonesia',
+  site_tagline: 'Software Engineer & Full-Stack Developer',
+};
+
+function toSafeNumber(value: any, fallback: number): number {
+  if (typeof value === 'number' && !Number.isNaN(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return fallback;
+}
+
 export default function HomePage() {
-  const [data, setData] = useState<HomeData>({
-    title: 'Ibe Laia , S.Kom',
-    subtitle: 'Building the future of digital products',
-    highlight_text: 'Full-Stack Developer',
-    description: 'I build modern, secure, and scalable web applications with clean code and exceptional user experience.',
-    profile_photo_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
-    projects_completed: 6,
-    happy_clients: 4,
-    years_experience: 8,
-    availability_status: 'Available for Hire',
-    location: 'Surabaya, Indonesia',
-    site_tagline: 'Software Engineer & Full-Stack Developer'
-  });
+  const [data, setData] = useState<HomeData>(INITIAL_HOME_DATA);
+  const [photoFailed, setPhotoFailed] = useState(false);
 
   useEffect(() => {
+    let isMounted = true;
+
     async function fetchNeonHomeData() {
       try {
-        const response = await fetch('/api/settings');
+        const response = await fetch('/api/settings', { cache: 'no-store' });
         const json = await response.json();
+
+        if (!isMounted) return;
 
         if (json.success && json.data) {
           const res = json.data;
+          const nextPhoto =
+            res.avatar_url || res.profile_photo_url || DEFAULT_PROFILE_PHOTO;
+
+          setPhotoFailed(false);
           setData({
-            title: res.site_name || 'Ibe Laia , S.Kom',
-            subtitle: res.site_tagline || 'Building the future of digital products',
-            highlight_text: res.hero_highlight || 'Full-Stack Developer',
-            description: res.hero_description || res.site_tagline || 'I build modern, secure, and scalable web applications with clean code and exceptional user experience.',
-            profile_photo_url: res.avatar_url || res.banner_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
-            projects_completed: res.projects_completed ?? 6,
-            happy_clients: res.happy_clients ?? 4,
-            years_experience: res.years_experience ?? 8,
-            availability_status: res.availability_status || 'Available for Hire',
-            location: res.location || 'Surabaya, Indonesia',
-            site_tagline: res.site_tagline || 'Software Engineer & Full-Stack Developer'
+            title:
+              res.hero_title ||
+              res.full_name ||
+              res.site_name ||
+              INITIAL_HOME_DATA.title,
+            subtitle:
+              res.site_tagline ||
+              res.subtitle ||
+              INITIAL_HOME_DATA.subtitle,
+            highlight_text:
+              res.hero_highlight ||
+              res.highlight_text ||
+              INITIAL_HOME_DATA.highlight_text,
+            description:
+              res.hero_description ||
+              res.description ||
+              res.site_tagline ||
+              INITIAL_HOME_DATA.description,
+            profile_photo_url: nextPhoto,
+            projects_completed: toSafeNumber(
+              res.projects_completed,
+              INITIAL_HOME_DATA.projects_completed
+            ),
+            happy_clients: toSafeNumber(
+              res.happy_clients,
+              INITIAL_HOME_DATA.happy_clients
+            ),
+            years_experience: toSafeNumber(
+              res.years_experience,
+              INITIAL_HOME_DATA.years_experience
+            ),
+            availability_status:
+              res.availability_status || INITIAL_HOME_DATA.availability_status,
+            location: res.location || INITIAL_HOME_DATA.location,
+            site_tagline:
+              res.site_tagline || INITIAL_HOME_DATA.site_tagline,
           });
         }
       } catch (err) {
-        console.warn('Gagal memuat home data dari Neon API:', err);
+        if (isMounted) {
+          console.warn('Gagal memuat home data dari Neon API:', err);
+        }
       }
     }
 
     fetchNeonHomeData();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
+
+  const activePhotoSrc = photoFailed
+    ? DEFAULT_PROFILE_PHOTO
+    : data.profile_photo_url || DEFAULT_PROFILE_PHOTO;
 
   return (
     <main className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10 space-y-8">
-      
       {/* Container Card Utama Pembungkus Hero Section */}
       <div className="w-full bg-[var(--card-bg)] border border-[var(--card-border)] rounded-3xl p-5 sm:p-8 lg:p-10 shadow-2xl relative overflow-hidden space-y-8 transition-colors duration-250">
-        
         {/* Efek Cahaya Ambient */}
         <div className="absolute -top-24 -right-24 w-96 h-96 bg-accent/10 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute -bottom-24 -left-24 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
-          
           {/* 1. Foto Profil */}
           <div className="order-1 lg:order-2 lg:col-span-5 flex justify-center relative">
             <div className="relative w-48 h-48 sm:w-60 sm:h-60 lg:w-72 lg:h-72">
-              
               <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-accent/30 to-purple-500/30 blur-xl -z-10" />
 
               <div className="w-full h-full rounded-full overflow-hidden border-2 border-accent/30 bg-[var(--bg-primary)] shadow-2xl">
-                <img 
-                  src={data.profile_photo_url} 
+                <img
+                  src={activePhotoSrc}
                   alt={data.title}
                   className="w-full h-full object-cover"
-                  onError={(e) => {
-                    (e.target as HTMLElement).style.display = 'none';
-                  }}
+                  onError={() => setPhotoFailed(true)}
                 />
               </div>
 
@@ -104,7 +157,9 @@ export default function HomePage() {
                 <Code2 size={12} className="text-purple-400" />
                 <div>
                   <p className="font-bold leading-tight">Clean Code</p>
-                  <p className="text-[8px] sm:text-[9px] text-slate-500">Architecture</p>
+                  <p className="text-[8px] sm:text-[9px] text-slate-500">
+                    Architecture
+                  </p>
                 </div>
               </div>
 
@@ -112,16 +167,16 @@ export default function HomePage() {
                 <Terminal size={12} className="text-accent" />
                 <div>
                   <p className="font-bold leading-tight">Scalable</p>
-                  <p className="text-[8px] sm:text-[9px] text-slate-500">Performance</p>
+                  <p className="text-[8px] sm:text-[9px] text-slate-500">
+                    Performance
+                  </p>
                 </div>
               </div>
-
             </div>
           </div>
 
           {/* 2. Bagian Teks & Konten */}
           <div className="order-2 lg:order-1 lg:col-span-7 space-y-4 sm:space-y-5 text-center lg:text-left">
-            
             <div className="inline-flex items-center justify-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono mx-auto lg:mx-0">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               <span>{data.site_tagline}</span>
@@ -145,16 +200,24 @@ export default function HomePage() {
               <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-[var(--bg-primary)] border border-[var(--card-border)] text-xs font-mono shadow-inner">
                 <FolderGit2 size={18} className="text-emerald-400 shrink-0" />
                 <div className="text-left">
-                  <span className="font-bold text-sm sm:text-base block">{data.projects_completed}+</span>
-                  <span className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">Projects</span>
+                  <span className="font-bold text-sm sm:text-base block">
+                    {data.projects_completed}+
+                  </span>
+                  <span className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                    Projects
+                  </span>
                 </div>
               </div>
 
               <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-[var(--bg-primary)] border border-[var(--card-border)] text-xs font-mono shadow-inner">
                 <Award size={18} className="text-purple-400 shrink-0" />
                 <div className="text-left">
-                  <span className="font-bold text-sm sm:text-base block">{data.happy_clients}+</span>
-                  <span className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">Achievements</span>
+                  <span className="font-bold text-sm sm:text-base block">
+                    {data.happy_clients}+
+                  </span>
+                  <span className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+                    Achievements
+                  </span>
                 </div>
               </div>
             </div>
@@ -177,20 +240,18 @@ export default function HomePage() {
 
             <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3 text-xs font-mono text-[var(--text-muted)] pt-2 border-t border-[var(--card-border)]">
               <span className="flex items-center gap-1.5">
-                <MapPin size={12} className="text-[var(--text-muted)]" /> {data.location}
+                <MapPin size={12} className="text-[var(--text-muted)]" />{' '}
+                {data.location}
               </span>
               <span className="hidden sm:inline">•</span>
               <span className="flex items-center gap-1.5">
-                <Briefcase size={12} className="text-[var(--text-muted)]" /> {data.availability_status}
+                <Briefcase size={12} className="text-[var(--text-muted)]" />{' '}
+                {data.availability_status}
               </span>
             </div>
-
           </div>
-
         </div>
-
       </div>
-
     </main>
   );
 }

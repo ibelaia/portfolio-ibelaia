@@ -1,25 +1,26 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { 
-  User, 
-  Mail, 
-  FileText, 
-  ArrowRight, 
-  MessageSquare, 
-  Phone, 
-  MapPin, 
-  Send, 
-  Code, 
-  Briefcase, 
-  Camera, 
-  Globe 
+import {
+  User,
+  Mail,
+  FileText,
+  ArrowRight,
+  MessageSquare,
+  Phone,
+  MapPin,
+  Send,
+  Code,
+  Briefcase,
+  Camera,
+  Globe,
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 
 export const ContactSection: React.FC = () => {
   const { t } = useApp();
+  const [syncTick, setSyncTick] = useState(0);
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -27,30 +28,81 @@ export const ContactSection: React.FC = () => {
     message: '',
   });
 
+  useEffect(() => {
+    void syncTick;
+    let channel: BroadcastChannel | null = null;
+
+    const handleSyncSignal = () => {
+      setSyncTick((prev) => prev + 1);
+    };
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      channel = new BroadcastChannel('portfolio-admin-sync');
+      channel.onmessage = handleSyncSignal;
+    }
+
+    const handleStorage = (event: StorageEvent) => {
+      if (!event.key || event.key.startsWith('portfolio')) {
+        handleSyncSignal();
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      if (channel) {
+        channel.close();
+      }
+    };
+  }, [syncTick]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    alert(t('Thank you! Your message has been sent.', 'Terima kasih! Pesan Anda telah terkirim.'));
+    alert(
+      t(
+        'Thank you! Your message has been sent.',
+        'Terima kasih! Pesan Anda telah terkirim.'
+      )
+    );
     setFormData({ name: '', email: '', subject: '', message: '' });
   };
 
   return (
     <div className="w-full max-w-7xl mx-auto px-4 sm:px-8 py-10 space-y-16 sm:space-y-24">
-      
       {/* ================= SEGMEN 1: LET'S BUILD SOMETHING MEANINGFUL ================= */}
       <section className="w-full">
         {/* Kontainer Mobile */}
         <div className="md:hidden bg-[#090e1e]/80 border border-white/10 rounded-3xl p-6 backdrop-blur-xl shadow-2xl flex flex-col items-center text-center">
-          <div className="w-12 h-12 rounded-full bg-slate-900 border border-white/10 flex items-center justify-center text-cyan-400 mb-4 shadow-[0_0_20px_rgba(6,182,212,0.2)]">
+          <div
+            style={{ color: 'var(--accent, #22d3ee)' }}
+            className="w-12 h-12 rounded-full bg-slate-900 border border-white/10 flex items-center justify-center text-cyan-400 mb-4 shadow-[0_0_20px_rgba(6,182,212,0.2)]"
+          >
             <User size={22} />
           </div>
 
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-[10px] font-mono text-cyan-400 font-medium mb-3">
-            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
-            {t("LET'S CONNECT", "MARI TERHUBUNG")}
+          <div
+            style={{
+              backgroundColor:
+                'color-mix(in srgb, var(--accent, #06b6d4) 12%, transparent)',
+              color: 'var(--accent, #22d3ee)',
+              borderColor:
+                'color-mix(in srgb, var(--accent, #06b6d4) 25%, transparent)',
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-[10px] font-mono text-cyan-400 font-medium mb-3"
+          >
+            <span
+              style={{ backgroundColor: 'var(--accent, #22d3ee)' }}
+              className="w-1.5 h-1.5 rounded-full bg-cyan-400"
+            />
+            {t("LET'S CONNECT", 'MARI TERHUBUNG')}
           </div>
 
           <h2 className="text-2xl font-extrabold text-white tracking-tight leading-snug mb-3">
-            {t("Let's Build Something Meaningful.", 'Mari Bangun Sesuatu yang Bermakna.')}
+            {t(
+              "Let's Build Something Meaningful.",
+              'Mari Bangun Sesuatu yang Bermakna.'
+            )}
           </h2>
 
           <p className="text-xs text-slate-400 leading-relaxed mb-6 font-normal">
@@ -79,11 +131,22 @@ export const ContactSection: React.FC = () => {
 
           <div className="flex items-center justify-center gap-4 pt-4 border-t border-white/5 w-full text-[11px] text-slate-400 font-mono">
             <span className="flex items-center gap-1.5">
-              <Mail size={12} className="text-cyan-400" /> hello@ibelaia.dev
+              <Mail
+                size={12}
+                className="text-cyan-400"
+                style={{ color: 'var(--accent, #22d3ee)' }}
+              />{' '}
+              hello@ibelaia.dev
             </span>
             <span>|</span>
-            <a href="/assets/resume.pdf" target="_blank" rel="noreferrer" className="flex items-center gap-1.5 hover:text-white transition-colors cursor-pointer">
-              <FileText size={12} className="text-purple-400" /> {t('View Resume', 'Lihat Resume')}
+            <a
+              href="/assets/resume.pdf"
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1.5 hover:text-white transition-colors cursor-pointer"
+            >
+              <FileText size={12} className="text-purple-400" />{' '}
+              {t('View Resume', 'Lihat Resume')}
             </a>
           </div>
         </div>
@@ -91,17 +154,35 @@ export const ContactSection: React.FC = () => {
         {/* Kontainer Desktop */}
         <div className="hidden md:grid md:grid-cols-12 gap-10 items-center">
           <div className="col-span-6 space-y-6">
-            <div className="w-11 h-11 rounded-full bg-slate-900 border border-white/10 flex items-center justify-center text-cyan-400">
+            <div
+              style={{ color: 'var(--accent, #22d3ee)' }}
+              className="w-11 h-11 rounded-full bg-slate-900 border border-white/10 flex items-center justify-center text-cyan-400"
+            >
               <User size={20} />
             </div>
 
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-[10px] font-mono text-cyan-400 font-medium">
-              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
-              {t("LET'S CONNECT", "MARI TERHUBUNG")}
+            <div
+              style={{
+                backgroundColor:
+                  'color-mix(in srgb, var(--accent, #06b6d4) 12%, transparent)',
+                color: 'var(--accent, #22d3ee)',
+                borderColor:
+                  'color-mix(in srgb, var(--accent, #06b6d4) 25%, transparent)',
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-[10px] font-mono text-cyan-400 font-medium"
+            >
+              <span
+                style={{ backgroundColor: 'var(--accent, #22d3ee)' }}
+                className="w-1.5 h-1.5 rounded-full bg-cyan-400"
+              />
+              {t("LET'S CONNECT", 'MARI TERHUBUNG')}
             </div>
 
             <h1 className="text-4xl lg:text-5xl font-extrabold text-white tracking-tight leading-tight">
-              {t("Let's Build Something Meaningful.", 'Mari Bangun Sesuatu yang Bermakna.')}
+              {t(
+                "Let's Build Something Meaningful.",
+                'Mari Bangun Sesuatu yang Bermakna.'
+              )}
             </h1>
 
             <p className="text-sm text-slate-400 leading-relaxed max-w-lg font-normal">
@@ -130,10 +211,21 @@ export const ContactSection: React.FC = () => {
 
             <div className="flex items-center gap-6 pt-4 border-t border-white/10 text-xs text-slate-400 font-mono">
               <span className="flex items-center gap-2">
-                <Mail size={14} className="text-cyan-400" /> hello@ibelaia.dev
+                <Mail
+                  size={14}
+                  className="text-cyan-400"
+                  style={{ color: 'var(--accent, #22d3ee)' }}
+                />{' '}
+                hello@ibelaia.dev
               </span>
-              <a href="/assets/resume.pdf" target="_blank" rel="noreferrer" className="flex items-center gap-2 hover:text-white transition-colors cursor-pointer">
-                <FileText size={14} className="text-purple-400" /> {t('View Resume', 'Lihat Resume')}
+              <a
+                href="/assets/resume.pdf"
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-2 hover:text-white transition-colors cursor-pointer"
+              >
+                <FileText size={14} className="text-purple-400" />{' '}
+                {t('View Resume', 'Lihat Resume')}
               </a>
             </div>
           </div>
@@ -142,7 +234,15 @@ export const ContactSection: React.FC = () => {
             <div className="bg-[#090e1f]/80 border border-white/10 rounded-2xl p-3 shadow-2xl backdrop-blur-xl">
               <div className="relative rounded-xl overflow-hidden border border-white/5 bg-slate-950">
                 <div className="px-4 py-2 border-b border-white/5 flex items-center justify-between text-[11px] font-mono text-slate-400">
-                  <span>Connect — <span className="text-cyan-400">Desktop</span></span>
+                  <span>
+                    Connect —{' '}
+                    <span
+                      style={{ color: 'var(--accent, #22d3ee)' }}
+                      className="text-cyan-400"
+                    >
+                      Desktop
+                    </span>
+                  </span>
                   <div className="flex items-center gap-1.5">
                     <span className="w-2.5 h-2.5 rounded-full bg-red-500/60" />
                     <span className="w-2.5 h-2.5 rounded-full bg-yellow-500/60" />
@@ -162,18 +262,42 @@ export const ContactSection: React.FC = () => {
 
       {/* ================= SEGMEN 2: LET'S WORK TOGETHER (FORM & CHANNELS) ================= */}
       <section id="contact-form" className="w-full pt-6">
-        <div className="flex items-center gap-2 text-cyan-400 text-[11px] font-mono font-medium mb-3">
-          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+        <div
+          style={{ color: 'var(--accent, #22d3ee)' }}
+          className="flex items-center gap-2 text-cyan-400 text-[11px] font-mono font-medium mb-3"
+        >
+          <span
+            style={{ backgroundColor: 'var(--accent, #22d3ee)' }}
+            className="w-1.5 h-1.5 rounded-full bg-cyan-400"
+          />
           <span>{t('GET IN TOUCH', 'HUBUNGI SAYA')}</span>
-          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+          <span
+            style={{ backgroundColor: 'var(--accent, #22d3ee)' }}
+            className="w-1.5 h-1.5 rounded-full bg-cyan-400"
+          />
         </div>
 
         <div className="flex items-center gap-3 mb-2">
-          <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
+          <div
+            style={{
+              backgroundColor:
+                'color-mix(in srgb, var(--accent, #06b6d4) 12%, transparent)',
+              color: 'var(--accent, #22d3ee)',
+              borderColor:
+                'color-mix(in srgb, var(--accent, #06b6d4) 25%, transparent)',
+            }}
+            className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400"
+          >
             <MessageSquare size={18} />
           </div>
           <h2 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
-            {t("Let's", 'Mari')} <span className="text-cyan-400">{t('Work Together.', 'Bekerja Sama.')}</span>
+            {t("Let's", 'Mari')}{' '}
+            <span
+              style={{ color: 'var(--accent, #22d3ee)' }}
+              className="text-cyan-400"
+            >
+              {t('Work Together.', 'Bekerja Sama.')}
+            </span>
           </h2>
         </div>
 
@@ -197,11 +321,16 @@ export const ContactSection: React.FC = () => {
                     type="text"
                     required
                     value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    onChange={(e) =>
+                      setFormData({ ...formData, name: e.target.value })
+                    }
                     placeholder={t('John Doe', 'Nama Anda')}
                     className="w-full pl-9 pr-3 py-2.5 bg-slate-950/80 border border-white/10 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400"
                   />
-                  <User size={14} className="absolute left-3 top-3 text-slate-500" />
+                  <User
+                    size={14}
+                    className="absolute left-3 top-3 text-slate-500"
+                  />
                 </div>
               </div>
 
@@ -214,11 +343,16 @@ export const ContactSection: React.FC = () => {
                     type="email"
                     required
                     value={formData.email}
-                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    onChange={(e) =>
+                      setFormData({ ...formData, email: e.target.value })
+                    }
                     placeholder="john@example.com"
                     className="w-full pl-9 pr-3 py-2.5 bg-slate-950/80 border border-white/10 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400"
                   />
-                  <Mail size={14} className="absolute left-3 top-3 text-slate-500" />
+                  <Mail
+                    size={14}
+                    className="absolute left-3 top-3 text-slate-500"
+                  />
                 </div>
               </div>
 
@@ -231,11 +365,19 @@ export const ContactSection: React.FC = () => {
                     type="text"
                     required
                     value={formData.subject}
-                    onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
-                    placeholder={t('Project Collaboration Inquiry', 'Diskusi Proyek Kolaborasi')}
+                    onChange={(e) =>
+                      setFormData({ ...formData, subject: e.target.value })
+                    }
+                    placeholder={t(
+                      'Project Collaboration Inquiry',
+                      'Diskusi Proyek Kolaborasi'
+                    )}
                     className="w-full pl-9 pr-3 py-2.5 bg-slate-950/80 border border-white/10 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400"
                   />
-                  <MessageSquare size={14} className="absolute left-3 top-3 text-slate-500" />
+                  <MessageSquare
+                    size={14}
+                    className="absolute left-3 top-3 text-slate-500"
+                  />
                 </div>
               </div>
 
@@ -248,11 +390,19 @@ export const ContactSection: React.FC = () => {
                     rows={4}
                     required
                     value={formData.message}
-                    onChange={(e) => setFormData({ ...formData, message: e.target.value })}
-                    placeholder={t('Tell me about your goals or questions...', 'Ceritakan rencana atau kebutuhan proyek Anda...')}
+                    onChange={(e) =>
+                      setFormData({ ...formData, message: e.target.value })
+                    }
+                    placeholder={t(
+                      'Tell me about your goals or questions...',
+                      'Ceritakan rencana atau kebutuhan proyek Anda...'
+                    )}
                     className="w-full pl-9 pr-3 py-2.5 bg-slate-950/80 border border-white/10 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 resize-none"
                   />
-                  <FileText size={14} className="absolute left-3 top-3 text-slate-500" />
+                  <FileText
+                    size={14}
+                    className="absolute left-3 top-3 text-slate-500"
+                  />
                 </div>
               </div>
 
@@ -276,15 +426,26 @@ export const ContactSection: React.FC = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* Box Email */}
               <div className="bg-[#090e1e]/80 border border-white/10 rounded-2xl p-5 flex flex-col justify-between">
-                <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-cyan-400 mb-3">
+                <div
+                  style={{ color: 'var(--accent, #22d3ee)' }}
+                  className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-cyan-400 mb-3"
+                >
                   <Mail size={15} />
                 </div>
                 <div>
-                  <span className="text-[11px] text-slate-400 block">Email</span>
-                  <a href="mailto:hello@ibelaia.dev" className="text-xs font-semibold text-cyan-400 hover:underline">
+                  <span className="text-[11px] text-slate-400 block">
+                    Email
+                  </span>
+                  <a
+                    href="mailto:hello@ibelaia.dev"
+                    style={{ color: 'var(--accent, #22d3ee)' }}
+                    className="text-xs font-semibold text-cyan-400 hover:underline"
+                  >
                     hello@ibelaia.dev
                   </a>
-                  <p className="text-[10px] text-slate-500 font-mono mt-0.5">{t('Drop me a message', 'Kirimkan saya pesan')}</p>
+                  <p className="text-[10px] text-slate-500 font-mono mt-0.5">
+                    {t('Drop me a message', 'Kirimkan saya pesan')}
+                  </p>
                 </div>
               </div>
 
@@ -294,23 +455,44 @@ export const ContactSection: React.FC = () => {
                   <Phone size={15} />
                 </div>
                 <div>
-                  <span className="text-[11px] text-slate-400 block">WhatsApp</span>
-                  <a href="https://wa.me/6281234567890" target="_blank" rel="noreferrer" className="text-xs font-semibold text-emerald-400 hover:underline">
+                  <span className="text-[11px] text-slate-400 block">
+                    WhatsApp
+                  </span>
+                  <a
+                    href="https://wa.me/6281234567890"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs font-semibold text-emerald-400 hover:underline"
+                  >
                     +62 812 3456 7890
                   </a>
-                  <p className="text-[10px] text-slate-500 font-mono mt-0.5">{t("Let's chat", 'Mari mengobrol')}</p>
+                  <p className="text-[10px] text-slate-500 font-mono mt-0.5">
+                    {t("Let's chat", 'Mari mengobrol')}
+                  </p>
                 </div>
               </div>
 
               {/* Box Location */}
               <div className="bg-[#090e1e]/80 border border-white/10 rounded-2xl p-5 flex flex-col justify-between">
-                <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-cyan-400 mb-3">
+                <div
+                  style={{ color: 'var(--accent, #22d3ee)' }}
+                  className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-cyan-400 mb-3"
+                >
                   <MapPin size={15} />
                 </div>
                 <div>
-                  <span className="text-[11px] text-slate-400 block">{t('Location', 'Lokasi')}</span>
-                  <span className="text-xs font-semibold text-cyan-400">Indonesia</span>
-                  <p className="text-[10px] text-slate-500 font-mono mt-0.5">GMT +7</p>
+                  <span className="text-[11px] text-slate-400 block">
+                    {t('Location', 'Lokasi')}
+                  </span>
+                  <span
+                    style={{ color: 'var(--accent, #22d3ee)' }}
+                    className="text-xs font-semibold text-cyan-400"
+                  >
+                    Indonesia
+                  </span>
+                  <p className="text-[10px] text-slate-500 font-mono mt-0.5">
+                    GMT +7
+                  </p>
                 </div>
               </div>
 
@@ -320,11 +502,20 @@ export const ContactSection: React.FC = () => {
                   <Phone size={15} />
                 </div>
                 <div>
-                  <span className="text-[11px] text-slate-400 block">WhatsApp</span>
-                  <a href="https://wa.me/6281234567890" target="_blank" rel="noreferrer" className="text-xs font-semibold text-emerald-400 hover:underline">
+                  <span className="text-[11px] text-slate-400 block">
+                    WhatsApp
+                  </span>
+                  <a
+                    href="https://wa.me/6281234567890"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs font-semibold text-emerald-400 hover:underline"
+                  >
                     +62 812 3456 7890
                   </a>
-                  <p className="text-[10px] text-slate-500 font-mono mt-0.5">{t("Let's chat", 'Mari mengobrol')}</p>
+                  <p className="text-[10px] text-slate-500 font-mono mt-0.5">
+                    {t("Let's chat", 'Mari mengobrol')}
+                  </p>
                 </div>
               </div>
             </div>
@@ -332,7 +523,10 @@ export const ContactSection: React.FC = () => {
             {/* Divider Or Reach Me Directly */}
             <div className="flex items-center gap-3 py-2">
               <div className="flex-1 h-px bg-white/5" />
-              <span className="text-[10px] font-mono text-cyan-400 tracking-wider">
+              <span
+                style={{ color: 'var(--accent, #22d3ee)' }}
+                className="text-[10px] font-mono text-cyan-400 tracking-wider"
+              >
                 • {t('OR REACH ME DIRECTLY', 'ATAU HUBUNGI LANGSUNG')} •
               </span>
               <div className="flex-1 h-px bg-white/5" />
@@ -341,7 +535,7 @@ export const ContactSection: React.FC = () => {
             {/* Panel Let's Connect Social */}
             <div className="bg-[#090e1e]/80 border border-white/10 rounded-2xl p-5">
               <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block mb-3">
-                • {t("LET'S CONNECT", "MARI TERHUBUNG")} •
+                • {t("LET'S CONNECT", 'MARI TERHUBUNG')} •
               </span>
               <div className="grid grid-cols-4 gap-3">
                 <a
@@ -385,7 +579,6 @@ export const ContactSection: React.FC = () => {
           </div>
         </div>
       </section>
-
     </div>
   );
 };

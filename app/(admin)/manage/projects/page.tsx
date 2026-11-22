@@ -1,7 +1,17 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Loader2, Plus, Trash2, Edit3, Check, X, FolderGit2 } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import {
+  Loader2,
+  Plus,
+  Trash2,
+  Edit3,
+  Check,
+  X,
+  FolderGit2,
+  Radio,
+} from 'lucide-react';
 
 interface ProjectItem {
   id: string;
@@ -14,10 +24,20 @@ interface ProjectItem {
   is_featured?: boolean;
 }
 
+const MANAGE_PROJECTS_SYNC_CHANNEL = 'portfolio-sync-projects';
+
 export default function ManageProjectsPage() {
+  const router = useRouter();
+  const syncChannelRef = useRef<BroadcastChannel | null>(null);
+
   const [projects, setProjects] = useState<ProjectItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [livePulse, setLivePulse] = useState(false);
+  const [toast, setToast] = useState<{
+    message: string;
+    type: 'success' | 'error';
+  } | null>(null);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -29,15 +49,53 @@ export default function ManageProjectsPage() {
   const [githubUrl, setGithubUrl] = useState('');
   const [isFeatured, setIsFeatured] = useState(false);
 
-  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+  const showToast = (
+    message: string,
+    type: 'success' | 'error' = 'success'
+  ) => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3500);
   };
 
-  const fetchProjects = async () => {
+  const broadcastProjectsUpdate = useCallback(
+    (action: string, detailData?: any) => {
+      const eventDetail = {
+        section: 'projects',
+        action,
+        updatedAt: Date.now(),
+        data: detailData,
+      };
+
+      try {
+        if (syncChannelRef.current) {
+          syncChannelRef.current.postMessage(eventDetail);
+        }
+      } catch {
+        // Abaikan jika BroadcastChannel tidak tersedia
+      }
+
+      try {
+        localStorage.setItem(
+          MANAGE_PROJECTS_SYNC_CHANNEL,
+          JSON.stringify(eventDetail)
+        );
+      } catch {
+        // Abaikan jika localStorage diblokir
+      }
+
+      window.dispatchEvent(
+        new CustomEvent(MANAGE_PROJECTS_SYNC_CHANNEL, { detail: eventDetail })
+      );
+      setLivePulse(true);
+      setTimeout(() => setLivePulse(false), 1800);
+    },
+    []
+  );
+
+  const fetchProjects = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/projects');
+      const response = await fetch('/api/projects', { cache: 'no-store' });
       const json = await response.json();
 
       if (json.success && Array.isArray(json.data)) {
@@ -51,11 +109,40 @@ export default function ManageProjectsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
+    let isMounted = true;
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      syncChannelRef.current = new BroadcastChannel(
+        MANAGE_PROJECTS_SYNC_CHANNEL
+      );
+      syncChannelRef.current.onmessage = () => {
+        if (isMounted) {
+          fetchProjects();
+        }
+      };
+    }
+
+    const handleStorageSync = (e: StorageEvent) => {
+      if (e.key === MANAGE_PROJECTS_SYNC_CHANNEL && isMounted) {
+        fetchProjects();
+      }
+    };
+
+    window.addEventListener('storage', handleStorageSync);
     fetchProjects();
-  }, []);
+
+    return () => {
+      isMounted = false;
+      window.removeEventListener('storage', handleStorageSync);
+      if (syncChannelRef.current) {
+        syncChannelRef.current.close();
+        syncChannelRef.current = null;
+      }
+    };
+  }, [fetchProjects]);
 
   const handleOpenModal = (project?: ProjectItem) => {
     if (project) {
@@ -87,6 +174,7 @@ export default function ManageProjectsPage() {
       return;
     }
 
+    setSaving(true);
     const payload = {
       id: editingId,
       title,
@@ -104,19 +192,34 @@ export default function ManageProjectsPage() {
       const response = await fetch('/api/projects', {
         method: editingId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        cache: 'no-store',
+        body: JSON.stringify(payload),
       });
       const json = await response.json();
 
       if (response.ok && json.success) {
-        showToast(editingId ? 'Proyek berhasil diperbarui ke Neon!' : 'Proyek berhasil ditambahkan ke Neon!');
+        broadcastProjectsUpdate(
+          editingId ? 'update' : 'create',
+          json.data ?? payload
+        );
+        router.refresh();
+        showToast(
+          editingId
+            ? 'Proyek berhasil diperbarui ke Neon & disinkronkan secara real-time!'
+            : 'Proyek berhasil ditambahkan ke Neon & disinkronkan secara real-time!'
+        );
         setIsModalOpen(false);
-        fetchProjects();
+        await fetchProjects();
       } else {
-        showToast(`Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`, 'error');
+        showToast(
+          `Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`,
+          'error'
+        );
       }
     } catch (err: any) {
-      showToast(`Error: ${err.message}`, 'error');
+      showToast(`Error: ${err?.message || 'Terjadi kesalahan'}`, 'error');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -125,36 +228,66 @@ export default function ManageProjectsPage() {
 
     try {
       const response = await fetch(`/api/projects?id=${id}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        cache: 'no-store',
       });
       const json = await response.json();
 
       if (response.ok && json.success) {
-        showToast('Proyek berhasil dihapus!');
-        fetchProjects();
+        broadcastProjectsUpdate('delete', { id });
+        router.refresh();
+        showToast('Proyek berhasil dihapus secara real-time!');
+        await fetchProjects();
       } else {
-        showToast(`Gagal menghapus: ${json.error || 'Terjadi kesalahan'}`, 'error');
+        showToast(
+          `Gagal menghapus: ${json.error || 'Terjadi kesalahan'}`,
+          'error'
+        );
       }
     } catch (err: any) {
-      showToast(`Error: ${err.message}`, 'error');
+      showToast(`Error: ${err?.message || 'Terjadi kesalahan'}`, 'error');
     }
   };
 
   return (
     <div className="w-full max-w-6xl mx-auto px-4 py-8 space-y-6">
       {toast && (
-        <div className={`fixed top-5 right-5 z-50 px-4 py-3 rounded-xl text-sm font-medium shadow-lg flex items-center gap-2 ${toast.type === 'success' ? 'bg-emerald-500 text-white' : 'bg-rose-500 text-white'}`}>
+        <div
+          className={`fixed top-5 right-5 z-50 px-4 py-3 rounded-xl text-sm font-medium shadow-lg flex items-center gap-2 ${
+            toast.type === 'success'
+              ? 'bg-emerald-500 text-white'
+              : 'bg-rose-500 text-white'
+          }`}
+        >
           {toast.type === 'success' ? <Check size={18} /> : <X size={18} />}
           <span>{toast.message}</span>
         </div>
       )}
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-3xl font-extrabold text-white">Kelola Proyek Utama</h1>
-          <p className="text-slate-400 text-sm mt-1">Tambah, ubah, atau hapus daftar portofolio proyek utama Anda via Neon.</p>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h1 className="text-3xl font-extrabold text-white">
+              Kelola Proyek Utama
+            </h1>
+            <span
+              className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono border transition-colors ${
+                livePulse
+                  ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300'
+                  : 'bg-white/5 border-white/10 text-slate-400'
+              }`}
+            >
+              <Radio size={11} className="text-emerald-400" />
+              <span>LIVE SYNC</span>
+            </span>
+          </div>
+          <p className="text-slate-400 text-sm mt-1">
+            Tambah, ubah, atau hapus daftar portofolio proyek utama Anda via
+            Neon secara dinamis dan real-time.
+          </p>
         </div>
         <button
+          type="button"
           onClick={() => handleOpenModal()}
           className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-cyan-500 text-slate-950 font-bold hover:bg-cyan-400 transition-colors cursor-pointer"
         >
@@ -166,7 +299,9 @@ export default function ManageProjectsPage() {
       {loading ? (
         <div className="w-full py-20 flex flex-col items-center justify-center gap-3">
           <Loader2 className="animate-spin text-cyan-400" size={32} />
-          <span className="text-sm text-slate-400 font-mono">Memuat daftar proyek dari Neon API...</span>
+          <span className="text-sm text-slate-400 font-mono">
+            Memuat daftar proyek dari Neon API...
+          </span>
         </div>
       ) : projects.length === 0 ? (
         <div className="text-center py-20 bg-slate-900/40 border border-white/5 rounded-2xl space-y-2">
@@ -176,20 +311,30 @@ export default function ManageProjectsPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {projects.map((item) => (
-            <div key={item.id} className="bg-slate-900/60 border border-white/10 p-5 rounded-2xl flex flex-col justify-between gap-4">
+            <div
+              key={item.id}
+              className="bg-slate-900/60 border border-white/10 p-5 rounded-2xl flex flex-col justify-between gap-4"
+            >
               <div className="space-y-2">
                 <div className="flex items-start justify-between gap-2">
                   <h3 className="text-lg font-bold text-white">{item.title}</h3>
-                  <span className="text-xs font-mono px-2.5 py-1 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">{item.category}</span>
+                  <span className="text-xs font-mono px-2.5 py-1 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                    {item.category}
+                  </span>
                 </div>
-                <p className="text-xs text-slate-300 leading-relaxed line-clamp-2">{item.description || (item as any).overview}</p>
+                <p className="text-xs text-slate-300 leading-relaxed line-clamp-2">
+                  {item.description || (item as any).overview}
+                </p>
                 {item.is_featured && (
-                  <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">Featured</span>
+                  <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                    Featured
+                  </span>
                 )}
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-white/5">
                 <button
+                  type="button"
                   onClick={() => handleOpenModal(item)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-medium text-slate-200 transition-colors cursor-pointer"
                 >
@@ -197,6 +342,7 @@ export default function ManageProjectsPage() {
                   <span>Edit</span>
                 </button>
                 <button
+                  type="button"
                   onClick={() => handleDelete(item.id)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-xs font-medium text-rose-400 transition-colors cursor-pointer"
                 >
@@ -213,15 +359,23 @@ export default function ManageProjectsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
           <div className="w-full max-w-lg bg-slate-900 border border-white/10 rounded-2xl p-6 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between">
-              <h2 className="text-xl font-bold text-white">{editingId ? 'Edit Proyek' : 'Tambah Proyek Baru'}</h2>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white cursor-pointer">
+              <h2 className="text-xl font-bold text-white">
+                {editingId ? 'Edit Proyek' : 'Tambah Proyek Baru'}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                className="text-slate-400 hover:text-white cursor-pointer"
+              >
                 <X size={20} />
               </button>
             </div>
 
             <form onSubmit={handleSave} className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Judul Proyek</label>
+                <label className="block text-xs font-medium text-slate-300 mb-1">
+                  Judul Proyek
+                </label>
                 <input
                   type="text"
                   value={title}
@@ -233,7 +387,9 @@ export default function ManageProjectsPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Kategori</label>
+                <label className="block text-xs font-medium text-slate-300 mb-1">
+                  Kategori
+                </label>
                 <input
                   type="text"
                   value={category}
@@ -245,7 +401,9 @@ export default function ManageProjectsPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Deskripsi Proyek</label>
+                <label className="block text-xs font-medium text-slate-300 mb-1">
+                  Deskripsi Proyek
+                </label>
                 <textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
@@ -256,7 +414,9 @@ export default function ManageProjectsPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">URL Gambar / Thumbnail</label>
+                <label className="block text-xs font-medium text-slate-300 mb-1">
+                  URL Gambar / Thumbnail
+                </label>
                 <input
                   type="url"
                   value={imageUrl}
@@ -268,7 +428,9 @@ export default function ManageProjectsPage() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">Live Demo URL</label>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    Live Demo URL
+                  </label>
                   <input
                     type="url"
                     value={liveUrl}
@@ -278,7 +440,9 @@ export default function ManageProjectsPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">GitHub URL</label>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    GitHub URL
+                  </label>
                   <input
                     type="url"
                     value={githubUrl}
@@ -297,7 +461,12 @@ export default function ManageProjectsPage() {
                   onChange={(e) => setIsFeatured(e.target.checked)}
                   className="w-4 h-4 rounded bg-slate-950 border-white/10 text-cyan-500 focus:ring-cyan-500 cursor-pointer"
                 />
-                <label htmlFor="featured" className="text-xs font-medium text-slate-300 cursor-pointer">Tandai sebagai Proyek Unggulan (Featured)</label>
+                <label
+                  htmlFor="featured"
+                  className="text-xs font-medium text-slate-300 cursor-pointer"
+                >
+                  Tandai sebagai Proyek Unggulan (Featured)
+                </label>
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-2">
@@ -310,9 +479,11 @@ export default function ManageProjectsPage() {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold transition-colors cursor-pointer"
+                  disabled={saving}
+                  className="px-5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
                 >
-                  Simpan
+                  {saving && <Loader2 size={14} className="animate-spin" />}
+                  <span>{saving ? 'Menyimpan...' : 'Simpan'}</span>
                 </button>
               </div>
             </form>

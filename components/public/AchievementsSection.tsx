@@ -1,23 +1,53 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
-import { 
-  Trophy, 
-  Presentation, 
-  GraduationCap, 
-  GitPullRequest, 
-  ChevronLeft, 
-  ChevronRight, 
-  ArrowRight, 
-  Layers 
+import {
+  Trophy,
+  Presentation,
+  GraduationCap,
+  GitPullRequest,
+  ChevronLeft,
+  ChevronRight,
+  ArrowRight,
+  Layers,
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 
 export const AchievementsSection: React.FC = () => {
   const { t } = useApp();
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [syncTick, setSyncTick] = useState(0);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    void syncTick;
+    let channel: BroadcastChannel | null = null;
+
+    const handleSyncSignal = () => {
+      setSyncTick((prev) => prev + 1);
+    };
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      channel = new BroadcastChannel('portfolio-admin-sync');
+      channel.onmessage = handleSyncSignal;
+    }
+
+    const handleStorage = (event: StorageEvent) => {
+      if (!event.key || event.key.startsWith('portfolio')) {
+        handleSyncSignal();
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      if (channel) {
+        channel.close();
+      }
+    };
+  }, [syncTick]);
 
   const achievements = [
     {
@@ -28,8 +58,10 @@ export const AchievementsSection: React.FC = () => {
       badgeId: 'Juara 1',
       year: '2024',
       desc: 'Secured 1st place in a university-level web development competition focusing on accessible UI & high performance.',
-      descId: 'Meraih Juara 1 pada kompetisi web tingkat universitas dengan fokus aksesibilitas UI dan performa tinggi.',
-      image: 'https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?auto=format&fit=crop&w=800&q=80',
+      descId:
+        'Meraih Juara 1 pada kompetisi web tingkat universitas dengan fokus aksesibilitas UI dan performa tinggi.',
+      image:
+        'https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?auto=format&fit=crop&w=800&q=80',
       icon: <Trophy size={16} className="text-purple-300" />,
     },
     {
@@ -40,8 +72,10 @@ export const AchievementsSection: React.FC = () => {
       badgeId: 'Finalis',
       year: '2024',
       desc: 'Built and presented a digital solution in a competitive 48-hour hackathon sprint.',
-      descId: 'Membangun dan mempresentasikan solusi platform digital dalam kompetisi hackathon 48 jam.',
-      image: 'https://images.unsplash.com/photo-1531482615713-2afd69097998?auto=format&fit=crop&w=800&q=80',
+      descId:
+        'Membangun dan mempresentasikan solusi platform digital dalam kompetisi hackathon 48 jam.',
+      image:
+        'https://images.unsplash.com/photo-1531482615713-2afd69097998?auto=format&fit=crop&w=800&q=80',
       icon: <Presentation size={16} className="text-cyan-300" />,
     },
     {
@@ -52,8 +86,10 @@ export const AchievementsSection: React.FC = () => {
       badgeId: 'Akademik',
       year: '2023',
       desc: 'Recognized for strong academic performance and consistent technical development throughout coursework.',
-      descId: 'Apresiasi atas performa akademik unggul dan konsistensi pengembangan teknis selama perkuliahan.',
-      image: 'https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=800&q=80',
+      descId:
+        'Apresiasi atas performa akademik unggul dan konsistensi pengembangan teknis selama perkuliahan.',
+      image:
+        'https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=800&q=80',
       icon: <GraduationCap size={16} className="text-emerald-300" />,
     },
     {
@@ -64,8 +100,10 @@ export const AchievementsSection: React.FC = () => {
       badgeId: 'Kontributor',
       year: '2023',
       desc: 'Contributed to collaborative developer toolkits, reusable components, and community software.',
-      descId: 'Berkontribusi pada proyek sumber terbuka, komponen modular, dan perangkat komunitas developer.',
-      image: 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=800&q=80',
+      descId:
+        'Berkontribusi pada proyek sumber terbuka, komponen modular, dan perangkat komunitas developer.',
+      image:
+        'https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=800&q=80',
       icon: <GitPullRequest size={16} className="text-amber-300" />,
     },
   ];
@@ -97,12 +135,28 @@ export const AchievementsSection: React.FC = () => {
   };
 
   return (
-    <section id="achievements" className="w-full max-w-7xl mx-auto px-4 sm:px-8 py-10">
+    <section
+      id="achievements"
+      className="w-full max-w-7xl mx-auto px-4 sm:px-8 py-10"
+    >
       {/* Header Section */}
       <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 gap-4">
         <div>
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-[11px] text-cyan-400 font-medium mb-3 font-mono">
-            <Trophy size={13} className="text-cyan-400" />
+          <div
+            style={{
+              backgroundColor:
+                'color-mix(in srgb, var(--accent, #06b6d4) 12%, transparent)',
+              color: 'var(--accent, #22d3ee)',
+              borderColor:
+                'color-mix(in srgb, var(--accent, #06b6d4) 25%, transparent)',
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-[11px] text-cyan-400 font-medium mb-3 font-mono"
+          >
+            <Trophy
+              size={13}
+              className="text-cyan-400"
+              style={{ color: 'var(--accent, #22d3ee)' }}
+            />
             <span>{t('ACHIEVEMENTS', 'PRESTASI')}</span>
           </div>
 
@@ -147,7 +201,10 @@ export const AchievementsSection: React.FC = () => {
       {/* ================= TAMPILAN MOBILE CONTAINER ================= */}
       <div className="md:hidden bg-[#090e1e]/80 border border-white/10 rounded-3xl p-5 backdrop-blur-xl shadow-2xl relative pb-8">
         <div className="flex items-center justify-between mb-4">
-          <span className="text-xs font-mono tracking-wider font-semibold text-cyan-400">
+          <span
+            style={{ color: 'var(--accent, #22d3ee)' }}
+            className="text-xs font-mono tracking-wider font-semibold text-cyan-400"
+          >
             {t('ACHIEVEMENTS', 'PRESTASI')}
           </span>
 
@@ -224,8 +281,15 @@ export const AchievementsSection: React.FC = () => {
                   setCurrentIndex(dotIdx);
                   scrollToCard(dotIdx);
                 }}
+                style={
+                  currentIndex === dotIdx
+                    ? { backgroundColor: 'var(--accent, #22d3ee)' }
+                    : undefined
+                }
                 className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${
-                  currentIndex === dotIdx ? 'w-5 bg-cyan-400' : 'w-1.5 bg-slate-700 hover:bg-slate-500'
+                  currentIndex === dotIdx
+                    ? 'w-5 bg-cyan-400'
+                    : 'w-1.5 bg-slate-700 hover:bg-slate-500'
                 }`}
                 aria-label={`Slide ${dotIdx + 1}`}
               />
@@ -242,6 +306,10 @@ export const AchievementsSection: React.FC = () => {
         {achievements.map((item) => (
           <div
             key={item.id}
+            style={{
+              borderColor:
+                'color-mix(in srgb, var(--accent, #06b6d4) 18%, rgba(255,255,255,0.1))',
+            }}
             className="bg-[#090e1e]/80 border border-white/10 hover:border-cyan-500/40 rounded-2xl overflow-hidden backdrop-blur-xl shadow-xl transition-all duration-300 flex flex-col justify-between group hover:-translate-y-1"
           >
             <div>
@@ -263,7 +331,10 @@ export const AchievementsSection: React.FC = () => {
                   </span>
                 </div>
 
-                <span className="text-[10px] font-mono uppercase tracking-wider text-cyan-400 font-semibold block mb-1">
+                <span
+                  style={{ color: 'var(--accent, #22d3ee)' }}
+                  className="text-[10px] font-mono uppercase tracking-wider text-cyan-400 font-semibold block mb-1"
+                >
                   {t(item.badge, item.badgeId)}
                 </span>
 

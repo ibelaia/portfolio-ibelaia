@@ -1,34 +1,144 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { 
-  ArrowRight, 
-  ArrowUpRight, 
-  Briefcase, 
-  Trophy, 
-  Code2, 
-  Gauge, 
-  MapPin 
+import {
+  ArrowRight,
+  ArrowUpRight,
+  Briefcase,
+  Trophy,
+  Code2,
+  Gauge,
+  MapPin,
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 
+const DEFAULT_AVATAR_SRC = '/assets/avatar.jpg';
+
 export const HeroSection: React.FC = () => {
   const { t } = useApp();
+  const [syncTick, setSyncTick] = useState(0);
+  const [avatarSrc, setAvatarSrc] = useState<string>(DEFAULT_AVATAR_SRC);
+
+  const loadDynamicAvatar = useCallback(async () => {
+    try {
+      const directPhoto = localStorage.getItem('portfolio_profile_photo_url');
+      if (directPhoto) {
+        setAvatarSrc(directPhoto);
+      } else {
+        const cachedHomeRaw = localStorage.getItem('portfolio_home_settings');
+        if (cachedHomeRaw) {
+          const cachedHome = JSON.parse(cachedHomeRaw);
+          if (cachedHome?.profile_photo_url || cachedHome?.avatar_url) {
+            setAvatarSrc(cachedHome.profile_photo_url || cachedHome.avatar_url);
+          }
+        }
+      }
+    } catch {
+      // Abaikan error akses localStorage
+    }
+
+    try {
+      const response = await fetch('/api/portfolio', { cache: 'no-store' });
+      const contentType = response.headers.get('content-type') || '';
+      if (response.ok && contentType.includes('application/json')) {
+        const json = await response.json();
+        const remoteAvatar =
+          json?.home?.profile_photo_url ||
+          json?.home?.avatar_url ||
+          json?.data?.home?.profile_photo_url ||
+          json?.data?.profile_photo_url;
+        if (remoteAvatar) {
+          setAvatarSrc(remoteAvatar);
+          try {
+            localStorage.setItem('portfolio_profile_photo_url', remoteAvatar);
+          } catch {
+            // Abaikan error penyimpanan lokal
+          }
+        }
+      }
+    } catch {
+      // Tetap gunakan foto lokal / fallback jika API gagal
+    }
+  }, []);
+
+  useEffect(() => {
+    void syncTick;
+    loadDynamicAvatar();
+
+    let adminChannel: BroadcastChannel | null = null;
+    let homeChannel: BroadcastChannel | null = null;
+
+    const handleSyncSignal = (event?: MessageEvent) => {
+      const incomingPhoto =
+        event?.data?.data?.profile_photo_url ||
+        event?.data?.data?.avatar_url ||
+        event?.data?.profile_photo_url;
+      if (incomingPhoto) {
+        setAvatarSrc(incomingPhoto);
+      }
+      loadDynamicAvatar();
+      setSyncTick((prev) => prev + 1);
+    };
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      adminChannel = new BroadcastChannel('portfolio-admin-sync');
+      adminChannel.onmessage = handleSyncSignal;
+
+      homeChannel = new BroadcastChannel('portfolio-sync-home');
+      homeChannel.onmessage = handleSyncSignal;
+    }
+
+    const handleStorage = (event: StorageEvent) => {
+      if (
+        !event.key ||
+        event.key.startsWith('portfolio') ||
+        event.key.includes('photo') ||
+        event.key.includes('avatar')
+      ) {
+        loadDynamicAvatar();
+        setSyncTick((prev) => prev + 1);
+      }
+    };
+
+    const handleHomeCustomEvent = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const incomingPhoto =
+        customEvent.detail?.data?.profile_photo_url ||
+        customEvent.detail?.data?.avatar_url;
+      if (incomingPhoto) {
+        setAvatarSrc(incomingPhoto);
+      }
+      loadDynamicAvatar();
+      setSyncTick((prev) => prev + 1);
+    };
+
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('portfolio-sync-home', handleHomeCustomEvent);
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('portfolio-sync-home', handleHomeCustomEvent);
+      if (adminChannel) {
+        adminChannel.close();
+      }
+      if (homeChannel) {
+        homeChannel.close();
+      }
+    };
+  }, [syncTick, loadDynamicAvatar]);
 
   return (
     <section className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 md:py-8">
-      
       {/* ================= 1. VERSI MOBILE (< md) ================= */}
       <div className="md:hidden relative pt-12">
         <div className="relative bg-[#090e1f]/90 border border-white/10 rounded-3xl px-6 pt-16 pb-8 shadow-2xl backdrop-blur-xl flex flex-col items-center text-center">
-          
           {/* Avatar Melayang */}
           <div className="absolute -top-12 left-1/2 -translate-x-1/2 z-20">
             <div className="w-24 h-24 rounded-full p-1 bg-gradient-to-b from-cyan-400/40 via-purple-500/20 to-transparent shadow-2xl">
               <div className="w-full h-full rounded-full overflow-hidden bg-[#070913] border-2 border-[#090e1f]">
                 <img
-                  src="/assets/avatar.jpg"
+                  src={avatarSrc || DEFAULT_AVATAR_SRC}
                   alt="Ibe Laia"
                   className="w-full h-full object-cover"
                   onError={(e) => {
@@ -43,7 +153,12 @@ export const HeroSection: React.FC = () => {
 
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-[10px] font-mono text-emerald-400 mb-3">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span>{t('Available for Internship & Projects', 'Terbuka untuk Magang & Proyek')}</span>
+            <span>
+              {t(
+                'Available for Internship & Projects',
+                'Terbuka untuk Magang & Proyek'
+              )}
+            </span>
           </div>
 
           {/* Nama Karakter Kuat Mobile */}
@@ -69,7 +184,9 @@ export const HeroSection: React.FC = () => {
               </div>
               <div className="text-left">
                 <div className="text-lg font-black text-white">12+</div>
-                <div className="text-[9px] font-mono text-slate-400 uppercase">{t('Projects', 'Proyek')}</div>
+                <div className="text-[9px] font-mono text-slate-400 uppercase">
+                  {t('Projects', 'Proyek')}
+                </div>
               </div>
             </div>
 
@@ -79,7 +196,9 @@ export const HeroSection: React.FC = () => {
               </div>
               <div className="text-left">
                 <div className="text-lg font-black text-white">5+</div>
-                <div className="text-[9px] font-mono text-slate-400 uppercase">{t('Awards', 'Prestasi')}</div>
+                <div className="text-[9px] font-mono text-slate-400 uppercase">
+                  {t('Awards', 'Prestasi')}
+                </div>
               </div>
             </div>
           </div>
@@ -88,6 +207,9 @@ export const HeroSection: React.FC = () => {
           <div className="grid grid-cols-2 gap-2.5 w-full">
             <Link
               href="/projects"
+              style={{
+                backgroundColor: 'var(--accent, #22d3ee)',
+              }}
               className="py-2.5 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
             >
               <span>{t('Projects', 'Proyek')}</span>
@@ -102,19 +224,21 @@ export const HeroSection: React.FC = () => {
               <ArrowUpRight size={13} />
             </Link>
           </div>
-
         </div>
       </div>
 
       {/* ================= 2. VERSI DESKTOP / LAPTOP ================= */}
       <div className="hidden md:grid md:grid-cols-12 gap-8 lg:gap-12 items-center">
-        
         {/* Kolom Kiri */}
         <div className="md:col-span-7 flex flex-col items-start text-left space-y-5">
-          
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-xs font-mono text-emerald-400">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>{t('Available for Internship & Freelance', 'Terbuka untuk Magang & Freelance')}</span>
+            <span>
+              {t(
+                'Available for Internship & Freelance',
+                'Terbuka untuk Magang & Freelance'
+              )}
+            </span>
           </div>
 
           <div>
@@ -123,7 +247,10 @@ export const HeroSection: React.FC = () => {
               Ibe Laia
             </h1>
             <p className="text-xl lg:text-2xl font-bold tracking-tight mt-1 text-slate-300">
-              <span className="bg-gradient-to-r from-purple-400 via-indigo-300 to-cyan-400 bg-clip-text text-transparent">
+              <span
+                style={{ color: 'var(--accent, #c084fc)' }}
+                className="bg-gradient-to-r from-purple-400 via-indigo-300 to-cyan-400 bg-clip-text text-transparent"
+              >
                 Full-Stack
               </span>{' '}
               Developer
@@ -144,7 +271,9 @@ export const HeroSection: React.FC = () => {
                 <Briefcase size={18} />
               </div>
               <div>
-                <div className="text-2xl font-black text-white leading-none">12+</div>
+                <div className="text-2xl font-black text-white leading-none">
+                  12+
+                </div>
                 <div className="text-[10px] font-mono text-slate-400 uppercase tracking-wider mt-0.5">
                   {t('PROJECTS BUILT', 'PROYEK')}
                 </div>
@@ -156,7 +285,9 @@ export const HeroSection: React.FC = () => {
                 <Trophy size={18} />
               </div>
               <div>
-                <div className="text-2xl font-black text-white leading-none">5+</div>
+                <div className="text-2xl font-black text-white leading-none">
+                  5+
+                </div>
                 <div className="text-[10px] font-mono text-slate-400 uppercase tracking-widest mt-0.5">
                   {t('ACHIEVEMENTS', 'PRESTASI')}
                 </div>
@@ -186,7 +317,11 @@ export const HeroSection: React.FC = () => {
           {/* Status Bar Bawah */}
           <div className="flex flex-wrap items-center gap-5 pt-3 border-t border-white/10 text-xs text-slate-400 font-mono">
             <span className="flex items-center gap-1.5">
-              <MapPin size={13} className="text-cyan-400" />
+              <MapPin
+                size={13}
+                className="text-cyan-400"
+                style={{ color: 'var(--accent, #22d3ee)' }}
+              />
               Surabaya, Indonesia
             </span>
             <span className="flex items-center gap-1.5">
@@ -194,18 +329,16 @@ export const HeroSection: React.FC = () => {
               {t('Internship / Freelance Ready', 'Siap Magang / Freelance')}
             </span>
           </div>
-
         </div>
 
         {/* Kolom Kanan: Foto Profil dengan Badge Animasi Bergerak */}
         <div className="md:col-span-5 flex justify-center md:justify-end">
           <div className="relative w-64 h-64 lg:w-72 lg:h-72">
-            
             {/* Foto Profil Melingkar */}
             <div className="w-full h-full rounded-full p-2 bg-gradient-to-b from-white/15 via-white/5 to-transparent shadow-2xl">
               <div className="w-full h-full rounded-full overflow-hidden bg-[#070a16] border-2 border-white/10">
                 <img
-                  src="/assets/avatar.jpg"
+                  src={avatarSrc || DEFAULT_AVATAR_SRC}
                   alt="Ibe Laia"
                   className="w-full h-full object-cover transition-transform duration-500 hover:scale-105"
                   onError={(e) => {
@@ -222,8 +355,12 @@ export const HeroSection: React.FC = () => {
                 <Code2 size={14} />
               </div>
               <div className="text-left">
-                <div className="text-xs font-bold text-white leading-tight">Clean Code</div>
-                <div className="text-[10px] text-slate-400 font-mono">Architecture</div>
+                <div className="text-xs font-bold text-white leading-tight">
+                  Clean Code
+                </div>
+                <div className="text-[10px] text-slate-400 font-mono">
+                  Architecture
+                </div>
               </div>
             </div>
 
@@ -233,14 +370,16 @@ export const HeroSection: React.FC = () => {
                 <Gauge size={14} />
               </div>
               <div className="text-left">
-                <div className="text-xs font-bold text-white leading-tight">Scalable</div>
-                <div className="text-[10px] text-slate-400 font-mono">Performance</div>
+                <div className="text-xs font-bold text-white leading-tight">
+                  Scalable
+                </div>
+                <div className="text-[10px] text-slate-400 font-mono">
+                  Performance
+                </div>
               </div>
             </div>
-
           </div>
         </div>
-
       </div>
     </section>
   );

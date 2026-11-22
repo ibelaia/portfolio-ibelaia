@@ -1,12 +1,51 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Award, FileText, User, MessageSquare, Briefcase, Settings, LogOut } from 'lucide-react';
+import {
+  LayoutDashboard,
+  Award,
+  FileText,
+  User,
+  MessageSquare,
+  Briefcase,
+  Settings,
+  LogOut,
+} from 'lucide-react';
 
 export default function AdminSidebar() {
   const pathname = usePathname();
+  const [syncTick, setSyncTick] = useState(0);
+
+  useEffect(() => {
+    void syncTick;
+    let channel: BroadcastChannel | null = null;
+
+    const handleSyncSignal = () => {
+      setSyncTick((prev) => prev + 1);
+    };
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      channel = new BroadcastChannel('portfolio-admin-sync');
+      channel.onmessage = handleSyncSignal;
+    }
+
+    const handleStorage = (event: StorageEvent) => {
+      if (!event.key || event.key.startsWith('portfolio')) {
+        handleSyncSignal();
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      if (channel) {
+        channel.close();
+      }
+    };
+  }, [syncTick]);
 
   const menuItems = [
     { name: 'Dashboard', href: '/manage/dashboard', icon: LayoutDashboard },
@@ -22,8 +61,12 @@ export default function AdminSidebar() {
     <aside className="w-64 bg-slate-900 border-r border-white/10 flex flex-col justify-between hidden md:flex min-h-screen p-4">
       <div className="space-y-6">
         <div className="px-3 py-2">
-          <h2 className="text-xl font-extrabold text-white tracking-wider">Admin Panel</h2>
-          <p className="text-xs text-slate-400 font-mono mt-0.5">Portfolio Management</p>
+          <h2 className="text-xl font-extrabold text-white tracking-wider">
+            Admin Panel
+          </h2>
+          <p className="text-xs text-slate-400 font-mono mt-0.5">
+            Portfolio Management
+          </p>
         </div>
 
         <nav className="space-y-1">
@@ -34,6 +77,17 @@ export default function AdminSidebar() {
               <Link
                 key={item.href}
                 href={item.href}
+                style={
+                  isActive
+                    ? {
+                        backgroundColor:
+                          'color-mix(in srgb, var(--accent, #06b6d4) 14%, transparent)',
+                        color: 'var(--accent, #22d3ee)',
+                        borderColor:
+                          'color-mix(in srgb, var(--accent, #06b6d4) 28%, transparent)',
+                      }
+                    : undefined
+                }
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
                   isActive
                     ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'

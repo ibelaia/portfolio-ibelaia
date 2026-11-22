@@ -1,21 +1,23 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { 
-  ArrowLeft, 
-  ExternalLink, 
-  Sparkles, 
-  Search, 
-  Award, 
-  CheckCircle2, 
-  Calendar, 
-  Building2, 
+import {
+  ArrowLeft,
+  ExternalLink,
+  Sparkles,
+  Search,
+  Award,
+  CheckCircle2,
+  Calendar,
+  Building2,
   X,
   Maximize2,
-  Loader2
+  Loader2,
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
+
+export const dynamic = 'force-dynamic';
 
 interface CertificateItem {
   id: string;
@@ -29,93 +31,218 @@ interface CertificateItem {
   credential_url: string;
 }
 
+const DEFAULT_CERTIFICATE_IMAGE =
+  'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=800&q=80';
+
+const BASE_FILTER_KEYS = [
+  'Web Development',
+  'Python & Automation',
+  'Programming & CS',
+];
+
+function parseStringArraySafely(raw: any, fallback: string[] = []): string[] {
+  if (Array.isArray(raw)) {
+    const cleaned = raw
+      .map((entry) => {
+        if (typeof entry === 'string') return entry.trim();
+        if (entry && typeof entry === 'object') {
+          return String(entry.name || entry.label || entry.title || '').trim();
+        }
+        return '';
+      })
+      .filter(Boolean);
+    return cleaned.length > 0 ? cleaned : fallback;
+  }
+
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return fallback;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parseStringArraySafely(parsed, fallback);
+      }
+    } catch {
+      // Fallback ke pemisahan koma atau baris baru
+    }
+
+    const separator = trimmed.includes('\n') ? '\n' : ',';
+    const splitItems = trimmed
+      .split(separator)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return splitItems.length > 0 ? splitItems : fallback;
+  }
+
+  return fallback;
+}
+
 export default function CertificatesPage() {
-  const { t, language } = useApp();
+  const { t } = useApp();
   const [activeFilter, setActiveFilter] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCert, setSelectedCert] = useState<CertificateItem | null>(null);
+  const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
+  const [modalImageFailed, setModalImageFailed] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [headerData, setHeaderData] = useState({
     badge_text: 'VERIFIED CREDENTIALS & LICENSES',
     title: 'All Certificates',
-    subtitle: 'A verified index of technical certifications, developer accreditations, and coursework completed from recognized institutions.'
+    subtitle:
+      'A verified index of technical certifications, developer accreditations, and coursework completed from recognized institutions.',
   });
   const [certificates, setCertificates] = useState<CertificateItem[]>([]);
 
   useEffect(() => {
+    let isMounted = true;
+
     async function loadPublicNeonData() {
       try {
-        const response = await fetch('/api/certificates');
+        const response = await fetch('/api/certificates', { cache: 'no-store' });
         const json = await response.json();
+
+        if (!isMounted) return;
 
         if (json.success) {
           if (json.header) {
             setHeaderData({
-              badge_text: json.header.badge_text || 'VERIFIED CREDENTIALS & LICENSES',
+              badge_text:
+                json.header.badge_text || 'VERIFIED CREDENTIALS & LICENSES',
               title: json.header.title || 'All Certificates',
-              subtitle: json.header.subtitle || 'A verified index of technical certifications, developer accreditations, and coursework completed from recognized institutions.'
+              subtitle:
+                json.header.subtitle ||
+                'A verified index of technical certifications, developer accreditations, and coursework completed from recognized institutions.',
             });
           }
 
           if (Array.isArray(json.data)) {
-            const mapped: CertificateItem[] = json.data.map((item: any) => ({
-              id: item.id.toString(),
-              badge: item.badge || item.issuer || 'Certificate',
-              title: item.title,
-              issuer: item.issuer || 'Verified Institution',
-              description: item.description || item.overview || 'Professional certification and technical training.',
-              skills: Array.isArray(item.skills) ? item.skills : (item.tags || ['Web Development', 'Engineering']),
-              date_str: item.date_str || item.date || '2026',
-              image_url: item.image_url || item.credential_url || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=800&q=80',
-              credential_url: item.credential_url || '#'
-            }));
+            const mapped: CertificateItem[] = json.data.map(
+              (item: any, idx: number) => {
+                const rawSkills =
+                  item.skills !== undefined && item.skills !== null
+                    ? item.skills
+                    : item.tags;
+
+                return {
+                  id: item.id ? String(item.id) : String(idx + 1),
+                  badge: item.badge || item.category || item.issuer || 'Certificate',
+                  title: item.title || `Certificate #${idx + 1}`,
+                  issuer: item.issuer || 'Verified Institution',
+                  description:
+                    item.description ||
+                    item.overview ||
+                    'Professional certification and technical training.',
+                  skills: parseStringArraySafely(rawSkills, [
+                    'Web Development',
+                    'Engineering',
+                  ]),
+                  date_str: item.date_str || item.date || '2026',
+                  image_url:
+                    item.image_url ||
+                    item.thumbnail ||
+                    DEFAULT_CERTIFICATE_IMAGE,
+                  credential_url: item.credential_url || '#',
+                };
+              }
+            );
             setCertificates(mapped);
+          } else {
+            setCertificates([]);
           }
         }
       } catch (err) {
-        console.warn('Gagal memuat certificates dari Neon API:', err);
+        if (isMounted) {
+          console.warn('Gagal memuat certificates dari Neon API:', err);
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     }
+
     loadPublicNeonData();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
-  const filterTabs = [
-    { key: 'ALL', label: t('All Certificates', 'Semua Sertifikat') },
-    { key: 'Web Development', label: 'Web Development' },
-    { key: 'Python & Automation', label: 'Python & Automation' },
-    { key: 'Programming & CS', label: 'Programming & CS' },
-  ];
+  const filterTabs = useMemo(() => {
+    const dynamicBadges = new Map<string, string>();
+
+    for (const key of BASE_FILTER_KEYS) {
+      dynamicBadges.set(key.toLowerCase(), key);
+    }
+
+    for (const cert of certificates) {
+      const cleanBadge = String(cert.badge || '').trim();
+      if (!cleanBadge) continue;
+      const lowerKey = cleanBadge.toLowerCase();
+      if (!dynamicBadges.has(lowerKey)) {
+        dynamicBadges.set(lowerKey, cleanBadge);
+      }
+    }
+
+    return [
+      { key: 'ALL', label: t('All Certificates', 'Semua Sertifikat') },
+      ...Array.from(dynamicBadges.values()).map((label) => ({
+        key: label,
+        label,
+      })),
+    ];
+  }, [certificates, t]);
+
+  const normalizedQuery = searchQuery.trim().toLowerCase();
 
   const filteredData = certificates.filter((item) => {
-    const matchesCategory = activeFilter === 'ALL' || item.badge?.toLowerCase() === activeFilter.toLowerCase();
-    const matchesSearch = item.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          item.issuer?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          (item.skills && item.skills.some(skill => skill.toLowerCase().includes(searchQuery.toLowerCase())));
+    const matchesCategory =
+      activeFilter === 'ALL' ||
+      String(item.badge || '').toLowerCase() === activeFilter.toLowerCase();
+
+    if (!normalizedQuery) return matchesCategory;
+
+    const matchesSearch =
+      String(item.title || '').toLowerCase().includes(normalizedQuery) ||
+      String(item.issuer || '').toLowerCase().includes(normalizedQuery) ||
+      String(item.badge || '').toLowerCase().includes(normalizedQuery) ||
+      String(item.description || '').toLowerCase().includes(normalizedQuery) ||
+      item.skills.some((skill) =>
+        String(skill).toLowerCase().includes(normalizedQuery)
+      );
+
     return matchesCategory && matchesSearch;
   });
+
+  const openCertificateModal = (cert: CertificateItem) => {
+    setModalImageFailed(false);
+    setSelectedCert(cert);
+  };
 
   if (loading) {
     return (
       <main className="w-full min-h-[60vh] flex flex-col items-center justify-center gap-3">
         <Loader2 size={24} className="animate-spin text-accent" />
-        <span className="text-xs font-mono text-[var(--text-muted)]">Memuat sertifikat resmi dari Neon API...</span>
+        <span className="text-xs font-mono text-[var(--text-muted)]">
+          Memuat sertifikat resmi dari Neon API...
+        </span>
       </main>
     );
   }
 
   return (
     <main className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
-      
       {/* Back Button */}
       <div className="mb-4">
         <Link
           href="/"
           className="inline-flex items-center gap-2 text-xs font-mono text-[var(--text-muted)] hover:text-accent transition-colors group"
         >
-          <ArrowLeft size={13} className="group-hover:-translate-x-1 transition-transform" />
+          <ArrowLeft
+            size={13}
+            className="group-hover:-translate-x-1 transition-transform"
+          />
           <span>{t('Back to Home', 'Kembali ke Beranda')}</span>
         </Link>
       </div>
@@ -141,18 +268,25 @@ export default function CertificatesPage() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={t('Search certification or skill...', 'Cari sertifikat atau skill...')}
+            placeholder={t(
+              'Search certification or skill...',
+              'Cari sertifikat atau skill...'
+            )}
             className="w-full pl-9 pr-4 py-2 bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl text-xs text-[var(--text-main)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-accent transition-colors shadow-inner"
           />
-          <Search size={14} className="absolute left-3 top-2.5 text-[var(--text-muted)]" />
+          <Search
+            size={14}
+            className="absolute left-3 top-2.5 text-[var(--text-muted)]"
+          />
         </div>
       </div>
 
-      {/* Filter Tabs */}
+      {/* Filter Tabs Dinamis */}
       <div className="flex items-center gap-2 overflow-x-auto py-4 mb-2 scrollbar-none">
         {filterTabs.map((tab) => (
           <button
             key={tab.key}
+            type="button"
             onClick={() => setActiveFilter(tab.key)}
             className={`px-3 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-all cursor-pointer ${
               activeFilter === tab.key
@@ -172,76 +306,100 @@ export default function CertificatesPage() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {filteredData.map((item) => (
-            <div
-              key={item.id}
-              className="bg-[var(--card-bg)] border border-[var(--card-border)] hover:border-accent/40 rounded-2xl overflow-hidden backdrop-blur-xl transition-all duration-300 flex flex-col justify-between group hover:shadow-xl hover:-translate-y-1"
-            >
-              {/* Bagian Atas Kartu */}
-              <div 
-                onClick={() => setSelectedCert(item)}
-                className="cursor-pointer"
+          {filteredData.map((item) => {
+            const activeImageSrc = failedImages[item.id]
+              ? DEFAULT_CERTIFICATE_IMAGE
+              : item.image_url || DEFAULT_CERTIFICATE_IMAGE;
+
+            return (
+              <article
+                key={item.id}
+                className="bg-[var(--card-bg)] border border-[var(--card-border)] hover:border-accent/40 rounded-2xl overflow-hidden backdrop-blur-xl transition-all duration-300 flex flex-col justify-between group hover:shadow-xl hover:-translate-y-1"
               >
-                <div className="relative w-full h-44 bg-slate-950 overflow-hidden border-b border-[var(--card-border)]">
-                  <span className="absolute top-2.5 left-2.5 z-10 px-2 py-0.5 rounded-md bg-black/75 backdrop-blur-md border border-white/10 text-[10px] font-mono text-accent flex items-center gap-1">
-                    <Award size={11} /> {item.badge}
-                  </span>
-                  <img
-                    src={item.image_url || '/placeholder.svg'}
-                    alt={item.title}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-90 group-hover:opacity-100"
-                    onError={(e) => {
-                      (e.target as HTMLElement).style.display = 'none';
-                    }}
-                  />
-                  <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-xs font-mono text-white gap-1.5 backdrop-blur-[2px]">
-                    <Maximize2 size={13} />
-                    <span>{t('Click for Details', 'Klik untuk Detail')}</span>
-                  </div>
-                </div>
-
-                <div className="p-5">
-                  <div className="flex items-center justify-between text-[11px] font-mono text-[var(--text-muted)] mb-1.5">
-                    <span className="truncate max-w-[160px]">{item.issuer}</span>
-                    <span>{item.date_str}</span>
-                  </div>
-
-                  <h2 className="text-sm sm:text-base font-bold text-[var(--text-main)] tracking-tight group-hover:text-accent transition-colors mb-2">
-                    {item.title}
-                  </h2>
-
-                  <p className="text-xs text-[var(--text-muted)] leading-relaxed min-h-[44px] line-clamp-3">
-                    {item.description}
-                  </p>
-
-                  {/* Badge Keahlian */}
-                  <div className="flex flex-wrap gap-1.5 pt-4 mt-2 border-t border-[var(--card-border)]">
-                    {Array.isArray(item.skills) && item.skills.map((skill) => (
-                      <span
-                        key={skill}
-                        className="px-2 py-0.5 rounded bg-white/5 border border-[var(--card-border)] text-[10px] font-mono text-[var(--text-muted)]"
-                      >
-                        {skill}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Tombol Bagian Bawah Kartu */}
-              <div className="px-5 py-3 border-t border-[var(--card-border)] flex items-center justify-between text-xs font-mono">
-                <span className="text-[11px] text-[var(--text-muted)]">ID: {item.id.slice(0, 8)}...</span>
-                
-                <button
-                  onClick={() => setSelectedCert(item)}
-                  className="inline-flex items-center gap-1 text-accent hover:opacity-85 font-semibold transition-colors cursor-pointer"
+                {/* Bagian Atas Kartu */}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openCertificateModal(item)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      openCertificateModal(item);
+                    }
+                  }}
+                  className="cursor-pointer"
                 >
-                  <span>{t('Verify Credential', 'Verifikasi Sertifikat')}</span>
-                  <ExternalLink size={12} />
-                </button>
-              </div>
-            </div>
-          ))}
+                  <div className="relative w-full h-44 bg-slate-950 overflow-hidden border-b border-[var(--card-border)]">
+                    <span className="absolute top-2.5 left-2.5 z-10 px-2 py-0.5 rounded-md bg-black/75 backdrop-blur-md border border-white/10 text-[10px] font-mono text-accent flex items-center gap-1">
+                      <Award size={11} /> {item.badge}
+                    </span>
+                    <img
+                      src={activeImageSrc}
+                      alt={item.title}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-90 group-hover:opacity-100"
+                      onError={() =>
+                        setFailedImages((prev) => ({
+                          ...prev,
+                          [item.id]: true,
+                        }))
+                      }
+                    />
+                    <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-xs font-mono text-white gap-1.5 backdrop-blur-[2px]">
+                      <Maximize2 size={13} />
+                      <span>{t('Click for Details', 'Klik untuk Detail')}</span>
+                    </div>
+                  </div>
+
+                  <div className="p-5">
+                    <div className="flex items-center justify-between text-[11px] font-mono text-[var(--text-muted)] mb-1.5">
+                      <span className="truncate max-w-[160px]">
+                        {item.issuer}
+                      </span>
+                      <span>{item.date_str}</span>
+                    </div>
+
+                    <h2 className="text-sm sm:text-base font-bold text-[var(--text-main)] tracking-tight group-hover:text-accent transition-colors mb-2">
+                      {item.title}
+                    </h2>
+
+                    <p className="text-xs text-[var(--text-muted)] leading-relaxed min-h-[44px] line-clamp-3">
+                      {item.description}
+                    </p>
+
+                    {/* Badge Keahlian */}
+                    <div className="flex flex-wrap gap-1.5 pt-4 mt-2 border-t border-[var(--card-border)]">
+                      {item.skills.map((skill) => (
+                        <span
+                          key={skill}
+                          className="px-2 py-0.5 rounded bg-white/5 border border-[var(--card-border)] text-[10px] font-mono text-[var(--text-muted)]"
+                        >
+                          {skill}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Tombol Bagian Bawah Kartu */}
+                <div className="px-5 py-3 border-t border-[var(--card-border)] flex items-center justify-between text-xs font-mono">
+                  <span className="text-[11px] text-[var(--text-muted)]">
+                    ID: {item.id.slice(0, 8)}...
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => openCertificateModal(item)}
+                    className="inline-flex items-center gap-1 text-accent hover:opacity-85 font-semibold transition-colors cursor-pointer"
+                  >
+                    <span>
+                      {t('Verify Credential', 'Verifikasi Sertifikat')}
+                    </span>
+                    <ExternalLink size={12} />
+                  </button>
+                </div>
+              </article>
+            );
+          })}
         </div>
       )}
 
@@ -261,9 +419,12 @@ export default function CertificatesPage() {
                 <span className="px-2 py-0.5 rounded bg-accent/10 border border-accent/20 text-[10px] font-mono text-accent">
                   {selectedCert.badge}
                 </span>
-                <span className="text-xs font-mono text-[var(--text-muted)]">ID: {selectedCert.id}</span>
+                <span className="text-xs font-mono text-[var(--text-muted)]">
+                  ID: {selectedCert.id}
+                </span>
               </div>
               <button
+                type="button"
                 onClick={() => setSelectedCert(null)}
                 className="w-8 h-8 rounded-lg bg-white/5 hover:bg-white/10 text-[var(--text-muted)] hover:text-[var(--text-main)] flex items-center justify-center transition-colors cursor-pointer"
               >
@@ -273,12 +434,16 @@ export default function CertificatesPage() {
 
             {/* Isi Konten Modal */}
             <div className="p-6 overflow-y-auto space-y-5">
-              
               <div className="w-full h-52 sm:h-64 rounded-xl overflow-hidden border border-[var(--card-border)] bg-slate-950">
                 <img
-                  src={selectedCert.image_url || '/placeholder.svg'}
+                  src={
+                    modalImageFailed
+                      ? DEFAULT_CERTIFICATE_IMAGE
+                      : selectedCert.image_url || DEFAULT_CERTIFICATE_IMAGE
+                  }
                   alt={selectedCert.title}
                   className="w-full h-full object-cover"
+                  onError={() => setModalImageFailed(true)}
                 />
               </div>
 
@@ -300,7 +465,10 @@ export default function CertificatesPage() {
 
               <div className="bg-white/5 border border-[var(--card-border)] rounded-xl p-4">
                 <h3 className="text-xs font-mono uppercase text-[var(--text-muted)] mb-1.5">
-                  {t('CURRICULUM & PROFICIENCY BREAKDOWN', 'RINCIAN KURIKULUM & KOMPETENSI')}
+                  {t(
+                    'CURRICULUM & PROFICIENCY BREAKDOWN',
+                    'RINCIAN KURIKULUM & KOMPETENSI'
+                  )}
                 </h3>
                 <p className="text-xs sm:text-sm text-[var(--text-muted)] leading-relaxed">
                   {selectedCert.description}
@@ -312,34 +480,44 @@ export default function CertificatesPage() {
                   {t('VERIFIED SKILLS', 'KEAHLIAN TERVERIFIKASI')}
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {Array.isArray(selectedCert.skills) && selectedCert.skills.map((skill) => (
-                    <div key={skill} className="flex items-center gap-2 text-xs text-[var(--text-main)]">
-                      <CheckCircle2 size={14} className="text-accent shrink-0" />
+                  {selectedCert.skills.map((skill) => (
+                    <div
+                      key={skill}
+                      className="flex items-center gap-2 text-xs text-[var(--text-main)]"
+                    >
+                      <CheckCircle2
+                        size={14}
+                        className="text-accent shrink-0"
+                      />
                       <span>{skill}</span>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {selectedCert.credential_url && selectedCert.credential_url !== '#' && (
-                <div className="pt-3">
-                  <a
-                    href={selectedCert.credential_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="w-full py-3 px-4 rounded-xl bg-accent hover:opacity-90 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-lg active:scale-98 cursor-pointer"
-                  >
-                    <span>{t('Verify Official Credential on Issuer Website', 'Verifikasi Kredensial di Situs Resmi')}</span>
-                    <ExternalLink size={14} />
-                  </a>
-                </div>
-              )}
-
+              {selectedCert.credential_url &&
+                selectedCert.credential_url !== '#' && (
+                  <div className="pt-3">
+                    <a
+                      href={selectedCert.credential_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="w-full py-3 px-4 rounded-xl bg-accent hover:opacity-90 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-lg active:scale-98 cursor-pointer"
+                    >
+                      <span>
+                        {t(
+                          'Verify Official Credential on Issuer Website',
+                          'Verifikasi Kredensial di Situs Resmi'
+                        )}
+                      </span>
+                      <ExternalLink size={14} />
+                    </a>
+                  </div>
+                )}
             </div>
           </div>
         </div>
       )}
-
     </main>
   );
 }

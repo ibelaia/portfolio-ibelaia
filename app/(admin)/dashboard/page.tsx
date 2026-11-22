@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -30,7 +30,8 @@ import {
   FileText,
   Users,
   Clock,
-  ShieldCheck
+  ShieldCheck,
+  Radio,
 } from 'lucide-react';
 
 interface Project {
@@ -50,12 +51,19 @@ interface VisitorLog {
   visited_at: string;
 }
 
+const DASHBOARD_SYNC_CHANNEL = 'portfolio-sync-dashboard';
+
 export default function AdminDashboardPage() {
   const router = useRouter();
+  const syncChannelRef = useRef<BroadcastChannel | null>(null);
 
   const [authChecking, setAuthChecking] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [livePulse, setLivePulse] = useState(false);
+  const [toast, setToast] = useState<{
+    message: string;
+    type: 'success' | 'error';
+  } | null>(null);
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [loadingProjects, setLoadingProjects] = useState(true);
@@ -68,7 +76,7 @@ export default function AdminDashboardPage() {
     services: 0,
     achievements: 0,
     certificates: 0,
-    visitors: 0
+    visitors: 0,
   });
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -82,28 +90,57 @@ export default function AdminDashboardPage() {
     tags: 'Next.js, TypeScript',
     github_url: 'https://github.com/ibelaia',
     live_url: '',
-    thumbnail: '/placeholder.svg'
+    thumbnail: '/placeholder.svg',
   });
 
-  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+  const showToast = (
+    message: string,
+    type: 'success' | 'error' = 'success'
+  ) => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3500);
   };
 
-  useEffect(() => {
-    async function checkAuth() {
-      // Bypass auth simulation or check token if active
-      setAuthChecking(false);
-      fetchAllDataCounts();
-      fetchProjects();
-      fetchVisitorLogs();
-    }
-    checkAuth();
-  }, [router]);
+  const broadcastDashboardUpdate = useCallback(
+    (action: string, detailData?: any) => {
+      const eventDetail = {
+        section: 'dashboard',
+        action,
+        updatedAt: Date.now(),
+        data: detailData,
+      };
 
-  const fetchAllDataCounts = async () => {
+      try {
+        if (syncChannelRef.current) {
+          syncChannelRef.current.postMessage(eventDetail);
+        }
+      } catch {
+        // Abaikan jika BroadcastChannel tidak tersedia
+      }
+
+      try {
+        localStorage.setItem(
+          DASHBOARD_SYNC_CHANNEL,
+          JSON.stringify(eventDetail)
+        );
+      } catch {
+        // Abaikan jika localStorage diblokir
+      }
+
+      window.dispatchEvent(
+        new CustomEvent(DASHBOARD_SYNC_CHANNEL, { detail: eventDetail })
+      );
+      setLivePulse(true);
+      setTimeout(() => setLivePulse(false), 1800);
+    },
+    []
+  );
+
+  const fetchAllDataCounts = useCallback(async () => {
     try {
-      const response = await fetch('/api/dashboard/stats');
+      const response = await fetch('/api/dashboard/stats', {
+        cache: 'no-store',
+      });
       const json = await response.json();
       if (json.success && json.counts) {
         setCounts(json.counts);
@@ -111,16 +148,16 @@ export default function AdminDashboardPage() {
     } catch (err) {
       console.warn('Gagal memuat statistik dashboard:', err);
     }
-  };
+  }, []);
 
   const handleLogout = async () => {
     router.replace('/login');
   };
 
-  const fetchProjects = async () => {
+  const fetchProjects = useCallback(async () => {
     setLoadingProjects(true);
     try {
-      const response = await fetch('/api/projects');
+      const response = await fetch('/api/projects', { cache: 'no-store' });
       const json = await response.json();
       if (json.success && Array.isArray(json.data)) {
         setProjects(json.data);
@@ -130,12 +167,12 @@ export default function AdminDashboardPage() {
     } finally {
       setLoadingProjects(false);
     }
-  };
+  }, []);
 
-  const fetchVisitorLogs = async () => {
+  const fetchVisitorLogs = useCallback(async () => {
     setLoadingLogs(true);
     try {
-      const response = await fetch('/api/visitor-logs');
+      const response = await fetch('/api/visitor-logs', { cache: 'no-store' });
       const json = await response.json();
       if (json.success && Array.isArray(json.data)) {
         setVisitorLogs(json.data);
@@ -145,24 +182,79 @@ export default function AdminDashboardPage() {
     } finally {
       setLoadingLogs(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      syncChannelRef.current = new BroadcastChannel(DASHBOARD_SYNC_CHANNEL);
+      syncChannelRef.current.onmessage = () => {
+        if (isMounted) {
+          fetchAllDataCounts();
+          fetchProjects();
+          fetchVisitorLogs();
+        }
+      };
+    }
+
+    const handleStorageSync = (e: StorageEvent) => {
+      if (e.key === DASHBOARD_SYNC_CHANNEL && isMounted) {
+        fetchAllDataCounts();
+        fetchProjects();
+        fetchVisitorLogs();
+      }
+    };
+
+    window.addEventListener('storage', handleStorageSync);
+
+    async function checkAuth() {
+      if (!isMounted) return;
+      setAuthChecking(false);
+      await Promise.all([
+        fetchAllDataCounts(),
+        fetchProjects(),
+        fetchVisitorLogs(),
+      ]);
+    }
+    checkAuth();
+
+    return () => {
+      isMounted = false;
+      window.removeEventListener('storage', handleStorageSync);
+      if (syncChannelRef.current) {
+        syncChannelRef.current.close();
+        syncChannelRef.current = null;
+      }
+    };
+  }, [fetchAllDataCounts, fetchProjects, fetchVisitorLogs]);
 
   const handleDeleteProject = async (id: string, title: string) => {
     if (!confirm(`Hapus proyek "${title}" secara permanen?`)) return;
 
     try {
-      const response = await fetch(`/api/projects?id=${id}`, { method: 'DELETE' });
+      const response = await fetch(`/api/projects?id=${id}`, {
+        method: 'DELETE',
+        cache: 'no-store',
+      });
       const json = await response.json();
 
       if (response.ok && json.success) {
-        setProjects(prev => prev.filter(p => p.id !== id));
-        fetchAllDataCounts();
-        showToast(`Proyek "${title}" berhasil dihapus.`);
+        setProjects((prev) => prev.filter((p) => p.id !== id));
+        await fetchAllDataCounts();
+        broadcastDashboardUpdate('delete_project', { id });
+        router.refresh();
+        showToast(
+          `Proyek "${title}" berhasil dihapus secara real-time.`
+        );
       } else {
-        showToast(`Gagal: ${json.error || 'Terjadi kesalahan'}`, 'error');
+        showToast(
+          `Gagal: ${json.error || 'Terjadi kesalahan'}`,
+          'error'
+        );
       }
     } catch (err: any) {
-      showToast(`Error: ${err.message}`, 'error');
+      showToast(`Error: ${err?.message || 'Terjadi kesalahan'}`, 'error');
     }
   };
 
@@ -175,33 +267,40 @@ export default function AdminDashboardPage() {
       category: projectForm.category,
       status: projectForm.status,
       overview: projectForm.overview,
-      tags: projectForm.tags.split(',').map(t => t.trim()).filter(Boolean),
+      tags: projectForm.tags
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean),
       github_url: projectForm.github_url,
       live_url: projectForm.live_url,
       thumbnail: projectForm.thumbnail || '/placeholder.svg',
-      type: 'single'
+      type: 'single',
     };
 
     try {
       const response = await fetch('/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        cache: 'no-store',
+        body: JSON.stringify(payload),
       });
       const json = await response.json();
-      setSubmittingProject(false);
 
       if (response.ok && json.success) {
-        showToast('Proyek baru berhasil ditambahkan ke Neon!');
+        broadcastDashboardUpdate('create_project', json.data ?? payload);
+        router.refresh();
+        showToast(
+          'Proyek baru berhasil ditambahkan ke Neon & disinkronkan secara real-time!'
+        );
         setIsModalOpen(false);
-        fetchProjects();
-        fetchAllDataCounts();
+        await Promise.all([fetchProjects(), fetchAllDataCounts()]);
       } else {
         showToast(json.error || 'Gagal menyimpan proyek', 'error');
       }
     } catch (err: any) {
+      showToast(`Error: ${err?.message || 'Terjadi kesalahan'}`, 'error');
+    } finally {
       setSubmittingProject(false);
-      showToast(`Error: ${err.message}`, 'error');
     }
   };
 
@@ -209,21 +308,28 @@ export default function AdminDashboardPage() {
     return (
       <main className="min-h-screen bg-[#07090e] flex flex-col items-center justify-center gap-3">
         <Loader2 size={24} className="animate-spin text-cyan-400" />
-        <span className="text-xs font-mono text-slate-400">Memeriksa izin akses IbeLaia.Dev...</span>
+        <span className="text-xs font-mono text-slate-400">
+          Memeriksa izin akses IbeLaia.Dev...
+        </span>
       </main>
     );
   }
 
   return (
     <div className="min-h-screen bg-[#07090e] text-[#94a3b8] flex flex-col lg:flex-row antialiased">
-     
       {toast && (
-        <div className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl backdrop-blur-md border shadow-2xl flex items-center gap-2.5 text-xs font-medium animate-in fade-in duration-200 ${
-          toast.type === 'success'
-            ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
-            : 'bg-red-500/15 border-red-500/30 text-red-300'
-        }`}>
-          {toast.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+        <div
+          className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl backdrop-blur-md border shadow-2xl flex items-center gap-2.5 text-xs font-medium animate-in fade-in duration-200 ${
+            toast.type === 'success'
+              ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+              : 'bg-red-500/15 border-red-500/30 text-red-300'
+          }`}
+        >
+          {toast.type === 'success' ? (
+            <CheckCircle2 size={16} />
+          ) : (
+            <AlertCircle size={16} />
+          )}
           <span>{toast.message}</span>
         </div>
       )}
@@ -238,7 +344,9 @@ export default function AdminDashboardPage() {
 
           <div className="space-y-6 text-xs">
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Overview</p>
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Overview
+              </p>
               <Link
                 href="/dashboard"
                 className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-semibold bg-[#581c87]/60 text-white border border-[#9333ea]/30 transition-all"
@@ -249,33 +357,56 @@ export default function AdminDashboardPage() {
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Website Content</p>
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Website Content
+              </p>
               <div className="space-y-1">
-                <Link href="/dashboard/home" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/home"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Home size={15} />
                   <span>Home</span>
                 </Link>
-                <Link href="/dashboard/about" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/about"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <User size={15} />
                   <span>About</span>
                 </Link>
-                <Link href="/dashboard/services" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/services"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Wrench size={15} />
                   <span>Services</span>
                 </Link>
-                <Link href="/dashboard/projects" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/projects"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <FolderGit2 size={15} />
                   <span>Projects</span>
                 </Link>
-                <Link href="/dashboard/achievements" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/achievements"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Award size={15} />
                   <span>Achievements</span>
                 </Link>
-                <Link href="/dashboard/certificates" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/certificates"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <FileBadge size={15} />
                   <span>Certificates</span>
                 </Link>
-                <Link href="/dashboard/contact" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/contact"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Mail size={15} />
                   <span>Contact</span>
                 </Link>
@@ -283,25 +414,41 @@ export default function AdminDashboardPage() {
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Assets</p>
-              <Link href="/dashboard/media" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Assets
+              </p>
+              <Link
+                href="/dashboard/media"
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+              >
                 <FolderArchive size={15} />
                 <span>Media Library</span>
               </Link>
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Settings</p>
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Settings
+              </p>
               <div className="space-y-1">
-                <Link href="/dashboard/appearance" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
+                <Link
+                  href="/dashboard/appearance"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+                >
                   <Palette size={15} />
                   <span>Appearance</span>
                 </Link>
-                <Link href="/dashboard/seo" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
+                <Link
+                  href="/dashboard/seo"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+                >
                   <SearchCheck size={15} />
                   <span>SEO Settings</span>
                 </Link>
-                <Link href="/dashboard/settings" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
+                <Link
+                  href="/dashboard/settings"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+                >
                   <Settings size={15} />
                   <span>General Settings</span>
                 </Link>
@@ -320,6 +467,7 @@ export default function AdminDashboardPage() {
             <ExternalLink size={13} />
           </Link>
           <button
+            type="button"
             onClick={handleLogout}
             className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors cursor-pointer"
           >
@@ -331,7 +479,9 @@ export default function AdminDashboardPage() {
               IB
             </div>
             <div>
-              <p className="text-xs font-bold text-white leading-tight">Ibe Laia</p>
+              <p className="text-xs font-bold text-white leading-tight">
+                Ibe Laia
+              </p>
               <p className="text-[10px] text-slate-500">Owner</p>
             </div>
           </div>
@@ -345,6 +495,7 @@ export default function AdminDashboardPage() {
           <span className="text-lg font-black text-[#a855f7]">.Dev</span>
         </div>
         <button
+          type="button"
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
           className="p-2 rounded-xl bg-white/5 border border-white/10 text-white"
         >
@@ -354,15 +505,31 @@ export default function AdminDashboardPage() {
 
       {/* MAIN CONTENT AREA */}
       <main className="flex-1 px-4 sm:px-8 py-6 max-w-7xl w-full mx-auto space-y-6">
-
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <p className="text-[11px] font-mono uppercase tracking-wider text-cyan-400 mb-1">Welcome Back</p>
+            <div className="flex items-center gap-2 mb-1">
+              <p className="text-[11px] font-mono uppercase tracking-wider text-cyan-400">
+                Welcome Back
+              </p>
+              <span
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-mono border transition-colors ${
+                  livePulse
+                    ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300'
+                    : 'bg-white/5 border-white/10 text-slate-400'
+                }`}
+              >
+                <Radio size={10} className="text-emerald-400" />
+                <span>LIVE SYNC</span>
+              </span>
+            </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight flex items-center gap-2">
               <span>Welcome back, Ibe Laia!</span>
               <span>👋</span>
             </h1>
-            <p className="text-xs text-slate-400 mt-0.5">Here&apos;s what&apos;s happening with your portfolio today.</p>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Here&apos;s what&apos;s happening with your portfolio today via
+              Neon secara dinamis dan real-time.
+            </p>
           </div>
 
           <div className="flex items-center gap-2 self-start sm:self-auto">
@@ -375,11 +542,12 @@ export default function AdminDashboardPage() {
 
         {/* 5 KPI Stat Metric Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
-         
           <div className="bg-[#0b0e17] border border-white/5 rounded-2xl p-4 flex flex-col justify-between">
             <div className="flex items-center gap-2 text-cyan-400 mb-2">
               <FolderGit2 size={16} />
-              <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Total Projects</span>
+              <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
+                Total Projects
+              </span>
             </div>
             <div>
               <p className="text-2xl font-black text-white">{counts.projects}</p>
@@ -392,21 +560,29 @@ export default function AdminDashboardPage() {
           <div className="bg-[#0b0e17] border border-white/5 rounded-2xl p-4 flex flex-col justify-between">
             <div className="flex items-center gap-2 text-emerald-400 mb-2">
               <Wrench size={16} />
-              <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Total Services</span>
+              <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
+                Total Services
+              </span>
             </div>
             <div>
               <p className="text-2xl font-black text-white">{counts.services}</p>
-              <p className="text-[10px] text-slate-500 mt-1 font-mono">Real-time count</p>
+              <p className="text-[10px] text-slate-500 mt-1 font-mono">
+                Real-time count
+              </p>
             </div>
           </div>
 
           <div className="bg-[#0b0e17] border border-white/5 rounded-2xl p-4 flex flex-col justify-between">
             <div className="flex items-center gap-2 text-purple-400 mb-2">
               <Award size={16} />
-              <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Achievements</span>
+              <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
+                Achievements
+              </span>
             </div>
             <div>
-              <p className="text-2xl font-black text-white">{counts.achievements}</p>
+              <p className="text-2xl font-black text-white">
+                {counts.achievements}
+              </p>
               <p className="text-[10px] text-cyan-400 flex items-center gap-1 mt-1 font-mono">
                 <TrendingUp size={11} /> Real-time count
               </p>
@@ -416,11 +592,17 @@ export default function AdminDashboardPage() {
           <div className="bg-[#0b0e17] border border-white/5 rounded-2xl p-4 flex flex-col justify-between">
             <div className="flex items-center gap-2 text-blue-400 mb-2">
               <FileBadge size={16} />
-              <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Certificates</span>
+              <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
+                Certificates
+              </span>
             </div>
             <div>
-              <p className="text-2xl font-black text-white">{counts.certificates}</p>
-              <p className="text-[10px] text-slate-500 mt-1 font-mono">Real-time count</p>
+              <p className="text-2xl font-black text-white">
+                {counts.certificates}
+              </p>
+              <p className="text-[10px] text-slate-500 mt-1 font-mono">
+                Real-time count
+              </p>
             </div>
           </div>
 
@@ -433,10 +615,17 @@ export default function AdminDashboardPage() {
           >
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 text-pink-400">
-                <Users size={16} className="group-hover:scale-110 transition-transform" />
-                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">Visitor Logs</span>
+                <Users
+                  size={16}
+                  className="group-hover:scale-110 transition-transform"
+                />
+                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
+                  Visitor Logs
+                </span>
               </div>
-              <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-pink-500/10 text-pink-400">Live</span>
+              <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-pink-500/10 text-pink-400">
+                Live
+              </span>
             </div>
             <div>
               <p className="text-2xl font-black text-white">{counts.visitors}</p>
@@ -445,40 +634,60 @@ export default function AdminDashboardPage() {
               </p>
             </div>
           </div>
-
         </div>
 
         {/* Middle Section */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-         
           <div className="lg:col-span-8 bg-[#0b0e17] border border-white/5 rounded-2xl p-5 sm:p-6 flex flex-col justify-between">
             <div className="flex items-center justify-between mb-4">
-              <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">Website Overview</span>
-              <span className="text-[11px] font-mono text-slate-500 bg-white/5 px-2.5 py-1 rounded-lg">Last 30 Days</span>
+              <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">
+                Website Overview
+              </span>
+              <span className="text-[11px] font-mono text-slate-500 bg-white/5 px-2.5 py-1 rounded-lg">
+                Last 30 Days
+              </span>
             </div>
 
             <div className="grid grid-cols-3 gap-3 mb-6">
               <div>
-                <span className="text-[10px] font-mono uppercase text-slate-500">Visitors</span>
+                <span className="text-[10px] font-mono uppercase text-slate-500">
+                  Visitors
+                </span>
                 <p className="text-lg font-bold text-white">1,248</p>
-                <span className="text-[10px] text-cyan-400 font-mono">+18.2%</span>
+                <span className="text-[10px] text-cyan-400 font-mono">
+                  +18.2%
+                </span>
               </div>
               <div>
-                <span className="text-[10px] font-mono uppercase text-slate-500">Page Views</span>
+                <span className="text-[10px] font-mono uppercase text-slate-500">
+                  Page Views
+                </span>
                 <p className="text-lg font-bold text-white">3,682</p>
-                <span className="text-[10px] text-cyan-400 font-mono">+21.7%</span>
+                <span className="text-[10px] text-cyan-400 font-mono">
+                  +21.7%
+                </span>
               </div>
               <div>
-                <span className="text-[10px] font-mono uppercase text-slate-500">Avg. Session</span>
+                <span className="text-[10px] font-mono uppercase text-slate-500">
+                  Avg. Session
+                </span>
                 <p className="text-lg font-bold text-white">2m 45s</p>
-                <span className="text-[10px] text-cyan-400 font-mono">+8.4%</span>
+                <span className="text-[10px] text-cyan-400 font-mono">
+                  +8.4%
+                </span>
               </div>
             </div>
 
             <div className="w-full h-36 flex items-end">
               <svg viewBox="0 0 500 120" fill="none" className="w-full h-full">
                 <defs>
-                  <linearGradient id="waveGradient" x1="0" y1="0" x2="1" y2="0">
+                  <linearGradient
+                    id="waveGradient"
+                    x1="0"
+                    y1="0"
+                    x2="1"
+                    y2="0"
+                  >
                     <stop offset="0%" stopColor="#06b6d4" />
                     <stop offset="50%" stopColor="#3b82f6" />
                     <stop offset="100%" stopColor="#a855f7" />
@@ -506,8 +715,11 @@ export default function AdminDashboardPage() {
           <div className="lg:col-span-4 bg-[#0b0e17] border border-white/5 rounded-2xl p-5 flex flex-col justify-between">
             <div>
               <div className="flex items-center justify-between mb-4">
-                <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">Recent Activity</span>
+                <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">
+                  Recent Activity
+                </span>
                 <button
+                  type="button"
                   onClick={() => setIsVisitorLogsOpen(true)}
                   className="text-[11px] font-mono text-slate-500 hover:text-cyan-400 cursor-pointer"
                 >
@@ -517,33 +729,59 @@ export default function AdminDashboardPage() {
 
               <div className="space-y-4 text-xs">
                 {[
-                  { text: 'Published new project "AI Chat Interface"', time: '2 hours ago', icon: FolderGit2, color: 'text-cyan-400' },
-                  { text: 'Updated AWS Solutions Architect certificate', time: '1 day ago', icon: Award, color: 'text-purple-400' },
-                  { text: 'Draft saved for Weather App case study', time: '2 days ago', icon: FileText, color: 'text-emerald-400' },
-                  { text: 'Added new achievement: Hackathon Winner', time: '3 days ago', icon: Award, color: 'text-blue-400' },
+                  {
+                    text: 'Published new project "AI Chat Interface"',
+                    time: '2 hours ago',
+                    icon: FolderGit2,
+                    color: 'text-cyan-400',
+                  },
+                  {
+                    text: 'Updated AWS Solutions Architect certificate',
+                    time: '1 day ago',
+                    icon: Award,
+                    color: 'text-purple-400',
+                  },
+                  {
+                    text: 'Draft saved for Weather App case study',
+                    time: '2 days ago',
+                    icon: FileText,
+                    color: 'text-emerald-400',
+                  },
+                  {
+                    text: 'Added new achievement: Hackathon Winner',
+                    time: '3 days ago',
+                    icon: Award,
+                    color: 'text-blue-400',
+                  },
                 ].map((act, i) => (
                   <div key={i} className="flex items-start gap-3">
-                    <div className={`p-1.5 rounded-lg bg-white/5 ${act.color} shrink-0 mt-0.5`}>
+                    <div
+                      className={`p-1.5 rounded-lg bg-white/5 ${act.color} shrink-0 mt-0.5`}
+                    >
                       <act.icon size={13} />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-slate-300 text-[11px] leading-snug truncate">{act.text}</p>
-                      <span className="text-[10px] font-mono text-slate-500">{act.time}</span>
+                      <p className="text-slate-300 text-[11px] leading-snug truncate">
+                        {act.text}
+                      </p>
+                      <span className="text-[10px] font-mono text-slate-500">
+                        {act.time}
+                      </span>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
           </div>
-
         </div>
 
         {/* Bottom Section */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-         
           <div className="lg:col-span-8 bg-[#0b0e17] border border-white/5 rounded-2xl p-5">
             <div className="flex items-center justify-between mb-4">
-              <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">Recent Projects</span>
+              <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold">
+                Recent Projects
+              </span>
               <Link
                 href="/dashboard/projects/list"
                 className="text-[11px] font-mono text-cyan-400 hover:text-cyan-300 flex items-center gap-1 cursor-pointer"
@@ -558,7 +796,9 @@ export default function AdminDashboardPage() {
                 <span>Memuat data dari Neon API...</span>
               </div>
             ) : projects.length === 0 ? (
-              <p className="py-8 text-center text-xs font-mono text-slate-600">Belum ada proyek di database.</p>
+              <p className="py-8 text-center text-xs font-mono text-slate-600">
+                Belum ada proyek di database.
+              </p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
@@ -573,9 +813,14 @@ export default function AdminDashboardPage() {
                   </thead>
                   <tbody className="divide-y divide-white/5">
                     {projects.map((p) => (
-                      <tr key={p.id} className="hover:bg-white/[0.01] transition-colors">
+                      <tr
+                        key={p.id}
+                        className="hover:bg-white/[0.01] transition-colors"
+                      >
                         <td className="py-3 font-semibold text-white">
-                          <span className="truncate block max-w-[160px] sm:max-w-none">{p.title}</span>
+                          <span className="truncate block max-w-[160px] sm:max-w-none">
+                            {p.title}
+                          </span>
                         </td>
                         <td className="py-3 text-slate-400">{p.category}</td>
                         <td className="py-3">
@@ -584,10 +829,16 @@ export default function AdminDashboardPage() {
                           </span>
                         </td>
                         <td className="py-3 font-mono text-slate-500 text-[11px]">
-                          {p.created_at ? new Date(p.created_at).toLocaleDateString('id-ID', { month: 'short', day: 'numeric' }) : 'Recently'}
+                          {p.created_at
+                            ? new Date(p.created_at).toLocaleDateString(
+                                'id-ID',
+                                { month: 'short', day: 'numeric' }
+                              )
+                            : 'Recently'}
                         </td>
                         <td className="py-3 text-right">
                           <button
+                            type="button"
                             onClick={() => handleDeleteProject(p.id, p.title)}
                             className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-colors cursor-pointer"
                             title="Hapus Proyek"
@@ -604,38 +855,55 @@ export default function AdminDashboardPage() {
           </div>
 
           <div className="lg:col-span-4 bg-[#0b0e17] border border-white/5 rounded-2xl p-5">
-            <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold block mb-4">Quick Actions</span>
-           
+            <span className="text-xs font-mono uppercase tracking-wider text-slate-400 font-bold block mb-4">
+              Quick Actions
+            </span>
+
             <div className="grid grid-cols-2 gap-3">
               <Link
                 href="/dashboard/projects"
                 className="p-4 rounded-xl bg-white/[0.02] border border-white/5 hover:border-cyan-500/30 hover:bg-cyan-500/[0.03] transition-all flex flex-col items-center justify-center text-center group cursor-pointer"
               >
-                <FolderGit2 size={20} className="text-cyan-400 mb-2 group-hover:scale-110 transition-transform" />
-                <span className="text-xs font-semibold text-white">Add Project</span>
+                <FolderGit2
+                  size={20}
+                  className="text-cyan-400 mb-2 group-hover:scale-110 transition-transform"
+                />
+                <span className="text-xs font-semibold text-white">
+                  Add Project
+                </span>
               </Link>
 
               <Link
                 href="/dashboard/home"
                 className="p-4 rounded-xl bg-white/[0.02] border border-white/5 hover:border-purple-500/30 hover:bg-purple-500/[0.03] transition-all flex flex-col items-center justify-center text-center group cursor-pointer"
               >
-                <Home size={20} className="text-purple-400 mb-2 group-hover:scale-110 transition-transform" />
-                <span className="text-xs font-semibold text-white">Edit Home</span>
+                <Home
+                  size={20}
+                  className="text-purple-400 mb-2 group-hover:scale-110 transition-transform"
+                />
+                <span className="text-xs font-semibold text-white">
+                  Edit Home
+                </span>
               </Link>
 
               <button
+                type="button"
                 onClick={() => {
                   fetchVisitorLogs();
                   setIsVisitorLogsOpen(true);
                 }}
                 className="p-4 rounded-xl bg-white/[0.02] border border-white/5 hover:border-pink-500/30 hover:bg-pink-500/[0.03] transition-all flex flex-col items-center justify-center text-center group cursor-pointer col-span-2"
               >
-                <Users size={20} className="text-pink-400 mb-1 group-hover:scale-110 transition-transform" />
-                <span className="text-xs font-semibold text-white">Visitor Logs</span>
+                <Users
+                  size={20}
+                  className="text-pink-400 mb-1 group-hover:scale-110 transition-transform"
+                />
+                <span className="text-xs font-semibold text-white">
+                  Visitor Logs
+                </span>
               </button>
             </div>
           </div>
-
         </div>
 
         <footer className="pt-6 pb-2 text-center text-[11px] font-mono text-slate-600">
@@ -650,9 +918,12 @@ export default function AdminDashboardPage() {
             <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
               <div className="flex items-center gap-2">
                 <Users size={18} className="text-pink-400" />
-                <h2 className="text-sm font-bold text-white">Riwayat Email & Pengunjung Masuk</h2>
+                <h2 className="text-sm font-bold text-white">
+                  Riwayat Email & Pengunjung Masuk
+                </h2>
               </div>
               <button
+                type="button"
                 onClick={() => setIsVisitorLogsOpen(false)}
                 className="text-slate-400 hover:text-white transition-colors cursor-pointer"
               >
@@ -667,11 +938,16 @@ export default function AdminDashboardPage() {
                   <span>Memuat riwayat log...</span>
                 </div>
               ) : visitorLogs.length === 0 ? (
-                <div className="py-12 text-center text-xs font-mono text-slate-500">Belum ada log pengunjung.</div>
+                <div className="py-12 text-center text-xs font-mono text-slate-500">
+                  Belum ada log pengunjung.
+                </div>
               ) : (
                 <div className="max-h-80 overflow-y-auto space-y-2.5 pr-1">
                   {visitorLogs.map((log) => (
-                    <div key={log.id} className="p-3.5 rounded-xl bg-[#07090e] border border-white/5 flex items-center justify-between gap-3">
+                    <div
+                      key={log.id}
+                      className="p-3.5 rounded-xl bg-[#07090e] border border-white/5 flex items-center justify-between gap-3"
+                    >
                       <div className="flex items-center gap-3 min-w-0">
                         <div className="w-8 h-8 rounded-full bg-pink-500/10 border border-pink-500/20 text-pink-400 flex items-center justify-center font-mono font-bold text-xs shrink-0">
                           {log.email ? log.email.charAt(0).toUpperCase() : 'G'}
@@ -701,7 +977,11 @@ export default function AdminDashboardPage() {
               )}
 
               <div className="flex items-center justify-end gap-2 pt-4 mt-4 border-t border-white/10">
-                <button onClick={() => setIsVisitorLogsOpen(false)} className="px-4 py-2 rounded-xl bg-white/5 text-slate-300 font-semibold text-xs cursor-pointer">
+                <button
+                  type="button"
+                  onClick={() => setIsVisitorLogsOpen(false)}
+                  className="px-4 py-2 rounded-xl bg-white/5 text-slate-300 font-semibold text-xs cursor-pointer"
+                >
                   Tutup
                 </button>
               </div>
@@ -715,19 +995,38 @@ export default function AdminDashboardPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-[#0b0e17] border border-white/10 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl">
             <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
-              <h2 className="text-sm font-bold text-white">Add Project to Neon</h2>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white cursor-pointer">
+              <h2 className="text-sm font-bold text-white">
+                Add Project to Neon
+              </h2>
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                className="text-slate-400 hover:text-white cursor-pointer"
+              >
                 <X size={16} />
               </button>
             </div>
-            <form onSubmit={handleCreateProject} className="p-6 space-y-4 text-xs">
+            <form
+              onSubmit={handleCreateProject}
+              className="p-6 space-y-4 text-xs"
+            >
               <div>
-                <label className="block text-slate-400 mb-1">Project Title</label>
+                <label className="block text-slate-400 mb-1">
+                  Project Title
+                </label>
                 <input
                   type="text"
                   required
                   value={projectForm.title}
-                  onChange={(e) => setProjectForm({ ...projectForm, title: e.target.value, slug: e.target.value.toLowerCase().replace(/\s+/g, '-') })}
+                  onChange={(e) =>
+                    setProjectForm({
+                      ...projectForm,
+                      title: e.target.value,
+                      slug: e.target.value
+                        .toLowerCase()
+                        .replace(/\s+/g, '-'),
+                    })
+                  }
                   className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white"
                 />
               </div>
@@ -736,7 +1035,9 @@ export default function AdminDashboardPage() {
                   <label className="block text-slate-400 mb-1">Category</label>
                   <select
                     value={projectForm.category}
-                    onChange={(e) => setProjectForm({ ...projectForm, category: e.target.value })}
+                    onChange={(e) =>
+                      setProjectForm({ ...projectForm, category: e.target.value })
+                    }
                     className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white"
                   >
                     <option value="Web Application">Web Application</option>
@@ -748,7 +1049,9 @@ export default function AdminDashboardPage() {
                   <label className="block text-slate-400 mb-1">Status</label>
                   <select
                     value={projectForm.status}
-                    onChange={(e) => setProjectForm({ ...projectForm, status: e.target.value })}
+                    onChange={(e) =>
+                      setProjectForm({ ...projectForm, status: e.target.value })
+                    }
                     className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white"
                   >
                     <option value="PUBLISHED">PUBLISHED</option>
@@ -762,19 +1065,32 @@ export default function AdminDashboardPage() {
                   rows={3}
                   required
                   value={projectForm.overview}
-                  onChange={(e) => setProjectForm({ ...projectForm, overview: e.target.value })}
+                  onChange={(e) =>
+                    setProjectForm({ ...projectForm, overview: e.target.value })
+                  }
                   className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white"
                 />
               </div>
               <div className="flex justify-end gap-2 pt-4 border-t border-white/10">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 rounded-xl bg-white/5 text-slate-300">Batal</button>
-                <button type="submit" disabled={submittingProject} className="px-4 py-2 rounded-xl bg-cyan-500 text-slate-950 font-bold">Simpan</button>
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-4 py-2 rounded-xl bg-white/5 text-slate-300"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingProject}
+                  className="px-4 py-2 rounded-xl bg-cyan-500 text-slate-950 font-bold"
+                >
+                  Simpan
+                </button>
               </div>
             </form>
           </div>
         </div>
       )}
-
     </div>
   );
 }

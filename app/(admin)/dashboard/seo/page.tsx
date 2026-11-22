@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { 
+import {
   LayoutDashboard,
   Home,
   User,
@@ -18,19 +18,19 @@ import {
   Settings,
   ExternalLink,
   LogOut,
-  Globe, 
-  Search, 
-  Share2, 
-  Save, 
-  Loader2, 
-  CheckCircle2, 
+  Search,
+  Share2,
+  Save,
+  Loader2,
+  CheckCircle2,
   AlertCircle,
-  Sparkles, 
-  FileText, 
-  Tag, 
+  Sparkles,
+  FileText,
+  Tag,
   Image as ImageIcon,
   Monitor,
-  Eye
+  Eye,
+  Radio,
 } from 'lucide-react';
 
 interface SeoData {
@@ -41,31 +41,80 @@ interface SeoData {
   author_name: string;
 }
 
+const SEO_SYNC_CHANNEL = 'portfolio-sync-seo';
+
 export default function SeoSettingsAdminPage() {
   const router = useRouter();
+  const syncChannelRef = useRef<BroadcastChannel | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-  
+  const [livePulse, setLivePulse] = useState(false);
+  const [toast, setToast] = useState<{
+    message: string;
+    type: 'success' | 'error';
+  } | null>(null);
+
   const [seo, setSeo] = useState<SeoData>({
     meta_title: 'Ibe Laia | Software Engineer & Full-Stack Developer',
-    meta_description: 'Portfolio modern karya Ibe Laia - Software Engineering & Digital Solutions berbasis di Surabaya, Indonesia.',
-    keywords: 'Ibe Laia, Software Engineer, Full-Stack Developer, Portofolio IT',
-    og_image: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=1200&q=80',
-    author_name: 'Ibe Laia'
+    meta_description:
+      'Portfolio modern karya Ibe Laia - Software Engineering & Digital Solutions berbasis di Surabaya, Indonesia.',
+    keywords:
+      'Ibe Laia, Software Engineer, Full-Stack Developer, Portofolio IT',
+    og_image:
+      'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=1200&q=80',
+    author_name: 'Ibe Laia',
   });
 
-  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+  const showToast = (
+    message: string,
+    type: 'success' | 'error' = 'success'
+  ) => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3500);
   };
 
+  const broadcastSeoUpdate = useCallback((updatedData: SeoData) => {
+    const eventDetail = {
+      section: 'seo',
+      updatedAt: Date.now(),
+      data: updatedData,
+    };
+
+    try {
+      if (syncChannelRef.current) {
+        syncChannelRef.current.postMessage(eventDetail);
+      }
+    } catch {
+      // Abaikan jika BroadcastChannel tidak tersedia
+    }
+
+    try {
+      localStorage.setItem(SEO_SYNC_CHANNEL, JSON.stringify(eventDetail));
+    } catch {
+      // Abaikan jika localStorage diblokir
+    }
+
+    window.dispatchEvent(
+      new CustomEvent(SEO_SYNC_CHANNEL, { detail: eventDetail })
+    );
+    setLivePulse(true);
+    setTimeout(() => setLivePulse(false), 1800);
+  }, []);
+
   useEffect(() => {
+    let isMounted = true;
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      syncChannelRef.current = new BroadcastChannel(SEO_SYNC_CHANNEL);
+    }
+
     async function fetchSeo() {
       try {
-        const response = await fetch('/api/seo');
+        const response = await fetch('/api/seo', { cache: 'no-store' });
         const json = await response.json();
+
+        if (!isMounted) return;
 
         if (json.success && json.data) {
           const data = json.data;
@@ -74,16 +123,29 @@ export default function SeoSettingsAdminPage() {
             meta_description: data.meta_description || '',
             keywords: data.keywords || '',
             og_image: data.og_image || '',
-            author_name: data.author_name || ''
+            author_name: data.author_name || '',
           });
         }
       } catch (err) {
-        console.warn('Gagal memuat pengaturan SEO:', err);
+        if (isMounted) {
+          console.warn('Gagal memuat pengaturan SEO:', err);
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     }
+
     fetchSeo();
+
+    return () => {
+      isMounted = false;
+      if (syncChannelRef.current) {
+        syncChannelRef.current.close();
+        syncChannelRef.current = null;
+      }
+    };
   }, []);
 
   const handleSave = async (e: React.FormEvent) => {
@@ -94,19 +156,27 @@ export default function SeoSettingsAdminPage() {
       const response = await fetch('/api/seo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(seo)
+        cache: 'no-store',
+        body: JSON.stringify(seo),
       });
       const json = await response.json();
-      setSaving(false);
 
       if (response.ok && json.success) {
-        showToast('Pengaturan SEO berhasil disimpan & diperbarui ke Neon!');
+        broadcastSeoUpdate(json.data ?? seo);
+        router.refresh();
+        showToast(
+          'Pengaturan SEO berhasil disimpan & disinkronkan secara real-time ke Neon!'
+        );
       } else {
-        showToast(`Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`, 'error');
+        showToast(
+          `Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`,
+          'error'
+        );
       }
     } catch (err: any) {
+      showToast(`Error: ${err?.message || 'Terjadi kesalahan'}`, 'error');
+    } finally {
       setSaving(false);
-      showToast(`Error: ${err.message}`, 'error');
     }
   };
 
@@ -116,12 +186,19 @@ export default function SeoSettingsAdminPage() {
 
   return (
     <div className="min-h-screen bg-[#07090e] text-[#94a3b8] flex flex-col lg:flex-row antialiased">
-
       {toast && (
-        <div className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl backdrop-blur-md border shadow-2xl flex items-center gap-2.5 text-xs font-medium animate-in fade-in duration-200 ${
-          toast.type === 'success' ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300' : 'bg-red-500/15 border-red-500/30 text-red-300'
-        }`}>
-          {toast.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+        <div
+          className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl backdrop-blur-md border shadow-2xl flex items-center gap-2.5 text-xs font-medium animate-in fade-in duration-200 ${
+            toast.type === 'success'
+              ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+              : 'bg-red-500/15 border-red-500/30 text-red-300'
+          }`}
+        >
+          {toast.type === 'success' ? (
+            <CheckCircle2 size={16} />
+          ) : (
+            <AlertCircle size={16} />
+          )}
           <span>{toast.message}</span>
         </div>
       )}
@@ -136,41 +213,69 @@ export default function SeoSettingsAdminPage() {
 
           <div className="space-y-6 text-xs">
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Overview</p>
-              <Link href="/dashboard" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all">
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Overview
+              </p>
+              <Link
+                href="/dashboard"
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all"
+              >
                 <LayoutDashboard size={16} />
                 <span>Dashboard</span>
               </Link>
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Website Content</p>
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Website Content
+              </p>
               <div className="space-y-1">
-                <Link href="/dashboard/home" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/home"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Home size={15} />
                   <span>Home</span>
                 </Link>
-                <Link href="/dashboard/about" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/about"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <User size={15} />
                   <span>About</span>
                 </Link>
-                <Link href="/dashboard/services" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/services"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Wrench size={15} />
                   <span>Services</span>
                 </Link>
-                <Link href="/dashboard/projects" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/projects"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <FolderGit2 size={15} />
                   <span>Projects</span>
                 </Link>
-                <Link href="/dashboard/achievements" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/achievements"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Award size={15} />
                   <span>Achievements</span>
                 </Link>
-                <Link href="/dashboard/certificates" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/certificates"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <FileBadge size={15} />
                   <span>Certificates</span>
                 </Link>
-                <Link href="/dashboard/contact" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/contact"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Mail size={15} />
                   <span>Contact</span>
                 </Link>
@@ -178,25 +283,41 @@ export default function SeoSettingsAdminPage() {
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Assets</p>
-              <Link href="/dashboard/media" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Assets
+              </p>
+              <Link
+                href="/dashboard/media"
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+              >
                 <FolderArchive size={15} />
                 <span>Media Library</span>
               </Link>
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Settings</p>
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Settings
+              </p>
               <div className="space-y-1">
-                <Link href="/dashboard/appearance" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/appearance"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Palette size={15} />
                   <span>Appearance</span>
                 </Link>
-                <Link href="/dashboard/seo" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-semibold bg-[#581c87]/60 text-white border border-[#9333ea]/30 transition-all">
+                <Link
+                  href="/dashboard/seo"
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-semibold bg-[#581c87]/60 text-white border border-[#9333ea]/30 transition-all"
+                >
                   <SearchCheck size={15} className="text-[#c084fc]" />
                   <span>SEO Settings</span>
                 </Link>
-                <Link href="/dashboard/settings" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
+                <Link
+                  href="/dashboard/settings"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+                >
                   <Settings size={15} />
                   <span>General Settings</span>
                 </Link>
@@ -206,11 +327,19 @@ export default function SeoSettingsAdminPage() {
         </div>
 
         <div className="pt-4 border-t border-white/5 space-y-3">
-          <Link href="/" target="_blank" className="w-full py-2 px-3 rounded-xl border border-white/10 hover:border-white/20 text-slate-300 hover:text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors">
+          <Link
+            href="/"
+            target="_blank"
+            className="w-full py-2 px-3 rounded-xl border border-white/10 hover:border-white/20 text-slate-300 hover:text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
+          >
             <span>Preview Website</span>
             <ExternalLink size={13} />
           </Link>
-          <button onClick={handleLogout} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors cursor-pointer">
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors cursor-pointer"
+          >
             <LogOut size={15} />
             <span>Logout</span>
           </button>
@@ -219,13 +348,33 @@ export default function SeoSettingsAdminPage() {
 
       {/* MAIN CONTENT */}
       <main className="flex-1 px-4 sm:px-8 py-6 max-w-5xl w-full mx-auto space-y-6">
-        
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">SEO & Meta Settings</h1>
-            <p className="text-xs text-slate-400 mt-1">Kelola identitas mesin pencari, metadata Google, dan pratinjau sosial media portofolio via Neon.</p>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                SEO & Meta Settings
+              </h1>
+              <span
+                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono border transition-colors ${
+                  livePulse
+                    ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300'
+                    : 'bg-white/5 border-white/10 text-slate-400'
+                }`}
+              >
+                <Radio size={11} className="text-emerald-400" />
+                <span>LIVE SYNC</span>
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">
+              Kelola identitas mesin pencari, metadata Google, dan pratinjau
+              sosial media portofolio via Neon secara dinamis dan real-time.
+            </p>
           </div>
-          <Link href="/" target="_blank" className="px-3.5 py-2 rounded-xl bg-[#0b0e17] border border-white/10 hover:border-white/20 text-xs font-mono text-slate-300 hover:text-white flex items-center gap-2 transition-colors self-start sm:self-auto">
+          <Link
+            href="/"
+            target="_blank"
+            className="px-3.5 py-2 rounded-xl bg-[#0b0e17] border border-white/10 hover:border-white/20 text-xs font-mono text-slate-300 hover:text-white flex items-center gap-2 transition-colors self-start sm:self-auto"
+          >
             <Eye size={13} className="text-cyan-400" />
             <span>Lihat Website Publik</span>
           </Link>
@@ -238,14 +387,14 @@ export default function SeoSettingsAdminPage() {
           </div>
         ) : (
           <form onSubmit={handleSave} className="space-y-6">
-            
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-              
               {/* Form Input Kiri (7 Kolom) */}
               <div className="lg:col-span-7 bg-[#0b0e17] border border-white/5 rounded-2xl p-6 space-y-5 shadow-xl">
                 <div className="flex items-center gap-2 pb-3 border-b border-white/5">
                   <Sparkles size={16} className="text-cyan-400" />
-                  <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">Metadata Utama Website</span>
+                  <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">
+                    Metadata Utama Website
+                  </span>
                 </div>
 
                 <div className="space-y-1.5">
@@ -256,11 +405,15 @@ export default function SeoSettingsAdminPage() {
                   <input
                     type="text"
                     value={seo.meta_title}
-                    onChange={(e) => setSeo({ ...seo, meta_title: e.target.value })}
+                    onChange={(e) =>
+                      setSeo({ ...seo, meta_title: e.target.value })
+                    }
                     placeholder="Contoh: Ibe Laia | Software Engineer"
                     className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-xs text-white placeholder-slate-600 focus:border-cyan-400 outline-none font-mono"
                   />
-                  <span className="text-[10px] text-slate-500 block">Panjang ideal: 50–60 karakter.</span>
+                  <span className="text-[10px] text-slate-500 block">
+                    Panjang ideal: 50–60 karakter.
+                  </span>
                 </div>
 
                 <div className="space-y-1.5">
@@ -271,11 +424,15 @@ export default function SeoSettingsAdminPage() {
                   <textarea
                     rows={3}
                     value={seo.meta_description}
-                    onChange={(e) => setSeo({ ...seo, meta_description: e.target.value })}
+                    onChange={(e) =>
+                      setSeo({ ...seo, meta_description: e.target.value })
+                    }
                     placeholder="Tulis ringkasan portofolio Anda..."
                     className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-xs text-white placeholder-slate-600 focus:border-cyan-400 outline-none resize-none"
                   />
-                  <span className="text-[10px] text-slate-500 block">Panjang ideal: 120–150 karakter.</span>
+                  <span className="text-[10px] text-slate-500 block">
+                    Panjang ideal: 120–150 karakter.
+                  </span>
                 </div>
 
                 <div className="space-y-1.5">
@@ -286,7 +443,9 @@ export default function SeoSettingsAdminPage() {
                   <input
                     type="text"
                     value={seo.keywords}
-                    onChange={(e) => setSeo({ ...seo, keywords: e.target.value })}
+                    onChange={(e) =>
+                      setSeo({ ...seo, keywords: e.target.value })
+                    }
                     placeholder="Software Engineer, Full-Stack, Surabaya..."
                     className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-xs text-white placeholder-slate-600 focus:border-cyan-400 outline-none font-mono"
                   />
@@ -300,7 +459,9 @@ export default function SeoSettingsAdminPage() {
                   <input
                     type="text"
                     value={seo.author_name}
-                    onChange={(e) => setSeo({ ...seo, author_name: e.target.value })}
+                    onChange={(e) =>
+                      setSeo({ ...seo, author_name: e.target.value })
+                    }
                     placeholder="Ibe Laia"
                     className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-xs text-white placeholder-slate-600 focus:border-cyan-400 outline-none font-mono"
                   />
@@ -309,12 +470,16 @@ export default function SeoSettingsAdminPage() {
                 <div className="space-y-1.5">
                   <label className="block text-xs font-mono text-slate-400 flex items-center gap-1.5">
                     <ImageIcon size={13} className="text-rose-400" />
-                    <span>OG Image URL (URL Gambar Share Sosmed / WhatsApp)</span>
+                    <span>
+                      OG Image URL (URL Gambar Share Sosmed / WhatsApp)
+                    </span>
                   </label>
                   <input
                     type="text"
                     value={seo.og_image}
-                    onChange={(e) => setSeo({ ...seo, og_image: e.target.value })}
+                    onChange={(e) =>
+                      setSeo({ ...seo, og_image: e.target.value })
+                    }
                     placeholder="https://images.unsplash.com/..."
                     className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-xs text-white placeholder-slate-600 focus:border-cyan-400 outline-none font-mono truncate"
                   />
@@ -323,7 +488,6 @@ export default function SeoSettingsAdminPage() {
 
               {/* Live Preview Kanan (5 Kolom) */}
               <div className="lg:col-span-5 space-y-5">
-                
                 {/* Google Preview */}
                 <div className="bg-[#0b0e17] border border-white/5 rounded-2xl p-5 space-y-3 shadow-xl">
                   <div className="flex items-center justify-between text-xs font-mono text-slate-400 border-b border-white/5 pb-2.5">
@@ -331,7 +495,9 @@ export default function SeoSettingsAdminPage() {
                       <Monitor size={14} className="text-cyan-400" />
                       <span>Google Search Preview</span>
                     </span>
-                    <span className="text-[10px] bg-cyan-500/10 text-cyan-400 px-2 py-0.5 rounded">Live</span>
+                    <span className="text-[10px] bg-cyan-500/10 text-cyan-400 px-2 py-0.5 rounded">
+                      Live
+                    </span>
                   </div>
 
                   <div className="bg-white p-3.5 rounded-xl text-slate-900 space-y-1 shadow-md">
@@ -343,7 +509,8 @@ export default function SeoSettingsAdminPage() {
                       {seo.meta_title || 'Judul Web Anda'}
                     </h3>
                     <p className="text-xs text-slate-600 leading-relaxed line-clamp-2">
-                      {seo.meta_description || 'Deskripsi singkat website akan muncul di sini...'}
+                      {seo.meta_description ||
+                        'Deskripsi singkat website akan muncul di sini...'}
                     </p>
                   </div>
                 </div>
@@ -355,34 +522,39 @@ export default function SeoSettingsAdminPage() {
                       <Share2 size={14} className="text-emerald-400" />
                       <span>Social Media Preview (WhatsApp)</span>
                     </span>
-                    <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded">Card</span>
+                    <span className="text-[10px] bg-emerald-500/10 text-emerald-400 px-2 py-0.5 rounded">
+                      Card
+                    </span>
                   </div>
 
                   <div className="bg-[#07090e] border border-white/10 rounded-xl overflow-hidden shadow-md">
                     {seo.og_image && (
                       <div className="w-full h-32 bg-slate-950 overflow-hidden">
-                        <img 
-                          src={seo.og_image} 
-                          alt="OG Preview" 
+                        <img
+                          src={seo.og_image}
+                          alt="OG Preview"
                           className="w-full h-full object-cover opacity-90"
-                          onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                          onError={(e) => {
+                            (e.target as HTMLElement).style.display = 'none';
+                          }}
                         />
                       </div>
                     )}
                     <div className="p-3 space-y-1">
-                      <span className="text-[10px] font-mono uppercase text-slate-500 tracking-wider">ibelaia.dev</span>
+                      <span className="text-[10px] font-mono uppercase text-slate-500 tracking-wider">
+                        ibelaia.dev
+                      </span>
                       <h4 className="text-xs font-bold text-white line-clamp-1">
                         {seo.meta_title || 'Judul Website'}
                       </h4>
                       <p className="text-[11px] text-slate-400 line-clamp-2">
-                        {seo.meta_description || 'Deskripsi pratinjau saat dibagikan...'}
+                        {seo.meta_description ||
+                          'Deskripsi pratinjau saat dibagikan...'}
                       </p>
                     </div>
                   </div>
                 </div>
-
               </div>
-
             </div>
 
             <div className="flex justify-end pt-2">
@@ -393,10 +565,11 @@ export default function SeoSettingsAdminPage() {
               >
                 {saving && <Loader2 size={14} className="animate-spin" />}
                 <Save size={14} />
-                <span>{saving ? 'Menyimpan...' : 'Simpan Pengaturan SEO'}</span>
+                <span>
+                  {saving ? 'Menyimpan...' : 'Simpan Pengaturan SEO'}
+                </span>
               </button>
             </div>
-
           </form>
         )}
       </main>

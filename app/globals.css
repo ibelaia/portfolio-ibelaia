@@ -39,7 +39,36 @@
     transition: background-color 0.25s ease, color 0.25s ease;
   }
 
-  .bg-accent { background-color: var(--accent); }
-  .text-accent { color: var(--accent); }
-  .border-accent { border-color: var(--accent); }
+  .bg-accent {
+    background-color: var(--accent);
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  }
+
+  .text-accent {
+    color: var(--accent);
+    transition: color 0.2s ease;
+  }
+
+  .border-accent {
+    border-color: var(--accent);
+    transition: border-color 0.2s ease;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.25);
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(148, 163, 184, 0.45);
+  }
 }

@@ -1,6 +1,12 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+} from 'react';
 
 type Language = 'EN' | 'ID';
 
@@ -14,9 +20,20 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => {
   const [language, setLanguage] = useState<Language>('EN');
   const [isDark, setIsDark] = useState<boolean>(true);
+
+  const syncAccentVariable = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    const savedAccent =
+      localStorage.getItem('portfolio_accent') ||
+      localStorage.getItem('app_accent') ||
+      '#06b6d4';
+    document.documentElement.style.setProperty('--accent', savedAccent);
+  }, []);
 
   // Baca preferensi tersimpan dari browser (localStorage)
   useEffect(() => {
@@ -27,9 +44,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (savedTheme) {
       setIsDark(savedTheme === 'dark');
     }
-  }, []);
 
-  // Update class HTML & simpan status tema
+    syncAccentVariable();
+  }, [syncAccentVariable]);
+
+  // Update class HTML & simpan status tema + variabel aksen
   useEffect(() => {
     const root = document.documentElement;
     if (isDark) {
@@ -41,7 +60,52 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       root.classList.add('light');
       localStorage.setItem('app_theme', 'light');
     }
-  }, [isDark]);
+    syncAccentVariable();
+  }, [isDark, syncAccentVariable]);
+
+  // Sinkronisasi lintas tab via BroadcastChannel & storage event
+  useEffect(() => {
+    let channel: BroadcastChannel | null = null;
+
+    const handleSyncUpdate = () => {
+      const latestLang = localStorage.getItem('app_lang') as Language | null;
+      if (latestLang === 'EN' || latestLang === 'ID') {
+        setLanguage(latestLang);
+      }
+
+      const latestTheme = localStorage.getItem('app_theme');
+      if (latestTheme === 'dark' || latestTheme === 'light') {
+        setIsDark(latestTheme === 'dark');
+      }
+
+      syncAccentVariable();
+    };
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      channel = new BroadcastChannel('portfolio-admin-sync');
+      channel.onmessage = handleSyncUpdate;
+    }
+
+    const handleStorage = (event: StorageEvent) => {
+      if (
+        !event.key ||
+        event.key === 'app_lang' ||
+        event.key === 'app_theme' ||
+        event.key.startsWith('portfolio')
+      ) {
+        handleSyncUpdate();
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      if (channel) {
+        channel.close();
+      }
+    };
+  }, [syncAccentVariable]);
 
   const changeLanguage = (lang: Language) => {
     setLanguage(lang);

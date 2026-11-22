@@ -2,14 +2,14 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { 
-  ArrowLeft, 
-  Code, 
-  Search, 
+import {
+  ArrowLeft,
+  Code,
+  Search,
   Sparkles,
   ArrowUpRight,
   FolderArchive,
-  Star 
+  Star,
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 
@@ -28,41 +28,65 @@ interface ProjectItem {
   isFeatured?: boolean;
 }
 
+const DEFAULT_PROJECT_IMAGE =
+  'https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=800&q=80';
+
 export default function AllProjectsPage() {
   const { t } = useApp();
   const [projects, setProjects] = useState<ProjectItem[]>([]);
   const [selectedFilter, setSelectedFilter] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
+    let isMounted = true;
+
     async function fetchNeonProjects() {
       try {
         const response = await fetch('/api/projects');
         const json = await response.json();
 
-        if (json.success && json.data && json.data.length > 0) {
-          const mappedProjects: ProjectItem[] = json.data.map((item: any, index: number) => {
-            const rawCat = (item.category || '').toUpperCase();
-            let normCat = 'WEB';
-            if (rawCat.includes('MOBILE') || rawCat.includes('APP')) normCat = 'MOBILE';
-            else if (rawCat.includes('UI') || rawCat.includes('UX') || rawCat.includes('DESIGN')) normCat = 'UIUX';
-            else if (rawCat.includes('WEB3') || rawCat.includes('CRYPTO')) normCat = 'WEB3';
-            else normCat = 'WEB';
+        if (!isMounted) return;
 
-            const isMulti = item.type === 'multi' || (Array.isArray(item.collection_items) && item.collection_items.length > 0);
+        if (json.success && Array.isArray(json.data) && json.data.length > 0) {
+          const mappedProjects: ProjectItem[] = json.data.map((item: any, index: number) => {
+            const rawCat = String(item.category || '').toUpperCase();
+            let normCat = 'WEB';
+            if (rawCat.includes('MOBILE') || rawCat.includes('APP')) {
+              normCat = 'MOBILE';
+            } else if (rawCat.includes('UI') || rawCat.includes('UX') || rawCat.includes('DESIGN')) {
+              normCat = 'UIUX';
+            } else if (rawCat.includes('WEB3') || rawCat.includes('CRYPTO')) {
+              normCat = 'WEB3';
+            }
+
+            const hasCollection =
+              Array.isArray(item.collection_items) && item.collection_items.length > 0;
+            const normType = item.type || (hasCollection ? 'multi' : 'single');
+
+            const rawTitle = item.title || `Untitled Project ${index + 1}`;
+            const rawDesc =
+              item.description ||
+              item.overview ||
+              'Project showcase and implementation details.';
+
+            const cleanTags =
+              Array.isArray(item.tags) && item.tags.length > 0
+                ? item.tags.filter(Boolean)
+                : ['Next.js', 'PostgreSQL'];
 
             return {
-              id: item.id ? item.id.toString() : String(index + 1).padStart(2, '0'),
+              id: item.id ? String(item.id) : String(index + 1).padStart(2, '0'),
               slug: item.slug || `project-${index + 1}`,
-              title: item.title,
-              titleId: item.title,
+              title: rawTitle,
+              titleId: item.title_id || rawTitle,
               category: normCat,
-              type: item.type || (isMulti ? 'multi' : 'single'),
-              desc: item.description || item.overview || '',
-              descId: item.description || item.overview || '',
-              image: item.image_url || item.thumbnail || 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=800&q=80',
-              tags: Array.isArray(item.tags) ? item.tags : ['Next.js', 'PostgreSQL'],
+              type: normType,
+              desc: rawDesc,
+              descId: item.description_id || item.overview_id || rawDesc,
+              image: item.image_url || item.thumbnail || DEFAULT_PROJECT_IMAGE,
+              tags: cleanTags,
               githubUrl: item.github_url || 'https://github.com/ibelaia',
               isFeatured: Boolean(item.is_featured),
             };
@@ -74,15 +98,26 @@ export default function AllProjectsPage() {
           });
 
           setProjects(sortedNeonProjects);
+        } else {
+          setProjects([]);
         }
       } catch (err) {
-        console.warn('Gagal memuat data dari Neon API:', err);
+        if (isMounted) {
+          console.warn('Gagal memuat data dari Neon API:', err);
+          setProjects([]);
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     }
 
     fetchNeonProjects();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const filterTabs = [
@@ -93,17 +128,23 @@ export default function AllProjectsPage() {
     { key: 'WEB3', label: 'Web3' },
   ];
 
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+
   const filteredProjects = projects.filter((item) => {
     const matchesCategory = selectedFilter === 'ALL' || item.category === selectedFilter;
-    const matchesSearch =
-      item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.tags.some((tag) => tag.toLowerCase().includes(searchQuery.toLowerCase()));
-    return matchesCategory && matchesSearch;
+    if (!normalizedQuery) return matchesCategory;
+
+    const inTitle = item.title.toLowerCase().includes(normalizedQuery);
+    const inTitleId = (item.titleId || '').toLowerCase().includes(normalizedQuery);
+    const inDesc = item.desc.toLowerCase().includes(normalizedQuery);
+    const inDescId = (item.descId || '').toLowerCase().includes(normalizedQuery);
+    const inTags = item.tags.some((tag) => tag.toLowerCase().includes(normalizedQuery));
+
+    return matchesCategory && (inTitle || inTitleId || inDesc || inDescId || inTags);
   });
 
   return (
     <main className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 space-y-8">
-
       {/* Tombol Navigasi Kembali */}
       <div>
         <Link
@@ -151,6 +192,7 @@ export default function AllProjectsPage() {
         {filterTabs.map((tab) => (
           <button
             key={tab.key}
+            type="button"
             onClick={() => setSelectedFilter(tab.key)}
             className={`px-4 py-2 rounded-xl text-xs font-medium whitespace-nowrap transition-all cursor-pointer ${
               selectedFilter === tab.key
@@ -171,7 +213,10 @@ export default function AllProjectsPage() {
         </div>
       ) : filteredProjects.length === 0 ? (
         <div className="py-20 text-center text-[var(--text-muted)] font-mono text-xs bg-[var(--card-bg)] border border-[var(--card-border)] rounded-3xl">
-          {t('No projects match your search criteria.', 'Tidak ada proyek yang sesuai dengan kata kunci pencarian.')}
+          {t(
+            'No projects match your search criteria.',
+            'Tidak ada proyek yang sesuai dengan kata kunci pencarian.'
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -181,61 +226,76 @@ export default function AllProjectsPage() {
                 ? `/projects/collection/${proj.slug}`
                 : `/projects/${proj.slug}`;
 
+            const imageSrc = failedImages[proj.id]
+              ? DEFAULT_PROJECT_IMAGE
+              : proj.image || DEFAULT_PROJECT_IMAGE;
+
             return (
-              <div
+              <article
                 key={proj.id}
                 className={`bg-[var(--card-bg)] border rounded-3xl overflow-hidden backdrop-blur-xl transition-all duration-300 flex flex-col justify-between group hover:shadow-2xl hover:-translate-y-1.5 relative ${
-                  proj.isFeatured ? 'border-accent shadow-accent/20 shadow-xl' : 'border-[var(--card-border)] hover:border-accent/30'
+                  proj.isFeatured
+                    ? 'border-accent shadow-accent/20 shadow-xl'
+                    : 'border-[var(--card-border)] hover:border-accent/30'
                 }`}
               >
                 {/* Ikon Bintang Unggulan */}
                 {proj.isFeatured && (
                   <div className="absolute top-3 right-3 z-20 pointer-events-none">
-                    <span className="p-1.5 rounded-xl bg-accent backdrop-blur-md border border-accent text-slate-950 flex items-center justify-center shadow-lg" title="Proyek Unggulan">
+                    <span
+                      className="p-1.5 rounded-xl bg-accent backdrop-blur-md border border-accent text-slate-950 flex items-center justify-center shadow-lg"
+                      title="Proyek Unggulan"
+                    >
                       <Star size={13} className="fill-slate-950 text-slate-950" />
                     </span>
                   </div>
                 )}
 
-                <Link href={targetUrl} className="block">
-                  <div className="relative w-full aspect-video bg-slate-950 overflow-hidden border-b border-[var(--card-border)]">
-                    
-                    {/* Badge Kategori & Multi */}
-                    <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5">
-                      <span className="px-2.5 py-1 rounded-lg bg-black/75 backdrop-blur-md border border-white/10 text-[10px] font-mono font-bold text-accent">
-                        {proj.category}
-                      </span>
-                      {proj.type === 'multi' && (
-                        <span className="px-2.5 py-1 rounded-lg bg-purple-500/80 backdrop-blur-md text-[10px] font-mono text-white flex items-center gap-1">
-                          <FolderArchive size={11} /> Multi
+                <div>
+                  <Link href={targetUrl} className="block">
+                    <div className="relative w-full aspect-video bg-slate-950 overflow-hidden border-b border-[var(--card-border)]">
+                      {/* Badge Kategori & Multi */}
+                      <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5">
+                        <span className="px-2.5 py-1 rounded-lg bg-black/75 backdrop-blur-md border border-white/10 text-[10px] font-mono font-bold text-accent">
+                          {proj.category}
                         </span>
-                      )}
+                        {proj.type === 'multi' && (
+                          <span className="px-2.5 py-1 rounded-lg bg-purple-500/80 backdrop-blur-md text-[10px] font-mono text-white flex items-center gap-1">
+                            <FolderArchive size={11} /> Multi
+                          </span>
+                        )}
+                      </div>
+
+                      <img
+                        src={imageSrc}
+                        alt={proj.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                        onError={() => {
+                          setFailedImages((prev) => ({ ...prev, [proj.id]: true }));
+                        }}
+                      />
                     </div>
 
-                    <img
-                      src={proj.image}
-                      alt={proj.title}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                      onError={(e) => {
-                        (e.target as HTMLElement).style.display = 'none';
-                      }}
-                    />
-                  </div>
+                    <div className="p-5 sm:p-6 pb-3">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <h2 className="text-base font-bold text-[var(--text-main)] tracking-tight group-hover:text-accent transition-colors line-clamp-1">
+                          {t(proj.title, proj.titleId || proj.title)}
+                        </h2>
+                        <ArrowUpRight
+                          size={16}
+                          className="text-[var(--text-muted)] group-hover:text-accent transition-colors shrink-0 mt-0.5"
+                        />
+                      </div>
 
-                  <div className="p-5 sm:p-6">
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <h2 className="text-base font-bold text-[var(--text-main)] tracking-tight group-hover:text-accent transition-colors line-clamp-1">
-                        {t(proj.title, proj.titleId || proj.title)}
-                      </h2>
-                      <ArrowUpRight size={16} className="text-[var(--text-muted)] group-hover:text-accent transition-colors shrink-0 mt-0.5" />
+                      <p className="text-xs text-[var(--text-muted)] leading-relaxed min-h-[48px] line-clamp-3">
+                        {t(proj.desc, proj.descId || proj.desc)}
+                      </p>
                     </div>
+                  </Link>
 
-                    <p className="text-xs text-[var(--text-muted)] leading-relaxed min-h-[48px] line-clamp-3">
-                      {t(proj.desc, proj.descId || proj.desc)}
-                    </p>
-
-                    <div className="flex flex-wrap gap-1.5 pt-4 mt-2 border-t border-[var(--card-border)]">
-                      {Array.isArray(proj.tags) && proj.tags.map((tag) => (
+                  <div className="px-5 sm:px-6 pb-5">
+                    <div className="flex flex-wrap gap-1.5 pt-4 border-t border-[var(--card-border)]">
+                      {proj.tags.map((tag) => (
                         <span
                           key={tag}
                           className="px-2.5 py-0.5 rounded-lg bg-white/5 border border-[var(--card-border)] text-[10px] font-mono text-[var(--text-muted)]"
@@ -245,7 +305,7 @@ export default function AllProjectsPage() {
                       ))}
                     </div>
                   </div>
-                </Link>
+                </div>
 
                 <div className="px-5 sm:px-6 py-3.5 border-t border-[var(--card-border)] bg-white/[0.01] flex items-center justify-between text-xs font-mono">
                   <a
@@ -270,7 +330,7 @@ export default function AllProjectsPage() {
                     <ArrowUpRight size={13} />
                   </Link>
                 </div>
-              </div>
+              </article>
             );
           })}
         </div>

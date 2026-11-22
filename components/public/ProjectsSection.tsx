@@ -1,14 +1,14 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { 
-  ChevronLeft, 
-  ChevronRight, 
-  ArrowRight, 
-  Layers, 
+import {
+  ChevronLeft,
+  ChevronRight,
+  ArrowRight,
+  Layers,
   ExternalLink,
-  Star 
+  Star,
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 
@@ -33,17 +33,20 @@ export const ProjectsSection: React.FC = () => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    async function fetchNeonProjects() {
-      try {
-        const response = await fetch('/api/projects');
-        const json = await response.json();
+  const fetchNeonProjects = useCallback(async () => {
+    try {
+      const response = await fetch('/api/projects', { cache: 'no-store' });
+      const json = await response.json();
 
-        if (json.success && json.data && json.data.length > 0) {
-          const mapped: ProjectItem[] = json.data.map((item: any, index: number) => {
-            const isMulti = item.type === 'multi' || (Array.isArray(item.collection_items) && item.collection_items.length > 0);
-            const targetLink = isMulti 
-              ? `/projects/collection/${item.slug}` 
+      if (json.success && json.data && json.data.length > 0) {
+        const mapped: ProjectItem[] = json.data.map(
+          (item: any, index: number) => {
+            const isMulti =
+              item.type === 'multi' ||
+              (Array.isArray(item.collection_items) &&
+                item.collection_items.length > 0);
+            const targetLink = isMulti
+              ? `/projects/collection/${item.slug}`
               : `/projects/${item.slug}`;
 
             return {
@@ -55,27 +58,57 @@ export const ProjectsSection: React.FC = () => {
               category: item.category || 'WEB',
               desc: item.description || item.overview || '',
               descId: item.description || item.overview || '',
-              image: item.image_url || item.thumbnail || 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=800&q=80',
-              tags: Array.isArray(item.tags) ? item.tags : ['Next.js', 'PostgreSQL'],
+              image:
+                item.image_url ||
+                item.thumbnail ||
+                'https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=800&q=80',
+              tags: Array.isArray(item.tags)
+                ? item.tags
+                : ['Next.js', 'PostgreSQL'],
               link: item.live_url || targetLink,
               isFeatured: Boolean(item.is_featured),
             };
-          });
+          }
+        );
 
-          const sorted = mapped.sort((a, b) => {
-            if (a.isFeatured === b.isFeatured) return 0;
-            return a.isFeatured ? -1 : 1;
-          });
+        const sorted = mapped.sort((a, b) => {
+          if (a.isFeatured === b.isFeatured) return 0;
+          return a.isFeatured ? -1 : 1;
+        });
 
-          setProjects(sorted);
-        }
-      } catch (err) {
-        console.warn('Gagal memuat proyek dari Neon API:', err);
+        setProjects(sorted);
       }
+    } catch (err) {
+      console.warn('Gagal memuat proyek dari Neon API:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchNeonProjects();
+
+    let channel: BroadcastChannel | null = null;
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      channel = new BroadcastChannel('portfolio-admin-sync');
+      channel.onmessage = () => {
+        fetchNeonProjects();
+      };
     }
 
-    fetchNeonProjects();
-  }, []);
+    const handleStorage = (event: StorageEvent) => {
+      if (!event.key || event.key.startsWith('portfolio')) {
+        fetchNeonProjects();
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      if (channel) {
+        channel.close();
+      }
+    };
+  }, [fetchNeonProjects]);
 
   const handlePrev = () => {
     setCurrentIndex((prev) => {
@@ -105,14 +138,22 @@ export const ProjectsSection: React.FC = () => {
 
   if (projects.length === 0) {
     return (
-      <section id="projects" className="w-full max-w-7xl mx-auto px-4 sm:px-8 py-10 text-center">
-        <p className="text-sm font-mono text-slate-400 animate-pulse">Memuat data proyek dari database Neon...</p>
+      <section
+        id="projects"
+        className="w-full max-w-7xl mx-auto px-4 sm:px-8 py-10 text-center"
+      >
+        <p className="text-sm font-mono text-slate-400 animate-pulse">
+          Memuat data proyek dari database Neon...
+        </p>
       </section>
     );
   }
 
   return (
-    <section id="projects" className="w-full max-w-7xl mx-auto px-4 sm:px-8 py-10">
+    <section
+      id="projects"
+      className="w-full max-w-7xl mx-auto px-4 sm:px-8 py-10"
+    >
       {/* Header Section */}
       <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 gap-4">
         <div>
@@ -126,7 +167,10 @@ export const ProjectsSection: React.FC = () => {
             {t('Selected Projects', 'Proyek Pilihan')}
           </h2>
           <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            {t("Things I've built and proud of.", 'Karya yang telah saya bangun dan banggakan.')}
+            {t(
+              "Things I've built and proud of.",
+              'Karya yang telah saya bangun dan banggakan.'
+            )}
           </p>
         </div>
 
@@ -179,14 +223,22 @@ export const ProjectsSection: React.FC = () => {
                 scrollToCard(idx);
               }}
               className={`snap-center flex-shrink-0 w-[290px] bg-[#0c1226] border rounded-2xl overflow-hidden flex flex-col justify-between shadow-lg relative cursor-pointer ${
-                proj.isFeatured ? 'border-accent shadow-accent/20 shadow-lg' : 'border-white/10'
+                proj.isFeatured
+                  ? 'border-accent shadow-accent/20 shadow-lg'
+                  : 'border-white/10'
               }`}
             >
               {/* Ikon Bintang Unggulan */}
               {proj.isFeatured && (
                 <div className="absolute top-3 right-3 z-20 pointer-events-none">
-                  <span className="p-1.5 rounded-xl bg-accent backdrop-blur-md border border-accent text-slate-950 flex items-center justify-center shadow-lg" title="Proyek Unggulan">
-                    <Star size={13} className="fill-slate-950 text-slate-950" />
+                  <span
+                    className="p-1.5 rounded-xl bg-accent backdrop-blur-md border border-accent text-slate-950 flex items-center justify-center shadow-lg"
+                    title="Proyek Unggulan"
+                  >
+                    <Star
+                      size={13}
+                      className="fill-slate-950 text-slate-950"
+                    />
                   </span>
                 </div>
               )}
@@ -252,7 +304,9 @@ export const ProjectsSection: React.FC = () => {
                   scrollToCard(dotIdx);
                 }}
                 className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${
-                  currentIndex === dotIdx ? 'w-5 bg-accent' : 'w-1.5 bg-slate-700 hover:bg-slate-500'
+                  currentIndex === dotIdx
+                    ? 'w-5 bg-accent'
+                    : 'w-1.5 bg-slate-700 hover:bg-slate-500'
                 }`}
                 aria-label={`Slide ${dotIdx + 1}`}
               />
@@ -270,13 +324,21 @@ export const ProjectsSection: React.FC = () => {
           <div
             key={proj.id}
             className={`bg-[#090e1e]/80 border rounded-2xl overflow-hidden backdrop-blur-xl shadow-xl transition-all duration-300 flex flex-col justify-between group hover:-translate-y-1 relative ${
-              proj.isFeatured ? 'border-accent shadow-accent/20 shadow-xl' : 'border-white/10 hover:border-accent/30'
+              proj.isFeatured
+                ? 'border-accent shadow-accent/20 shadow-xl'
+                : 'border-white/10 hover:border-accent/30'
             }`}
           >
             {proj.isFeatured && (
               <div className="absolute top-3 right-3 z-20 pointer-events-none">
-                <span className="p-1.5 rounded-xl bg-accent backdrop-blur-md border border-accent text-slate-950 flex items-center justify-center shadow-lg" title="Proyek Unggulan">
-                  <Star size={13} className="fill-slate-950 text-slate-950" />
+                <span
+                  className="p-1.5 rounded-xl bg-accent backdrop-blur-md border border-accent text-slate-950 flex items-center justify-center shadow-lg"
+                  title="Proyek Unggulan"
+                >
+                  <Star
+                    size={13}
+                    className="fill-slate-950 text-slate-950"
+                  />
                 </span>
               </div>
             )}

@@ -1,32 +1,73 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { 
-  GraduationCap, 
-  Code2, 
-  Compass, 
-  MapPin, 
-  Download, 
-  User, 
-  ArrowRight 
+import {
+  GraduationCap,
+  Code2,
+  Compass,
+  MapPin,
+  Download,
+  User,
+  ArrowRight,
 } from 'lucide-react';
 import GlassCard from '../ui/GlassCard';
 import { useApp } from '@/context/AppContext';
 
 export const AboutSection: React.FC = () => {
   const { t } = useApp();
+  const [syncTick, setSyncTick] = useState(0);
+
+  useEffect(() => {
+    void syncTick;
+    let channel: BroadcastChannel | null = null;
+
+    const handleSyncSignal = () => {
+      setSyncTick((prev) => prev + 1);
+    };
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      channel = new BroadcastChannel('portfolio-admin-sync');
+      channel.onmessage = handleSyncSignal;
+    }
+
+    const handleStorage = (event: StorageEvent) => {
+      if (!event.key || event.key.startsWith('portfolio')) {
+        handleSyncSignal();
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      if (channel) {
+        channel.close();
+      }
+    };
+  }, [syncTick]);
 
   return (
     <section id="about" className="w-full max-w-7xl mx-auto px-4 sm:px-8 py-10">
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-        
         {/* Kolom Kiri: Kartu Utama Narasi Profil */}
         <div className="lg:col-span-6 flex">
           <GlassCard className="w-full flex flex-col justify-between p-6 sm:p-8 bg-[#090e1e]/80 border-white/10 rounded-2xl shadow-xl backdrop-blur-xl">
             <div>
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-[11px] text-cyan-400 font-medium mb-4">
-                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+              <div
+                style={{
+                  backgroundColor:
+                    'color-mix(in srgb, var(--accent, #06b6d4) 12%, transparent)',
+                  color: 'var(--accent, #22d3ee)',
+                  borderColor:
+                    'color-mix(in srgb, var(--accent, #06b6d4) 25%, transparent)',
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-[11px] text-cyan-400 font-medium mb-4"
+              >
+                <span
+                  style={{ backgroundColor: 'var(--accent, #22d3ee)' }}
+                  className="w-1.5 h-1.5 rounded-full bg-cyan-400"
+                />
                 {t('About Me', 'Tentang Saya')}
               </div>
 
@@ -68,16 +109,24 @@ export const AboutSection: React.FC = () => {
 
         {/* Kolom Kanan: 4 Kotak Bento Grid */}
         <div className="lg:col-span-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
-          
           {/* Bento 1: Education */}
           <GlassCard className="p-5 bg-[#090e1e]/80 border-white/10 rounded-2xl flex flex-col justify-between">
             <div className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-slate-300 mb-3">
               <GraduationCap size={18} />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-white mb-1">{t('Education', 'Pendidikan')}</h3>
-              <p className="text-xs font-medium text-cyan-400">{t('Informatics', 'Informatika')}</p>
-              <p className="text-[11px] text-slate-400 leading-tight mt-0.5">UPN &quot;Veteran&quot; Jawa Timur</p>
+              <h3 className="text-sm font-bold text-white mb-1">
+                {t('Education', 'Pendidikan')}
+              </h3>
+              <p
+                style={{ color: 'var(--accent, #22d3ee)' }}
+                className="text-xs font-medium text-cyan-400"
+              >
+                {t('Informatics', 'Informatika')}
+              </p>
+              <p className="text-[11px] text-slate-400 leading-tight mt-0.5">
+                UPN &quot;Veteran&quot; Jawa Timur
+              </p>
               <span className="inline-block mt-2 text-[10px] font-mono text-slate-500">
                 {t('Undergraduate · 2024 — Present', 'Sarjana · 2024 — Sekarang')}
               </span>
@@ -90,16 +139,26 @@ export const AboutSection: React.FC = () => {
               <Code2 size={18} />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-white mb-2">{t('Current Focus', 'Fokus Saat Ini')}</h3>
+              <h3 className="text-sm font-bold text-white mb-2">
+                {t('Current Focus', 'Fokus Saat Ini')}
+              </h3>
               <ul className="text-xs text-slate-300 space-y-1.5 font-mono">
                 <li className="flex items-center gap-1.5">
-                  <span className="text-cyan-400">•</span> {t('Web Development', 'Pengembangan Web')}
+                  <span
+                    style={{ color: 'var(--accent, #22d3ee)' }}
+                    className="text-cyan-400"
+                  >
+                    •
+                  </span>{' '}
+                  {t('Web Development', 'Pengembangan Web')}
                 </li>
                 <li className="flex items-center gap-1.5">
-                  <span className="text-purple-400">•</span> {t('UI/UX Design', 'Desain UI/UX')}
+                  <span className="text-purple-400">•</span>{' '}
+                  {t('UI/UX Design', 'Desain UI/UX')}
                 </li>
                 <li className="flex items-center gap-1.5">
-                  <span className="text-emerald-400">•</span> {t('Digital Products', 'Produk Digital')}
+                  <span className="text-emerald-400">•</span>{' '}
+                  {t('Digital Products', 'Produk Digital')}
                 </li>
               </ul>
             </div>
@@ -111,16 +170,20 @@ export const AboutSection: React.FC = () => {
               <Compass size={18} />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-white mb-2">{t('Interests', 'Minat')}</h3>
+              <h3 className="text-sm font-bold text-white mb-2">
+                {t('Interests', 'Minat')}
+              </h3>
               <div className="flex flex-wrap gap-1.5">
-                {['Web Development', 'UI/UX', 'System Design', 'WEB 3'].map((tag) => (
-                  <span
-                    key={tag}
-                    className="px-2 py-0.5 rounded-md bg-white/5 border border-white/5 text-[10px] font-mono text-slate-300"
-                  >
-                    {tag}
-                  </span>
-                ))}
+                {['Web Development', 'UI/UX', 'System Design', 'WEB 3'].map(
+                  (tag) => (
+                    <span
+                      key={tag}
+                      className="px-2 py-0.5 rounded-md bg-white/5 border border-white/5 text-[10px] font-mono text-slate-300"
+                    >
+                      {tag}
+                    </span>
+                  )
+                )}
               </div>
             </div>
           </GlassCard>
@@ -131,21 +194,30 @@ export const AboutSection: React.FC = () => {
               <MapPin size={18} />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-white mb-2">{t('What I Do', 'Bidang Keahlian')}</h3>
+              <h3 className="text-sm font-bold text-white mb-2">
+                {t('What I Do', 'Bidang Keahlian')}
+              </h3>
               <ul className="text-xs text-slate-300 space-y-1.5 font-mono">
                 <li className="flex items-center gap-1.5">
-                  <span className="text-cyan-400">•</span> {t('Build Web Apps', 'Membangun Web App')}
+                  <span
+                    style={{ color: 'var(--accent, #22d3ee)' }}
+                    className="text-cyan-400"
+                  >
+                    •
+                  </span>{' '}
+                  {t('Build Web Apps', 'Membangun Web App')}
                 </li>
                 <li className="flex items-center gap-1.5">
-                  <span className="text-purple-400">•</span> {t('Design Interfaces', 'Merancang Antarmuka')}
+                  <span className="text-purple-400">•</span>{' '}
+                  {t('Design Interfaces', 'Merancang Antarmuka')}
                 </li>
                 <li className="flex items-center gap-1.5">
-                  <span className="text-emerald-400">•</span> {t('Solve Problems', 'Menyelesaikan Masalah')}
+                  <span className="text-emerald-400">•</span>{' '}
+                  {t('Solve Problems', 'Menyelesaikan Masalah')}
                 </li>
               </ul>
             </div>
           </GlassCard>
-
         </div>
       </div>
     </section>

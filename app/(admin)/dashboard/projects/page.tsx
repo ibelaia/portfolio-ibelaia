@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
@@ -27,7 +27,8 @@ import {
   Eye,
   FileText,
   Sparkles,
-  Wand2
+  Wand2,
+  Radio,
 } from 'lucide-react';
 
 interface SubProjectItem {
@@ -42,7 +43,12 @@ interface SubProjectItem {
 
 interface ModularBlock {
   id: string;
-  type: 'narasi_foto' | 'kartu_proyek' | 'ulasan_artikel' | 'tombol_aksi' | 'linimasa';
+  type:
+    | 'narasi_foto'
+    | 'kartu_proyek'
+    | 'ulasan_artikel'
+    | 'tombol_aksi'
+    | 'linimasa';
   title: string;
   content: string;
   image?: string;
@@ -62,22 +68,29 @@ const IT_CATEGORIES = [
   'Data Science & Analytics',
   'Internet of Things (IoT)',
   'Game Development',
-  'Enterprise Software'
+  'Enterprise Software',
 ];
+
+const PROJECTS_SYNC_CHANNEL = 'portfolio-sync-projects';
 
 function ProjectsManagementContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const editIdParam = searchParams.get('edit');
-  
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const blockImageInputRef = useRef<HTMLInputElement>(null);
+  const syncChannelRef = useRef<BroadcastChannel | null>(null);
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
 
   const [totalCount, setTotalCount] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [livePulse, setLivePulse] = useState(false);
+  const [toast, setToast] = useState<{
+    message: string;
+    type: 'success' | 'error';
+  } | null>(null);
 
   const [activeView, setActiveView] = useState<'hub' | 'form'>('hub');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -90,7 +103,8 @@ function ProjectsManagementContent() {
     status: 'PUBLISHED',
     overview: '',
     tags: 'Next.js, TypeScript, Tailwind CSS',
-    thumbnail: 'https://images.unsplash.com/photo-1555066931-4365d14bab8c?auto=format&fit=crop&w=800&q=80',
+    thumbnail:
+      'https://images.unsplash.com/photo-1555066931-4365d14bab8c?auto=format&fit=crop&w=800&q=80',
     github_url: 'https://github.com/ibelaia',
     live_url: '',
     role: 'Full-Stack Developer',
@@ -100,64 +114,146 @@ function ProjectsManagementContent() {
     solution: '',
     deliverables: '',
     collection_items: [] as SubProjectItem[],
-    modular_blocks: [] as ModularBlock[]
+    modular_blocks: [] as ModularBlock[],
   });
 
-  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+  const showToast = (
+    message: string,
+    type: 'success' | 'error' = 'success'
+  ) => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3500);
   };
 
-  useEffect(() => {
-    fetchCountAndCheckEdit(editIdParam);
-  }, [editIdParam]);
+  const broadcastProjectsUpdate = useCallback(
+    (action: string, detailData?: any) => {
+      const eventDetail = {
+        section: 'projects',
+        action,
+        updatedAt: Date.now(),
+        data: detailData,
+      };
 
-  const fetchCountAndCheckEdit = async (editId: string | null) => {
-    setLoading(true);
-    try {
-      const res = await fetch('/api/projects');
-      const json = await res.json();
+      try {
+        if (syncChannelRef.current) {
+          syncChannelRef.current.postMessage(eventDetail);
+        }
+      } catch {
+        // Abaikan jika BroadcastChannel tidak tersedia
+      }
 
-      if (json.success && Array.isArray(json.data)) {
-        setTotalCount(json.data.length);
+      try {
+        localStorage.setItem(
+          PROJECTS_SYNC_CHANNEL,
+          JSON.stringify(eventDetail)
+        );
+      } catch {
+        // Abaikan jika localStorage diblokir
+      }
 
-        if (editId) {
-          const found = json.data.find((p: any) => String(p.id) === String(editId));
-          if (found) {
-            setEditingId(found.id);
-            const rawItems = Array.isArray(found.collection_items) ? found.collection_items : [];
-            const isModular = rawItems.length > 0 && 'type' in rawItems[0];
+      window.dispatchEvent(
+        new CustomEvent(PROJECTS_SYNC_CHANNEL, { detail: eventDetail })
+      );
+      setLivePulse(true);
+      setTimeout(() => setLivePulse(false), 1800);
+    },
+    []
+  );
 
-            setForm({
-              type: found.type || 'single',
-              title: found.title || '',
-              slug: found.slug || '',
-              category: found.category || 'Web Application',
-              status: found.status || 'PUBLISHED',
-              overview: found.overview || '',
-              tags: Array.isArray(found.tags) ? found.tags.join(', ') : '',
-              thumbnail: found.thumbnail || '',
-              github_url: found.github_url || '',
-              live_url: found.live_url || '',
-              role: found.role || 'Full-Stack Developer',
-              client: found.client || 'Personal Project',
-              year: found.year || '2026',
-              problem: found.problem || '',
-              solution: found.solution || '',
-              deliverables: Array.isArray(found.deliverables) ? found.deliverables.join('\n') : '',
-              collection_items: !isModular ? rawItems : [],
-              modular_blocks: isModular ? rawItems : []
-            });
-            setActiveView('form');
+  const fetchCountAndCheckEdit = useCallback(
+    async (editId: string | null, isMountedRef?: { current: boolean }) => {
+      if (!isMountedRef || isMountedRef.current) {
+        setLoading(true);
+      }
+      try {
+        const res = await fetch('/api/projects', { cache: 'no-store' });
+        const json = await res.json();
+
+        if (isMountedRef && !isMountedRef.current) return;
+
+        if (json.success && Array.isArray(json.data)) {
+          setTotalCount(json.data.length);
+
+          if (editId) {
+            const found = json.data.find(
+              (p: any) => String(p.id) === String(editId)
+            );
+            if (found) {
+              setEditingId(found.id);
+              const rawItems = Array.isArray(found.collection_items)
+                ? found.collection_items
+                : [];
+              const isModular = rawItems.length > 0 && 'type' in rawItems[0];
+
+              setForm({
+                type: found.type || 'single',
+                title: found.title || '',
+                slug: found.slug || '',
+                category: found.category || 'Web Application',
+                status: found.status || 'PUBLISHED',
+                overview: found.overview || '',
+                tags: Array.isArray(found.tags) ? found.tags.join(', ') : '',
+                thumbnail: found.thumbnail || '',
+                github_url: found.github_url || '',
+                live_url: found.live_url || '',
+                role: found.role || 'Full-Stack Developer',
+                client: found.client || 'Personal Project',
+                year: found.year || '2026',
+                problem: found.problem || '',
+                solution: found.solution || '',
+                deliverables: Array.isArray(found.deliverables)
+                  ? found.deliverables.join('\n')
+                  : '',
+                collection_items: !isModular ? rawItems : [],
+                modular_blocks: isModular ? rawItems : [],
+              });
+              setActiveView('form');
+            }
           }
         }
+      } catch (err) {
+        if (!isMountedRef || isMountedRef.current) {
+          console.warn('Gagal memuat data projects:', err);
+        }
+      } finally {
+        if (!isMountedRef || isMountedRef.current) {
+          setLoading(false);
+        }
       }
-    } catch (err) {
-      console.warn('Gagal memuat data projects:', err);
-    } finally {
-      setLoading(false);
+    },
+    []
+  );
+
+  useEffect(() => {
+    const isMountedRef = { current: true };
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      syncChannelRef.current = new BroadcastChannel(PROJECTS_SYNC_CHANNEL);
+      syncChannelRef.current.onmessage = () => {
+        if (isMountedRef.current) {
+          fetchCountAndCheckEdit(editIdParam, isMountedRef);
+        }
+      };
     }
-  };
+
+    const handleStorageSync = (e: StorageEvent) => {
+      if (e.key === PROJECTS_SYNC_CHANNEL && isMountedRef.current) {
+        fetchCountAndCheckEdit(editIdParam, isMountedRef);
+      }
+    };
+
+    window.addEventListener('storage', handleStorageSync);
+    fetchCountAndCheckEdit(editIdParam, isMountedRef);
+
+    return () => {
+      isMountedRef.current = false;
+      window.removeEventListener('storage', handleStorageSync);
+      if (syncChannelRef.current) {
+        syncChannelRef.current.close();
+        syncChannelRef.current = null;
+      }
+    };
+  }, [editIdParam, fetchCountAndCheckEdit]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -169,11 +265,12 @@ function ProjectsManagementContent() {
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === 'string') {
-        setForm(prev => ({ ...prev, thumbnail: reader.result as string }));
+        setForm((prev) => ({ ...prev, thumbnail: reader.result as string }));
         showToast('Banner utama berhasil dimuat!');
       }
     };
     reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   const handleBlockImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -191,6 +288,7 @@ function ProjectsManagementContent() {
       }
     };
     reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   const handleOpenAdd = () => {
@@ -203,7 +301,8 @@ function ProjectsManagementContent() {
       status: 'PUBLISHED',
       overview: '',
       tags: '',
-      thumbnail: 'https://images.unsplash.com/photo-1555066931-4365d14bab8c?auto=format&fit=crop&w=800&q=80',
+      thumbnail:
+        'https://images.unsplash.com/photo-1555066931-4365d14bab8c?auto=format&fit=crop&w=800&q=80',
       github_url: 'https://github.com/ibelaia',
       live_url: '',
       role: 'Full-Stack Developer',
@@ -213,7 +312,7 @@ function ProjectsManagementContent() {
       solution: '',
       deliverables: '',
       collection_items: [],
-      modular_blocks: []
+      modular_blocks: [],
     });
     setActiveView('form');
   };
@@ -224,7 +323,7 @@ function ProjectsManagementContent() {
       kartu_proyek: 'Komponen Kartu Proyek',
       ulasan_artikel: 'Ulasan Artikel / Studi Kasus',
       tombol_aksi: 'Tombol Tautan Aksi',
-      linimasa: 'Linimasa Milestone'
+      linimasa: 'Linimasa Milestone',
     };
 
     const newBlock: ModularBlock = {
@@ -233,24 +332,33 @@ function ProjectsManagementContent() {
       title: titles[type],
       content: '',
       image: '',
-      link: ''
+      link: '',
     };
 
-    setForm(prev => ({ ...prev, modular_blocks: [...prev.modular_blocks, newBlock] }));
+    setForm((prev) => ({
+      ...prev,
+      modular_blocks: [...prev.modular_blocks, newBlock],
+    }));
     showToast(`Blok "${titles[type]}" berhasil ditambahkan!`);
   };
 
-  const handleUpdateBlock = (id: string, field: keyof ModularBlock, val: string) => {
-    setForm(prev => ({
+  const handleUpdateBlock = (
+    id: string,
+    field: keyof ModularBlock,
+    val: string
+  ) => {
+    setForm((prev) => ({
       ...prev,
-      modular_blocks: prev.modular_blocks.map(b => b.id === id ? { ...b, [field]: val } : b)
+      modular_blocks: prev.modular_blocks.map((b) =>
+        b.id === id ? { ...b, [field]: val } : b
+      ),
     }));
   };
 
   const handleRemoveBlock = (id: string) => {
-    setForm(prev => ({
+    setForm((prev) => ({
       ...prev,
-      modular_blocks: prev.modular_blocks.filter(b => b.id !== id)
+      modular_blocks: prev.modular_blocks.filter((b) => b.id !== id),
     }));
   };
 
@@ -260,7 +368,7 @@ function ProjectsManagementContent() {
 
     const deliverablesArray = form.deliverables
       .split('\n')
-      .map(d => d.trim())
+      .map((d) => d.trim())
       .filter(Boolean);
 
     const payload = {
@@ -271,7 +379,10 @@ function ProjectsManagementContent() {
       category: form.category,
       status: form.status,
       overview: form.overview,
-      tags: form.tags.split(',').map(t => t.trim()).filter(Boolean),
+      tags: form.tags
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean),
       thumbnail: form.thumbnail,
       github_url: form.github_url,
       live_url: form.live_url,
@@ -281,27 +392,38 @@ function ProjectsManagementContent() {
       problem: form.problem,
       solution: form.solution,
       deliverables: deliverablesArray,
-      collection_items: form.type === 'multi' ? form.collection_items : form.modular_blocks
+      collection_items:
+        form.type === 'multi' ? form.collection_items : form.modular_blocks,
     };
 
     try {
       const response = await fetch('/api/projects', {
         method: editingId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        cache: 'no-store',
+        body: JSON.stringify(payload),
       });
       const json = await response.json();
-      setSaving(false);
 
       if (response.ok && json.success) {
-        showToast(editingId ? 'Proyek berhasil diperbarui ke Neon!' : 'Proyek baru berhasil disimpan ke Neon!');
+        broadcastProjectsUpdate(editingId ? 'update' : 'create', json.data ?? payload);
+        router.refresh();
+        showToast(
+          editingId
+            ? 'Proyek berhasil diperbarui ke Neon & disinkronkan secara real-time!'
+            : 'Proyek baru berhasil disimpan ke Neon & disinkronkan secara real-time!'
+        );
         router.push('/dashboard/projects/list');
       } else {
-        showToast(`Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`, 'error');
+        showToast(
+          `Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`,
+          'error'
+        );
       }
     } catch (err: any) {
+      showToast(`Error: ${err?.message || 'Terjadi kesalahan'}`, 'error');
+    } finally {
       setSaving(false);
-      showToast(`Error: ${err.message}`, 'error');
     }
   };
 
@@ -311,9 +433,20 @@ function ProjectsManagementContent() {
 
   return (
     <div className="min-h-screen bg-[#07090e] text-[#94a3b8] flex flex-col lg:flex-row antialiased selection:bg-cyan-500/30 selection:text-cyan-200">
-      
-      <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept="image/*" className="hidden" />
-      <input type="file" ref={blockImageInputRef} onChange={handleBlockImageUpload} accept="image/*" className="hidden" />
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileUpload}
+        accept="image/*"
+        className="hidden"
+      />
+      <input
+        type="file"
+        ref={blockImageInputRef}
+        onChange={handleBlockImageUpload}
+        accept="image/*"
+        className="hidden"
+      />
 
       <datalist id="it-categories-list">
         {IT_CATEGORIES.map((cat, idx) => (
@@ -322,10 +455,18 @@ function ProjectsManagementContent() {
       </datalist>
 
       {toast && (
-        <div className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl backdrop-blur-md border shadow-2xl flex items-center gap-2.5 text-xs font-medium animate-in fade-in duration-200 ${
-          toast.type === 'success' ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300' : 'bg-red-500/15 border-red-500/30 text-red-300'
-        }`}>
-          {toast.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+        <div
+          className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl backdrop-blur-md border shadow-2xl flex items-center gap-2.5 text-xs font-medium animate-in fade-in duration-200 ${
+            toast.type === 'success'
+              ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+              : 'bg-red-500/15 border-red-500/30 text-red-300'
+          }`}
+        >
+          {toast.type === 'success' ? (
+            <CheckCircle2 size={16} />
+          ) : (
+            <AlertCircle size={16} />
+          )}
           <span>{toast.message}</span>
         </div>
       )}
@@ -340,41 +481,69 @@ function ProjectsManagementContent() {
 
           <div className="space-y-6 text-xs">
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Overview</p>
-              <Link href="/dashboard" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all">
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Overview
+              </p>
+              <Link
+                href="/dashboard"
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all"
+              >
                 <LayoutDashboard size={16} />
                 <span>Dashboard</span>
               </Link>
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Website Content</p>
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Website Content
+              </p>
               <div className="space-y-1">
-                <Link href="/dashboard/home" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/home"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Home size={15} />
                   <span>Home</span>
                 </Link>
-                <Link href="/dashboard/about" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/about"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <User size={15} />
                   <span>About</span>
                 </Link>
-                <Link href="/dashboard/services" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/services"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Wrench size={15} />
                   <span>Services</span>
                 </Link>
-                <Link href="/dashboard/projects/list" className="flex items-center gap-3 px-3 py-2.5 rounded-xl font-semibold bg-[#581c87]/60 text-white border border-[#9333ea]/30 transition-all">
+                <Link
+                  href="/dashboard/projects/list"
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl font-semibold bg-[#581c87]/60 text-white border border-[#9333ea]/30 transition-all"
+                >
                   <FolderGit2 size={15} className="text-[#c084fc]" />
                   <span>Projects</span>
                 </Link>
-                <Link href="/dashboard/achievements" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/achievements"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Award size={15} />
                   <span>Achievements</span>
                 </Link>
-                <Link href="/dashboard/certificates" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/certificates"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <FileBadge size={15} />
                   <span>Certificates</span>
                 </Link>
-                <Link href="/dashboard/contact" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/contact"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Mail size={15} />
                   <span>Contact</span>
                 </Link>
@@ -382,25 +551,41 @@ function ProjectsManagementContent() {
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Assets</p>
-              <Link href="/dashboard/media" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Assets
+              </p>
+              <Link
+                href="/dashboard/media"
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+              >
                 <FolderArchive size={15} />
                 <span>Media Library</span>
               </Link>
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Settings</p>
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Settings
+              </p>
               <div className="space-y-1">
-                <Link href="/dashboard/appearance" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/appearance"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Palette size={15} />
                   <span>Appearance</span>
                 </Link>
-                <Link href="/dashboard/seo" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/seo"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <SearchCheck size={15} />
                   <span>SEO Settings</span>
                 </Link>
-                <Link href="/dashboard/settings" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/settings"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Settings size={15} />
                   <span>General Settings</span>
                 </Link>
@@ -410,11 +595,19 @@ function ProjectsManagementContent() {
         </div>
 
         <div className="pt-4 border-t border-white/5 space-y-3">
-          <Link href="/projects" target="_blank" className="w-full py-2 px-3 rounded-xl border border-white/10 hover:border-white/20 text-slate-300 hover:text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors">
+          <Link
+            href="/projects"
+            target="_blank"
+            className="w-full py-2 px-3 rounded-xl border border-white/10 hover:border-white/20 text-slate-300 hover:text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
+          >
             <span>Preview Projects</span>
             <ExternalLink size={13} />
           </Link>
-          <button onClick={handleLogout} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors cursor-pointer">
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors cursor-pointer"
+          >
             <LogOut size={15} />
             <span>Logout</span>
           </button>
@@ -423,15 +616,29 @@ function ProjectsManagementContent() {
 
       {/* MAIN CONTENT */}
       <main className="flex-1 px-4 sm:px-8 py-6 max-w-6xl w-full mx-auto space-y-8">
-        
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
           <div>
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-[11px] font-mono text-cyan-400 mb-2">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-[11px] font-mono text-cyan-400 mb-2">
               <Sparkles size={12} />
               <span>CUSTOM PROJECTS BUILDER</span>
+              <span
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] border transition-colors ${
+                  livePulse
+                    ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300'
+                    : 'bg-white/5 border-white/10 text-slate-400'
+                }`}
+              >
+                <Radio size={10} className="text-emerald-400" />
+                <span>LIVE SYNC</span>
+              </span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Projects Management Hub</h1>
-            <p className="text-xs text-slate-400 mt-1">Pusat kontrol untuk merancang, menyusun blok modular, dan mengelola portofolio proyek via Neon.</p>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+              Projects Management Hub
+            </h1>
+            <p className="text-xs text-slate-400 mt-1">
+              Pusat kontrol untuk merancang, menyusun blok modular, dan
+              mengelola portofolio proyek via Neon secara dinamis dan real-time.
+            </p>
           </div>
           <div className="flex items-center gap-3">
             <Link
@@ -457,8 +664,7 @@ function ProjectsManagementContent() {
         {activeView === 'hub' && (
           <div className="space-y-8 animate-in fade-in duration-300">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              
-              <div 
+              <div
                 onClick={handleOpenAdd}
                 className="group relative bg-gradient-to-br from-[#0e1424] to-[#0b0e17] border border-cyan-500/30 hover:border-cyan-400/60 rounded-3xl p-7 sm:p-8 cursor-pointer shadow-2xl transition-all duration-300 hover:-translate-y-1.5 flex flex-col justify-between overflow-hidden"
               >
@@ -468,9 +674,13 @@ function ProjectsManagementContent() {
                     <Plus size={28} />
                   </div>
                   <div>
-                    <h3 className="text-lg font-bold text-white tracking-tight mb-1">Buat Proyek / Section Baru</h3>
+                    <h3 className="text-lg font-bold text-white tracking-tight mb-1">
+                      Buat Proyek / Section Baru
+                    </h3>
                     <p className="text-xs text-slate-400 leading-relaxed">
-                      Rancang halaman studi kasus baru atau koleksi multi-proyek dengan menyusun blok modular sesuai kebutuhan portofolio Anda.
+                      Rancang halaman studi kasus baru atau koleksi multi-proyek
+                      dengan menyusun blok modular sesuai kebutuhan portofolio
+                      Anda.
                     </p>
                   </div>
                 </div>
@@ -480,7 +690,7 @@ function ProjectsManagementContent() {
                 </div>
               </div>
 
-              <div 
+              <div
                 onClick={() => router.push('/dashboard/projects/list')}
                 className="group relative bg-gradient-to-br from-[#0e1424] to-[#0b0e17] border border-purple-500/30 hover:border-purple-400/60 rounded-3xl p-7 sm:p-8 cursor-pointer shadow-2xl transition-all duration-300 hover:-translate-y-1.5 flex flex-col justify-between overflow-hidden"
               >
@@ -490,31 +700,42 @@ function ProjectsManagementContent() {
                     <FolderArchive size={26} />
                   </div>
                   <div>
-                    <h3 className="text-lg font-bold text-white tracking-tight mb-1">Kelola & Daftar Proyek</h3>
+                    <h3 className="text-lg font-bold text-white tracking-tight mb-1">
+                      Kelola & Daftar Proyek
+                    </h3>
                     <p className="text-xs text-slate-400 leading-relaxed">
-                      Pantau ringkasan, sunting detail studi kasus, atau hapus arsip proyek yang pernah dipublikasikan di website.
+                      Pantau ringkasan, sunting detail studi kasus, atau hapus
+                      arsip proyek yang pernah dipublikasikan di website.
                     </p>
                   </div>
                 </div>
                 <div className="pt-8 relative z-10 flex items-center justify-between text-xs font-mono">
-                  <span className="text-slate-400">Total Proyek: <strong className="text-white">{totalCount}</strong></span>
-                  <span className="text-purple-400 font-bold group-hover:translate-x-1 transition-transform">Buka Halaman Daftar →</span>
+                  <span className="text-slate-400">
+                    Total Proyek:{' '}
+                    <strong className="text-white">{totalCount}</strong>
+                  </span>
+                  <span className="text-purple-400 font-bold group-hover:translate-x-1 transition-transform">
+                    Buka Halaman Daftar →
+                  </span>
                 </div>
               </div>
-
             </div>
           </div>
         )}
 
         {activeView === 'form' && (
           <div className="bg-[#0b0e17] border border-white/10 rounded-3xl p-6 sm:p-8 shadow-2xl animate-in fade-in duration-300 space-y-8">
-            
             <div className="flex items-center justify-between pb-5 border-b border-white/10">
               <div>
                 <h2 className="text-lg font-bold text-white">
-                  {editingId ? '🛠️ Edit Detail Proyek & Blok Modular' : '🛠️ Buat Halaman & Blok Modular Baru'}
+                  {editingId
+                    ? '🛠️ Edit Detail Proyek & Blok Modular'
+                    : '🛠️ Buat Halaman & Blok Modular Baru'}
                 </h2>
-                <p className="text-xs text-slate-400 mt-0.5">Susun tata letak halaman studi kasus atau koleksi dengan blok fleksibel di bawah.</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Susun tata letak halaman studi kasus atau koleksi dengan blok
+                  fleksibel di bawah.
+                </p>
               </div>
               <button
                 type="button"
@@ -526,9 +747,10 @@ function ProjectsManagementContent() {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-8 text-xs">
-              
               <div className="p-4 rounded-2xl bg-[#07090e] border border-white/10 space-y-2">
-                <label className="block text-slate-300 font-mono font-bold">Pilih Tipe Proyek:</label>
+                <label className="block text-slate-300 font-mono font-bold">
+                  Pilih Tipe Proyek:
+                </label>
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
@@ -559,9 +781,15 @@ function ProjectsManagementContent() {
               </div>
 
               <div className="space-y-2">
-                <label className="block text-slate-400 font-mono">Foto Banner Utama / Cover</label>
+                <label className="block text-slate-400 font-mono">
+                  Foto Banner Utama / Cover
+                </label>
                 <div className="relative w-full h-48 sm:h-56 rounded-2xl overflow-hidden border border-white/10 bg-slate-950 group">
-                  <img src={form.thumbnail || '/placeholder.svg'} alt="Hero Banner" className="w-full h-full object-cover" />
+                  <img
+                    src={form.thumbnail || '/placeholder.svg'}
+                    alt="Hero Banner"
+                    className="w-full h-full object-cover"
+                  />
                   <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                     <button
                       type="button"
@@ -576,11 +804,15 @@ function ProjectsManagementContent() {
               </div>
 
               <div className="space-y-3 pt-2">
-                <span className="text-[11px] font-mono text-cyan-400 uppercase tracking-wider font-bold block">1. Informasi Utama</span>
-                
+                <span className="text-[11px] font-mono text-cyan-400 uppercase tracking-wider font-bold block">
+                  1. Informasi Utama
+                </span>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-slate-400 mb-1 font-mono">Judul Proyek / Koleksi</label>
+                    <label className="block text-slate-400 mb-1 font-mono">
+                      Judul Proyek / Koleksi
+                    </label>
                     <input
                       type="text"
                       required
@@ -588,7 +820,10 @@ function ProjectsManagementContent() {
                       value={form.title}
                       onChange={(e) => {
                         const val = e.target.value;
-                        const slug = val.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
+                        const slug = val
+                          .toLowerCase()
+                          .replace(/[^a-z0-9]+/g, '-')
+                          .replace(/(^-|-$)+/g, '');
                         setForm({ ...form, title: val, slug });
                       }}
                       className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white focus:outline-none focus:border-cyan-400"
@@ -596,12 +831,16 @@ function ProjectsManagementContent() {
                   </div>
 
                   <div>
-                    <label className="block text-slate-400 mb-1 font-mono">Slug URL / Rute</label>
+                    <label className="block text-slate-400 mb-1 font-mono">
+                      Slug URL / Rute
+                    </label>
                     <input
                       type="text"
                       required
                       value={form.slug}
-                      onChange={(e) => setForm({ ...form, slug: e.target.value })}
+                      onChange={(e) =>
+                        setForm({ ...form, slug: e.target.value })
+                      }
                       className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-slate-400 font-mono focus:outline-none focus:border-cyan-400"
                     />
                   </div>
@@ -609,21 +848,29 @@ function ProjectsManagementContent() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-slate-400 mb-1 font-mono">Kategori</label>
+                    <label className="block text-slate-400 mb-1 font-mono">
+                      Kategori
+                    </label>
                     <input
                       list="it-categories-list"
                       type="text"
                       required
                       value={form.category}
-                      onChange={(e) => setForm({ ...form, category: e.target.value })}
+                      onChange={(e) =>
+                        setForm({ ...form, category: e.target.value })
+                      }
                       className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white focus:outline-none focus:border-cyan-400"
                     />
                   </div>
                   <div>
-                    <label className="block text-slate-400 mb-1 font-mono">Status</label>
+                    <label className="block text-slate-400 mb-1 font-mono">
+                      Status
+                    </label>
                     <select
                       value={form.status}
-                      onChange={(e) => setForm({ ...form, status: e.target.value })}
+                      onChange={(e) =>
+                        setForm({ ...form, status: e.target.value })
+                      }
                       className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white focus:outline-none focus:border-cyan-400"
                     >
                       <option value="PUBLISHED">PUBLISHED</option>
@@ -632,29 +879,39 @@ function ProjectsManagementContent() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-slate-400 mb-1 font-mono">Timeline (Year)</label>
+                    <label className="block text-slate-400 mb-1 font-mono">
+                      Timeline (Year)
+                    </label>
                     <input
                       type="text"
                       value={form.year}
-                      onChange={(e) => setForm({ ...form, year: e.target.value })}
+                      onChange={(e) =>
+                        setForm({ ...form, year: e.target.value })
+                      }
                       className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white focus:outline-none focus:border-cyan-400"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 mb-1 font-mono">Deskripsi Singkat (Teaser)</label>
+                  <label className="block text-slate-400 mb-1 font-mono">
+                    Deskripsi Singkat (Teaser)
+                  </label>
                   <textarea
                     rows={2}
                     required
                     value={form.overview}
-                    onChange={(e) => setForm({ ...form, overview: e.target.value })}
+                    onChange={(e) =>
+                      setForm({ ...form, overview: e.target.value })
+                    }
                     className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white focus:outline-none focus:border-cyan-400 leading-relaxed"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 mb-1 font-mono">Tech Stack / Tools (Pisahkan dengan koma)</label>
+                  <label className="block text-slate-400 mb-1 font-mono">
+                    Tech Stack / Tools (Pisahkan dengan koma)
+                  </label>
                   <input
                     type="text"
                     value={form.tags}
@@ -666,55 +923,77 @@ function ProjectsManagementContent() {
 
               {form.type === 'single' && (
                 <div className="space-y-4 pt-4 border-t border-white/10">
-                  <span className="text-[11px] font-mono text-purple-400 uppercase tracking-wider font-bold block">2. Project Metrics & Case Study Blocks</span>
-                  
+                  <span className="text-[11px] font-mono text-purple-400 uppercase tracking-wider font-bold block">
+                    2. Project Metrics & Case Study Blocks
+                  </span>
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-slate-400 mb-1 font-mono">Role (Peran)</label>
+                      <label className="block text-slate-400 mb-1 font-mono">
+                        Role (Peran)
+                      </label>
                       <input
                         type="text"
                         value={form.role}
-                        onChange={(e) => setForm({ ...form, role: e.target.value })}
+                        onChange={(e) =>
+                          setForm({ ...form, role: e.target.value })
+                        }
                         className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white focus:outline-none focus:border-cyan-400"
                       />
                     </div>
                     <div>
-                      <label className="block text-slate-400 mb-1 font-mono">Client / Track</label>
+                      <label className="block text-slate-400 mb-1 font-mono">
+                        Client / Track
+                      </label>
                       <input
                         type="text"
                         value={form.client}
-                        onChange={(e) => setForm({ ...form, client: e.target.value })}
+                        onChange={(e) =>
+                          setForm({ ...form, client: e.target.value })
+                        }
                         className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white focus:outline-none focus:border-cyan-400"
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-slate-400 mb-1 font-mono">Problem & Challenges</label>
+                    <label className="block text-slate-400 mb-1 font-mono">
+                      Problem & Challenges
+                    </label>
                     <textarea
                       rows={2}
                       value={form.problem}
-                      onChange={(e) => setForm({ ...form, problem: e.target.value })}
+                      onChange={(e) =>
+                        setForm({ ...form, problem: e.target.value })
+                      }
                       className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white focus:outline-none focus:border-cyan-400 leading-relaxed"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-slate-400 mb-1 font-mono">The Solution & Approach</label>
+                    <label className="block text-slate-400 mb-1 font-mono">
+                      The Solution & Approach
+                    </label>
                     <textarea
                       rows={2}
                       value={form.solution}
-                      onChange={(e) => setForm({ ...form, solution: e.target.value })}
+                      onChange={(e) =>
+                        setForm({ ...form, solution: e.target.value })
+                      }
                       className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white focus:outline-none focus:border-cyan-400 leading-relaxed"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-slate-400 mb-1 font-mono">Key Deliverables & Results (1 baris per item)</label>
+                    <label className="block text-slate-400 mb-1 font-mono">
+                      Key Deliverables & Results (1 baris per item)
+                    </label>
                     <textarea
                       rows={3}
                       value={form.deliverables}
-                      onChange={(e) => setForm({ ...form, deliverables: e.target.value })}
+                      onChange={(e) =>
+                        setForm({ ...form, deliverables: e.target.value })
+                      }
                       className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white focus:outline-none focus:border-cyan-400 font-mono text-[11px] leading-relaxed"
                     />
                   </div>
@@ -729,7 +1008,10 @@ function ProjectsManagementContent() {
                       <Wand2 size={16} className="text-cyan-400" />
                       <span>🛠️ Susun Blok Halaman Detail (Modular Blocks)</span>
                     </h3>
-                    <p className="text-[11px] text-slate-400 mt-0.5">Tambahkan berbagai jenis blok konten di bawah ini sesuai kebutuhan tanpa batas.</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Tambahkan berbagai jenis blok konten di bawah ini sesuai
+                      kebutuhan tanpa batas.
+                    </p>
                   </div>
                 </div>
 
@@ -782,15 +1064,21 @@ function ProjectsManagementContent() {
 
                 {form.modular_blocks.length === 0 ? (
                   <div className="py-10 text-center bg-[#07090e] border border-dashed border-white/10 rounded-2xl p-6 text-slate-500 font-mono">
-                    Belum ada blok tambahan. Klik tombol di atas untuk menyusun halaman detail.
+                    Belum ada blok tambahan. Klik tombol di atas untuk menyusun
+                    halaman detail.
                   </div>
                 ) : (
                   <div className="space-y-4 pt-2">
                     {form.modular_blocks.map((block, idx) => {
-                      const blockType = (block.type || 'ulasan_artikel').toUpperCase();
+                      const blockType = (
+                        block.type || 'ulasan_artikel'
+                      ).toUpperCase();
 
                       return (
-                        <div key={block.id} className="p-4 rounded-2xl bg-[#07090e] border border-white/10 space-y-3 relative group">
+                        <div
+                          key={block.id}
+                          className="p-4 rounded-2xl bg-[#07090e] border border-white/10 space-y-3 relative group"
+                        >
                           <div className="flex items-center justify-between pb-2 border-b border-white/5">
                             <div className="flex items-center gap-2">
                               <span className="px-2 py-0.5 rounded bg-white/5 text-[10px] font-mono font-bold text-cyan-400">
@@ -799,7 +1087,13 @@ function ProjectsManagementContent() {
                               <input
                                 type="text"
                                 value={block.title || ''}
-                                onChange={(e) => handleUpdateBlock(block.id, 'title', e.target.value)}
+                                onChange={(e) =>
+                                  handleUpdateBlock(
+                                    block.id,
+                                    'title',
+                                    e.target.value
+                                  )
+                                }
                                 className="bg-transparent text-white font-bold text-xs focus:outline-none border-b border-transparent focus:border-cyan-400 px-1"
                                 placeholder="Judul Blok..."
                               />
@@ -820,19 +1114,35 @@ function ProjectsManagementContent() {
                                 rows={3}
                                 placeholder="Tulis narasi atau penjelasan cerita..."
                                 value={block.content || ''}
-                                onChange={(e) => handleUpdateBlock(block.id, 'content', e.target.value)}
+                                onChange={(e) =>
+                                  handleUpdateBlock(
+                                    block.id,
+                                    'content',
+                                    e.target.value
+                                  )
+                                }
                                 className="w-full px-3 py-2 rounded-xl bg-[#0b0e17] border border-white/10 text-white text-xs leading-relaxed"
                               />
                               <div className="flex items-center gap-3">
                                 <div className="w-16 h-12 rounded-lg overflow-hidden bg-slate-950 border border-white/10 shrink-0">
-                                  <img src={block.image || '/placeholder.svg'} alt="Preview" className="w-full h-full object-cover" />
+                                  <img
+                                    src={block.image || '/placeholder.svg'}
+                                    alt="Preview"
+                                    className="w-full h-full object-cover"
+                                  />
                                 </div>
                                 <div className="flex-1 flex gap-2">
                                   <input
                                     type="text"
                                     placeholder="URL Gambar..."
                                     value={block.image || ''}
-                                    onChange={(e) => handleUpdateBlock(block.id, 'image', e.target.value)}
+                                    onChange={(e) =>
+                                      handleUpdateBlock(
+                                        block.id,
+                                        'image',
+                                        e.target.value
+                                      )
+                                    }
                                     className="w-full px-3 py-2 rounded-xl bg-[#0b0e17] border border-white/10 text-slate-300 font-mono text-[11px]"
                                   />
                                   <button
@@ -856,7 +1166,13 @@ function ProjectsManagementContent() {
                               rows={3}
                               placeholder="Tulis ulasan artikel, studi kasus, atau catatan riset lengkap..."
                               value={block.content || ''}
-                              onChange={(e) => handleUpdateBlock(block.id, 'content', e.target.value)}
+                              onChange={(e) =>
+                                handleUpdateBlock(
+                                  block.id,
+                                  'content',
+                                  e.target.value
+                                )
+                              }
                               className="w-full px-3 py-2 rounded-xl bg-[#0b0e17] border border-white/10 text-white text-xs leading-relaxed"
                             />
                           )}
@@ -866,7 +1182,13 @@ function ProjectsManagementContent() {
                               type="text"
                               placeholder="Deskripsi ringkas atau daftar fitur kartu grid..."
                               value={block.content || ''}
-                              onChange={(e) => handleUpdateBlock(block.id, 'content', e.target.value)}
+                              onChange={(e) =>
+                                handleUpdateBlock(
+                                  block.id,
+                                  'content',
+                                  e.target.value
+                                )
+                              }
                               className="w-full px-3 py-2 rounded-xl bg-[#0b0e17] border border-white/10 text-white text-xs"
                             />
                           )}
@@ -877,14 +1199,26 @@ function ProjectsManagementContent() {
                                 type="text"
                                 placeholder="Label Tombol (e.g. Buka Dokumentasi)"
                                 value={block.content || ''}
-                                onChange={(e) => handleUpdateBlock(block.id, 'content', e.target.value)}
+                                onChange={(e) =>
+                                  handleUpdateBlock(
+                                    block.id,
+                                    'content',
+                                    e.target.value
+                                  )
+                                }
                                 className="w-full px-3 py-2 rounded-xl bg-[#0b0e17] border border-white/10 text-white text-xs"
                               />
                               <input
                                 type="text"
                                 placeholder="Tautan URL (https://...)"
                                 value={block.link || ''}
-                                onChange={(e) => handleUpdateBlock(block.id, 'link', e.target.value)}
+                                onChange={(e) =>
+                                  handleUpdateBlock(
+                                    block.id,
+                                    'link',
+                                    e.target.value
+                                  )
+                                }
                                 className="w-full px-3 py-2 rounded-xl bg-[#0b0e17] border border-white/10 text-slate-300 font-mono text-xs"
                               />
                             </div>
@@ -895,7 +1229,13 @@ function ProjectsManagementContent() {
                               rows={2}
                               placeholder="Tahapan milestone atau kronologi waktu kejadian..."
                               value={block.content || ''}
-                              onChange={(e) => handleUpdateBlock(block.id, 'content', e.target.value)}
+                              onChange={(e) =>
+                                handleUpdateBlock(
+                                  block.id,
+                                  'content',
+                                  e.target.value
+                                )
+                              }
                               className="w-full px-3 py-2 rounded-xl bg-[#0b0e17] border border-white/10 text-white text-xs leading-relaxed"
                             />
                           )}
@@ -909,22 +1249,30 @@ function ProjectsManagementContent() {
               {/* TAUTAN SUMBER & SIMPAN */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-4 border-t border-white/10">
                 <div>
-                  <label className="block text-slate-400 mb-1 font-mono">View Source / GitHub / Figma URL</label>
+                  <label className="block text-slate-400 mb-1 font-mono">
+                    View Source / GitHub / Figma URL
+                  </label>
                   <input
                     type="text"
                     placeholder="https://github.com/..."
                     value={form.github_url}
-                    onChange={(e) => setForm({ ...form, github_url: e.target.value })}
+                    onChange={(e) =>
+                      setForm({ ...form, github_url: e.target.value })
+                    }
                     className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-slate-300 font-mono focus:outline-none focus:border-cyan-400"
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-400 mb-1 font-mono">Live Demo URL (Opsional)</label>
+                  <label className="block text-slate-400 mb-1 font-mono">
+                    Live Demo URL (Opsional)
+                  </label>
                   <input
                     type="text"
                     placeholder="https://..."
                     value={form.live_url}
-                    onChange={(e) => setForm({ ...form, live_url: e.target.value })}
+                    onChange={(e) =>
+                      setForm({ ...form, live_url: e.target.value })
+                    }
                     className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-slate-300 font-mono focus:outline-none focus:border-cyan-400"
                   />
                 </div>
@@ -947,11 +1295,9 @@ function ProjectsManagementContent() {
                   <span>💾 Simpan Halaman & Section Proyek ke Neon</span>
                 </button>
               </div>
-
             </form>
           </div>
         )}
-
       </main>
     </div>
   );
@@ -959,11 +1305,13 @@ function ProjectsManagementContent() {
 
 export default function ProjectsManagementPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-[#07090e] flex items-center justify-center text-cyan-400 font-mono text-xs">
-        Memuat halaman proyek...
-      </div>
-    }>
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#07090e] flex items-center justify-center text-cyan-400 font-mono text-xs">
+          Memuat halaman proyek...
+        </div>
+      }
+    >
       <ProjectsManagementContent />
     </Suspense>
   );

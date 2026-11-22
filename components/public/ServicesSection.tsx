@@ -1,16 +1,16 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
-import { 
-  Code, 
-  Palette, 
-  Database, 
-  Boxes, 
-  ChevronLeft, 
-  ChevronRight, 
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  Code,
+  Palette,
+  Database,
+  Boxes,
+  ChevronLeft,
+  ChevronRight,
   ArrowRight,
   Layers,
-  X
+  X,
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 
@@ -18,7 +18,37 @@ export const ServicesSection: React.FC = () => {
   const { t } = useApp();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showAllModal, setShowAllModal] = useState(false);
+  const [syncTick, setSyncTick] = useState(0);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    void syncTick;
+    let channel: BroadcastChannel | null = null;
+
+    const handleSyncSignal = () => {
+      setSyncTick((prev) => prev + 1);
+    };
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      channel = new BroadcastChannel('portfolio-admin-sync');
+      channel.onmessage = handleSyncSignal;
+    }
+
+    const handleStorage = (event: StorageEvent) => {
+      if (!event.key || event.key.startsWith('portfolio')) {
+        handleSyncSignal();
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      if (channel) {
+        channel.close();
+      }
+    };
+  }, [syncTick]);
 
   const services = [
     {
@@ -26,7 +56,8 @@ export const ServicesSection: React.FC = () => {
       title: 'Web Development',
       titleId: 'Pengembangan Web',
       desc: 'Building responsive websites and e-commerce experiences with modern web technologies.',
-      descId: 'Membangun website responsif dan toko daring modern dengan teknologi web terkini.',
+      descId:
+        'Membangun website responsif dan toko daring modern dengan teknologi web terkini.',
       icon: <Code size={18} className="text-cyan-400" />,
       tags: ['HTML', 'CSS', 'JavaScript', 'E-COMMERCE'],
     },
@@ -35,7 +66,8 @@ export const ServicesSection: React.FC = () => {
       title: 'UI/UX Design',
       titleId: 'Desain UI/UX',
       desc: 'Designing intuitive wireframes, mockups, and high-fidelity user interface prototypes.',
-      descId: 'Merancang wireframe yang intuitif, mockup estetis, serta purwarupa antarmuka interaktif.',
+      descId:
+        'Merancang wireframe yang intuitif, mockup estetis, serta purwarupa antarmuka interaktif.',
       icon: <Palette size={18} className="text-emerald-400" />,
       tags: ['FIGMA', 'WIREFRAME', 'PROTOTYPE'],
     },
@@ -44,7 +76,8 @@ export const ServicesSection: React.FC = () => {
       title: 'Database & Backend',
       titleId: 'Basis Data & Backend',
       desc: 'Developing scalable backend architectures, RESTful APIs, and optimized databases.',
-      descId: 'Mengembangkan arsitektur backend andal, API RESTful, serta optimasi basis data.',
+      descId:
+        'Mengembangkan arsitektur backend andal, API RESTful, serta optimasi basis data.',
       icon: <Database size={18} className="text-cyan-400" />,
       tags: ['MYSQL', 'DATABASE', 'API'],
     },
@@ -53,7 +86,8 @@ export const ServicesSection: React.FC = () => {
       title: 'Web3 Development',
       titleId: 'Pengembangan Web3',
       desc: 'Exploring smart contract interactions, dApps integration, and decentralized ecosystems.',
-      descId: 'Mengeksplorasi integrasi dApps, interaksi smart contract, dan ekosistem terdesentralisasi.',
+      descId:
+        'Mengeksplorasi integrasi dApps, interaksi smart contract, dan ekosistem terdesentralisasi.',
       icon: <Boxes size={18} className="text-purple-400" />,
       tags: ['SOLIDITY', 'WEB3', 'SMART CONTRACTS'],
     },
@@ -90,8 +124,20 @@ export const ServicesSection: React.FC = () => {
       {/* Header Section */}
       <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 gap-4">
         <div>
-          <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-[11px] text-cyan-400 font-medium mb-3">
-            <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
+          <div
+            style={{
+              backgroundColor:
+                'color-mix(in srgb, var(--accent, #06b6d4) 12%, transparent)',
+              color: 'var(--accent, #22d3ee)',
+              borderColor:
+                'color-mix(in srgb, var(--accent, #06b6d4) 25%, transparent)',
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-[11px] text-cyan-400 font-medium mb-3"
+          >
+            <span
+              style={{ backgroundColor: 'var(--accent, #22d3ee)' }}
+              className="w-1.5 h-1.5 rounded-full bg-cyan-400"
+            />
             {t('MY SERVICES', 'LAYANAN SAYA')}
           </div>
 
@@ -99,7 +145,10 @@ export const ServicesSection: React.FC = () => {
             {t('My Services', 'Layanan Saya')}
           </h2>
           <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            {t('Things I can build, design, and contribute to.', 'Bidang keahlian yang dapat saya bangun, rancang, dan kontribusikan.')}
+            {t(
+              'Things I can build, design, and contribute to.',
+              'Bidang keahlian yang dapat saya bangun, rancang, dan kontribusikan.'
+            )}
           </p>
         </div>
 
@@ -126,7 +175,7 @@ export const ServicesSection: React.FC = () => {
       <div className="bg-[#090e1e]/60 border border-white/10 rounded-3xl p-4 sm:p-8 backdrop-blur-xl shadow-2xl relative">
         {/* Mobile View All Trigger */}
         <div className="flex sm:hidden justify-end mb-4">
-          <button 
+          <button
             onClick={() => setShowAllModal(true)}
             className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#1e1b4b]/80 border border-purple-500/30 text-purple-200 text-xs font-semibold active:scale-95 transition-all cursor-pointer"
           >
@@ -150,6 +199,14 @@ export const ServicesSection: React.FC = () => {
                   setCurrentIndex(idx);
                   scrollToCard(idx);
                 }}
+                style={
+                  isActive
+                    ? {
+                        borderColor:
+                          'color-mix(in srgb, var(--accent, #22d3ee) 80%, transparent)',
+                      }
+                    : undefined
+                }
                 className={`snap-center flex-shrink-0 w-[270px] sm:w-auto p-6 rounded-2xl flex flex-col justify-between transition-all duration-300 cursor-pointer ${
                   isActive
                     ? 'bg-[#0e162f] border-2 border-cyan-400/80 shadow-[0_0_25px_rgba(6,182,212,0.2)]'
@@ -199,8 +256,15 @@ export const ServicesSection: React.FC = () => {
                   setCurrentIndex(dotIdx);
                   scrollToCard(dotIdx);
                 }}
+                style={
+                  currentIndex === dotIdx
+                    ? { backgroundColor: 'var(--accent, #22d3ee)' }
+                    : undefined
+                }
                 className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${
-                  currentIndex === dotIdx ? 'w-5 bg-cyan-400' : 'w-1.5 bg-slate-700 hover:bg-slate-500'
+                  currentIndex === dotIdx
+                    ? 'w-5 bg-cyan-400'
+                    : 'w-1.5 bg-slate-700 hover:bg-slate-500'
                 }`}
                 aria-label={`Slide ${dotIdx + 1}`}
               />
@@ -218,7 +282,11 @@ export const ServicesSection: React.FC = () => {
           <div className="bg-[#090e1f] border border-white/15 rounded-3xl p-6 w-full max-w-lg max-h-[85vh] overflow-y-auto space-y-4 shadow-2xl">
             <div className="flex items-center justify-between pb-3 border-b border-white/10">
               <div className="flex items-center gap-2">
-                <Layers size={16} className="text-cyan-400" />
+                <Layers
+                  size={16}
+                  className="text-cyan-400"
+                  style={{ color: 'var(--accent, #22d3ee)' }}
+                />
                 <h3 className="text-base font-bold text-white">
                   {t('All Services', 'Semua Layanan')}
                 </h3>
@@ -247,7 +315,9 @@ export const ServicesSection: React.FC = () => {
                         {t(item.title, item.titleId)}
                       </h4>
                     </div>
-                    <span className="text-[10px] font-mono text-slate-500">{item.id}</span>
+                    <span className="text-[10px] font-mono text-slate-500">
+                      {item.id}
+                    </span>
                   </div>
 
                   <p className="text-[11px] text-slate-400 leading-relaxed">

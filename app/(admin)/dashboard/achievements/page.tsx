@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -25,7 +25,7 @@ import {
   Trash2,
   Edit3,
   Eye,
-  Upload
+  Radio,
 } from 'lucide-react';
 
 interface AchievementItem {
@@ -40,23 +40,78 @@ interface AchievementItem {
   credential_url: string;
 }
 
+const ACHIEVEMENTS_SYNC_CHANNEL = 'portfolio-sync-achievements';
+
+function parseHighlightsString(raw: any): string {
+  if (Array.isArray(raw)) {
+    return raw
+      .map((item) => String(item ?? '').trim())
+      .filter(Boolean)
+      .join(', ');
+  }
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return '';
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parseHighlightsString(parsed);
+      }
+    } catch {
+      // Gunakan string biasa jika bukan JSON array
+    }
+    return trimmed;
+  }
+  return '';
+}
+
+function normalizeAchievementItem(item: any, index = 0): AchievementItem {
+  const highlights = Array.isArray(item?.highlights)
+    ? item.highlights.map((h: any) => String(h ?? '').trim()).filter(Boolean)
+    : typeof item?.highlights === 'string'
+      ? item.highlights
+          .split(',')
+          .map((h: string) => h.trim())
+          .filter(Boolean)
+      : [];
+
+  return {
+    id: item?.id ? String(item.id) : `ach-${Date.now()}-${index}`,
+    badge: item?.badge || 'Competitions',
+    title: item?.title || 'Untitled Achievement',
+    description: item?.description || '',
+    highlights,
+    date_str: item?.date_str || 'December 2024',
+    location: item?.location || 'Surabaya, Indonesia',
+    image_url: item?.image_url || '/placeholder.svg',
+    credential_url: item?.credential_url || '',
+  };
+}
+
 export default function AchievementsManagementPage() {
   const router = useRouter();
+  const syncChannelRef = useRef<BroadcastChannel | null>(null);
 
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [savingHeader, setSavingHeader] = useState(false);
+  const [savingItem, setSavingItem] = useState(false);
+  const [livePulse, setLivePulse] = useState(false);
+  const [toast, setToast] = useState<{
+    message: string;
+    type: 'success' | 'error';
+  } | null>(null);
 
   const [headerForm, setHeaderForm] = useState({
     badge_text: 'HONORS & RECOGNITION',
     title: 'Honors & Milestones',
-    subtitle: 'A timeline of competitive awards, hackathon recognitions, and academic milestones achieved throughout my software engineering journey.'
+    subtitle:
+      'A timeline of competitive awards, hackathon recognitions, and academic milestones achieved throughout my software engineering journey.',
   });
 
   const [achievements, setAchievements] = useState<AchievementItem[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  
+
   const [modalForm, setModalForm] = useState({
     badge: 'Competitions',
     title: '',
@@ -65,63 +120,135 @@ export default function AchievementsManagementPage() {
     date_str: 'December 2024',
     location: 'Surabaya, Jawa Timur',
     image_url: '/placeholder.svg',
-    credential_url: ''
+    credential_url: '',
   });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
-  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+  const showToast = (
+    message: string,
+    type: 'success' | 'error' = 'success'
+  ) => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3500);
   };
 
+  const broadcastAchievementsUpdate = (action: string, detailData?: any) => {
+    const eventDetail = {
+      section: 'achievements',
+      action,
+      updatedAt: Date.now(),
+      data: detailData,
+    };
+
+    try {
+      if (syncChannelRef.current) {
+        syncChannelRef.current.postMessage(eventDetail);
+      }
+    } catch {
+      // Abaikan jika BroadcastChannel tidak tersedia
+    }
+
+    try {
+      localStorage.setItem(
+        ACHIEVEMENTS_SYNC_CHANNEL,
+        JSON.stringify(eventDetail)
+      );
+    } catch {
+      // Abaikan jika localStorage diblokir
+    }
+
+    window.dispatchEvent(
+      new CustomEvent(ACHIEVEMENTS_SYNC_CHANNEL, { detail: eventDetail })
+    );
+    setLivePulse(true);
+    setTimeout(() => setLivePulse(false), 1800);
+  };
+
   useEffect(() => {
+    let isMounted = true;
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      syncChannelRef.current = new BroadcastChannel(ACHIEVEMENTS_SYNC_CHANNEL);
+    }
+
     async function loadData() {
       try {
-        const response = await fetch('/api/achievements');
+        const response = await fetch('/api/achievements', {
+          cache: 'no-store',
+        });
         const json = await response.json();
+
+        if (!isMounted) return;
 
         if (json.success) {
           if (json.header) {
             setHeaderForm({
               badge_text: json.header.badge_text || 'HONORS & RECOGNITION',
               title: json.header.title || 'Honors & Milestones',
-              subtitle: json.header.subtitle || 'A timeline of competitive awards, hackathon recognitions, and academic milestones achieved throughout my software engineering journey.'
+              subtitle:
+                json.header.subtitle ||
+                'A timeline of competitive awards, hackathon recognitions, and academic milestones achieved throughout my software engineering journey.',
             });
           }
-          if (json.data) {
-            setAchievements(json.data);
+          if (Array.isArray(json.data)) {
+            setAchievements(
+              json.data.map((item: any, idx: number) =>
+                normalizeAchievementItem(item, idx)
+              )
+            );
           }
         }
       } catch (err) {
-        console.warn('Gagal memuat data achievements:', err);
+        if (isMounted) {
+          console.warn('Gagal memuat data achievements:', err);
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     }
+
     loadData();
+
+    return () => {
+      isMounted = false;
+      if (syncChannelRef.current) {
+        syncChannelRef.current.close();
+        syncChannelRef.current = null;
+      }
+    };
   }, []);
 
   const handleSaveHeader = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSaving(true);
+    setSavingHeader(true);
 
     try {
       const response = await fetch('/api/achievements/header', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(headerForm)
+        cache: 'no-store',
+        body: JSON.stringify(headerForm),
       });
       const json = await response.json();
-      setSaving(false);
 
       if (response.ok && json.success) {
-        showToast('Header Achievements berhasil disimpan ke Neon!');
+        broadcastAchievementsUpdate('header', json.data ?? headerForm);
+        router.refresh();
+        showToast(
+          'Header Achievements berhasil disimpan dan disinkronkan secara real-time!'
+        );
       } else {
-        showToast(`Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`, 'error');
+        showToast(
+          `Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`,
+          'error'
+        );
       }
     } catch (err: any) {
-      setSaving(false);
-      showToast(`Error: ${err.message}`, 'error');
+      showToast(`Error: ${err?.message || 'Terjadi kesalahan'}`, 'error');
+    } finally {
+      setSavingHeader(false);
     }
   };
 
@@ -136,7 +263,7 @@ export default function AchievementsManagementPage() {
       date_str: 'December 2024',
       location: 'Surabaya, Indonesia',
       image_url: '/placeholder.svg',
-      credential_url: ''
+      credential_url: '',
     });
     setIsModalOpen(true);
   };
@@ -148,68 +275,87 @@ export default function AchievementsManagementPage() {
       badge: item.badge,
       title: item.title,
       description: item.description,
-      highlightsStr: Array.isArray(item.highlights) ? item.highlights.join(', ') : '',
+      highlightsStr: parseHighlightsString(item.highlights),
       date_str: item.date_str,
       location: item.location,
       image_url: item.image_url,
-      credential_url: item.credential_url || ''
+      credential_url: item.credential_url || '',
     });
     setIsModalOpen(true);
   };
 
   const handleSaveAchievement = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSaving(true);
-
-    let finalImageUrl = modalForm.image_url;
-
-    if (selectedFile) {
-      const reader = new FileReader();
-      finalImageUrl = await new Promise((resolve) => {
-        reader.onload = () => resolve(reader.result as string);
-        reader.readAsDataURL(selectedFile);
-      });
-    }
-
-    const highlightsArray = modalForm.highlightsStr.split(',').map(h => h.trim()).filter(Boolean);
-
-    const payload = {
-      id: editingId,
-      badge: modalForm.badge,
-      title: modalForm.title,
-      description: modalForm.description,
-      highlights: highlightsArray,
-      date_str: modalForm.date_str,
-      location: modalForm.location,
-      image_url: finalImageUrl || '/placeholder.svg',
-      credential_url: modalForm.credential_url
-    };
+    setSavingItem(true);
 
     try {
+      let finalImageUrl = modalForm.image_url;
+
+      if (selectedFile) {
+        finalImageUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ''));
+          reader.onerror = () =>
+            reject(new Error('Gagal membaca berkas gambar'));
+          reader.readAsDataURL(selectedFile);
+        });
+      }
+
+      const highlightsArray = modalForm.highlightsStr
+        .split(',')
+        .map((h) => h.trim())
+        .filter(Boolean);
+
+      const payload = {
+        id: editingId,
+        badge: modalForm.badge.trim() || 'Competitions',
+        title: modalForm.title.trim(),
+        description: modalForm.description.trim(),
+        highlights: highlightsArray,
+        date_str: modalForm.date_str.trim(),
+        location: modalForm.location.trim(),
+        image_url: finalImageUrl || '/placeholder.svg',
+        credential_url: modalForm.credential_url.trim(),
+      };
+
       const response = await fetch('/api/achievements', {
         method: editingId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        cache: 'no-store',
+        body: JSON.stringify(payload),
       });
       const json = await response.json();
-      setSaving(false);
 
       if (response.ok && json.success) {
+        const normalizedSaved = normalizeAchievementItem(
+          json.data ?? payload,
+          0
+        );
+
         if (editingId) {
-          setAchievements(achievements.map(a => a.id === editingId ? { ...a, ...payload } : a));
-          showToast('Achievement berhasil diperbarui!');
+          setAchievements((prev) =>
+            prev.map((a) => (a.id === editingId ? normalizedSaved : a))
+          );
+          broadcastAchievementsUpdate('update', normalizedSaved);
+          showToast('Achievement berhasil diperbarui secara real-time!');
         } else {
-          setAchievements([json.data || payload, ...achievements]);
-          showToast('Achievement baru berhasil ditambahkan!');
+          setAchievements((prev) => [normalizedSaved, ...prev]);
+          broadcastAchievementsUpdate('create', normalizedSaved);
+          showToast('Achievement baru berhasil ditambahkan secara real-time!');
         }
+        router.refresh();
         setIsModalOpen(false);
         setSelectedFile(null);
       } else {
-        showToast(`Gagal menyimpan: ${json.error || 'Kesalahan database'}`, 'error');
+        showToast(
+          `Gagal menyimpan: ${json.error || 'Kesalahan database'}`,
+          'error'
+        );
       }
     } catch (err: any) {
-      setSaving(false);
-      showToast(`Error: ${err.message}`, 'error');
+      showToast(`Error: ${err?.message || 'Terjadi kesalahan'}`, 'error');
+    } finally {
+      setSavingItem(false);
     }
   };
 
@@ -217,19 +363,28 @@ export default function AchievementsManagementPage() {
     if (!confirm('Hapus achievement ini secara permanen?')) return;
 
     try {
-      const response = await fetch(`/api/achievements?id=${id}`, {
-        method: 'DELETE'
-      });
+      const response = await fetch(
+        `/api/achievements?id=${encodeURIComponent(id)}`,
+        {
+          method: 'DELETE',
+          cache: 'no-store',
+        }
+      );
       const json = await response.json();
 
       if (response.ok && json.success) {
-        setAchievements(achievements.filter(a => a.id !== id));
-        showToast('Achievement berhasil dihapus!');
+        setAchievements((prev) => prev.filter((a) => a.id !== id));
+        broadcastAchievementsUpdate('delete', { id });
+        router.refresh();
+        showToast('Achievement berhasil dihapus secara real-time!');
       } else {
-        showToast(`Gagal menghapus: ${json.error || 'Terjadi kesalahan'}`, 'error');
+        showToast(
+          `Gagal menghapus: ${json.error || 'Terjadi kesalahan'}`,
+          'error'
+        );
       }
     } catch (err: any) {
-      showToast(`Error: ${err.message}`, 'error');
+      showToast(`Error: ${err?.message || 'Terjadi kesalahan'}`, 'error');
     }
   };
 
@@ -239,12 +394,19 @@ export default function AchievementsManagementPage() {
 
   return (
     <div className="min-h-screen bg-[#07090e] text-[#94a3b8] flex flex-col lg:flex-row antialiased">
-
       {toast && (
-        <div className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl backdrop-blur-md border shadow-2xl flex items-center gap-2.5 text-xs font-medium animate-in fade-in duration-200 ${
-          toast.type === 'success' ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300' : 'bg-red-500/15 border-red-500/30 text-red-300'
-        }`}>
-          {toast.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+        <div
+          className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl backdrop-blur-md border shadow-2xl flex items-center gap-2.5 text-xs font-medium animate-in fade-in duration-200 ${
+            toast.type === 'success'
+              ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+              : 'bg-red-500/15 border-red-500/30 text-red-300'
+          }`}
+        >
+          {toast.type === 'success' ? (
+            <CheckCircle2 size={16} />
+          ) : (
+            <AlertCircle size={16} />
+          )}
           <span>{toast.message}</span>
         </div>
       )}
@@ -259,41 +421,69 @@ export default function AchievementsManagementPage() {
 
           <div className="space-y-6 text-xs">
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Overview</p>
-              <Link href="/dashboard" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all">
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Overview
+              </p>
+              <Link
+                href="/dashboard"
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all"
+              >
                 <LayoutDashboard size={16} />
                 <span>Dashboard</span>
               </Link>
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Website Content</p>
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Website Content
+              </p>
               <div className="space-y-1">
-                <Link href="/dashboard/home" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/home"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Home size={15} />
                   <span>Home</span>
                 </Link>
-                <Link href="/dashboard/about" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/about"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <User size={15} />
                   <span>About</span>
                 </Link>
-                <Link href="/dashboard/services" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/services"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Wrench size={15} />
                   <span>Services</span>
                 </Link>
-                <Link href="/dashboard/projects" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/projects"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <FolderGit2 size={15} />
                   <span>Projects</span>
                 </Link>
-                <Link href="/dashboard/achievements" className="flex items-center gap-3 px-3 py-2.5 rounded-xl font-semibold bg-[#581c87]/60 text-white border border-[#9333ea]/30 transition-all">
+                <Link
+                  href="/dashboard/achievements"
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl font-semibold bg-[#581c87]/60 text-white border border-[#9333ea]/30 transition-all"
+                >
                   <Award size={15} className="text-[#c084fc]" />
                   <span>Achievements</span>
                 </Link>
-                <Link href="/dashboard/certificates" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/certificates"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <FileBadge size={15} />
                   <span>Certificates</span>
                 </Link>
-                <Link href="/dashboard/contact" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/contact"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Mail size={15} />
                   <span>Contact</span>
                 </Link>
@@ -301,25 +491,41 @@ export default function AchievementsManagementPage() {
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Assets</p>
-              <Link href="/dashboard/media" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Assets
+              </p>
+              <Link
+                href="/dashboard/media"
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+              >
                 <FolderArchive size={15} />
                 <span>Media Library</span>
               </Link>
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Settings</p>
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Settings
+              </p>
               <div className="space-y-1">
-                <Link href="/dashboard/appearance" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
+                <Link
+                  href="/dashboard/appearance"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+                >
                   <Palette size={15} />
                   <span>Appearance</span>
                 </Link>
-                <Link href="/dashboard/seo" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
+                <Link
+                  href="/dashboard/seo"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+                >
                   <SearchCheck size={15} />
                   <span>SEO Settings</span>
                 </Link>
-                <Link href="/dashboard/settings" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
+                <Link
+                  href="/dashboard/settings"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+                >
                   <Settings size={15} />
                   <span>General Settings</span>
                 </Link>
@@ -329,11 +535,19 @@ export default function AchievementsManagementPage() {
         </div>
 
         <div className="pt-4 border-t border-white/5 space-y-3">
-          <Link href="/achievements" target="_blank" className="w-full py-2 px-3 rounded-xl border border-white/10 hover:border-white/20 text-slate-300 hover:text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors">
+          <Link
+            href="/achievements"
+            target="_blank"
+            className="w-full py-2 px-3 rounded-xl border border-white/10 hover:border-white/20 text-slate-300 hover:text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
+          >
             <span>Preview Achievements Page</span>
             <ExternalLink size={13} />
           </Link>
-          <button onClick={handleLogout} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors cursor-pointer">
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors cursor-pointer"
+          >
             <LogOut size={15} />
             <span>Logout</span>
           </button>
@@ -344,10 +558,31 @@ export default function AchievementsManagementPage() {
       <main className="flex-1 px-4 sm:px-8 py-6 max-w-6xl w-full mx-auto space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Achievements Management</h1>
-            <p className="text-xs text-slate-400 mt-1">Kelola header penghargaan, milestone, dan pencapaian kompetisi via Neon PostgreSQL.</p>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                Achievements Management
+              </h1>
+              <span
+                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono border transition-colors ${
+                  livePulse
+                    ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300'
+                    : 'bg-white/5 border-white/10 text-slate-400'
+                }`}
+              >
+                <Radio size={11} className="text-emerald-400" />
+                <span>LIVE SYNC</span>
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">
+              Kelola header penghargaan, milestone, dan pencapaian kompetisi via
+              Neon PostgreSQL secara dinamis dan real-time.
+            </p>
           </div>
-          <Link href="/achievements" target="_blank" className="px-3.5 py-2 rounded-xl bg-[#0b0e17] border border-white/10 hover:border-white/20 text-xs font-mono text-slate-300 hover:text-white flex items-center gap-2 transition-colors self-start sm:self-auto">
+          <Link
+            href="/achievements"
+            target="_blank"
+            className="px-3.5 py-2 rounded-xl bg-[#0b0e17] border border-white/10 hover:border-white/20 text-xs font-mono text-slate-300 hover:text-white flex items-center gap-2 transition-colors self-start sm:self-auto"
+          >
             <Eye size={13} className="text-cyan-400" />
             <span>Lihat Halaman Publik</span>
           </Link>
@@ -360,28 +595,69 @@ export default function AchievementsManagementPage() {
           </div>
         ) : (
           <div className="space-y-8">
-            <form onSubmit={handleSaveHeader} className="bg-[#0b0e17] border border-white/5 rounded-2xl p-6 space-y-4 shadow-xl">
+            <form
+              onSubmit={handleSaveHeader}
+              className="bg-[#0b0e17] border border-white/5 rounded-2xl p-6 space-y-4 shadow-xl"
+            >
               <div className="flex items-center gap-2 pb-3 border-b border-white/5">
                 <Award size={16} className="text-purple-400" />
-                <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">1. Pengaturan Header Achievements</span>
+                <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">
+                  1. Pengaturan Header Achievements
+                </span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-[11px] font-mono text-slate-400 mb-1">Badge Teks Atas</label>
-                  <input type="text" value={headerForm.badge_text} onChange={(e) => setHeaderForm({ ...headerForm, badge_text: e.target.value })} className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs font-mono focus:border-cyan-400" />
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                    Badge Teks Atas
+                  </label>
+                  <input
+                    type="text"
+                    value={headerForm.badge_text}
+                    onChange={(e) =>
+                      setHeaderForm({
+                        ...headerForm,
+                        badge_text: e.target.value,
+                      })
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs font-mono focus:border-cyan-400"
+                  />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-mono text-slate-400 mb-1">Judul Utama</label>
-                  <input type="text" value={headerForm.title} onChange={(e) => setHeaderForm({ ...headerForm, title: e.target.value })} className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs font-bold focus:border-cyan-400" />
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                    Judul Utama
+                  </label>
+                  <input
+                    type="text"
+                    value={headerForm.title}
+                    onChange={(e) =>
+                      setHeaderForm({ ...headerForm, title: e.target.value })
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs font-bold focus:border-cyan-400"
+                  />
                 </div>
               </div>
               <div>
-                <label className="block text-[11px] font-mono text-slate-400 mb-1">Subjudul / Deskripsi</label>
-                <textarea rows={2} value={headerForm.subtitle} onChange={(e) => setHeaderForm({ ...headerForm, subtitle: e.target.value })} className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs focus:border-cyan-400" />
+                <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                  Subjudul / Deskripsi
+                </label>
+                <textarea
+                  rows={2}
+                  value={headerForm.subtitle}
+                  onChange={(e) =>
+                    setHeaderForm({ ...headerForm, subtitle: e.target.value })
+                  }
+                  className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs focus:border-cyan-400"
+                />
               </div>
               <div className="flex justify-end pt-2">
-                <button type="submit" disabled={saving} className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs flex items-center gap-2 transition-all cursor-pointer shadow-md">
-                  {saving && <Loader2 size={13} className="animate-spin" />}
+                <button
+                  type="submit"
+                  disabled={savingHeader}
+                  className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs flex items-center gap-2 transition-all cursor-pointer shadow-md disabled:opacity-50"
+                >
+                  {savingHeader && (
+                    <Loader2 size={13} className="animate-spin" />
+                  )}
                   <span>Simpan Header</span>
                 </button>
               </div>
@@ -391,9 +667,15 @@ export default function AchievementsManagementPage() {
               <div className="flex items-center justify-between pb-3 border-b border-white/5">
                 <div className="flex items-center gap-2">
                   <FolderArchive size={16} className="text-cyan-400" />
-                  <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">2. Daftar Pencapaian (Achievements List)</span>
+                  <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">
+                    2. Daftar Pencapaian (Achievements List)
+                  </span>
                 </div>
-                <button onClick={handleOpenAddModal} className="px-3.5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-lg">
+                <button
+                  type="button"
+                  onClick={handleOpenAddModal}
+                  className="px-3.5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-lg"
+                >
                   <Plus size={14} />
                   <span>Tambah Achievement</span>
                 </button>
@@ -401,23 +683,46 @@ export default function AchievementsManagementPage() {
 
               <div className="space-y-4 pt-2">
                 {achievements.length === 0 ? (
-                  <p className="py-8 text-center text-xs font-mono text-slate-500">Belum ada achievement tercatat.</p>
+                  <p className="py-8 text-center text-xs font-mono text-slate-500">
+                    Belum ada achievement tercatat.
+                  </p>
                 ) : (
                   achievements.map((item) => (
-                    <div key={item.id} className="bg-[#07090e] border border-white/10 rounded-xl p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 group hover:border-purple-500/30 transition-all">
+                    <div
+                      key={item.id}
+                      className="bg-[#07090e] border border-white/10 rounded-xl p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 group hover:border-purple-500/30 transition-all"
+                    >
                       <div className="space-y-2 flex-1">
                         <div className="flex items-center gap-3">
-                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20 font-bold">{item.badge}</span>
-                          <span className="text-xs font-mono text-slate-500">{item.date_str} • {item.location}</span>
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20 font-bold">
+                            {item.badge}
+                          </span>
+                          <span className="text-xs font-mono text-slate-500">
+                            {item.date_str} • {item.location}
+                          </span>
                         </div>
-                        <h3 className="text-sm font-bold text-white">{item.title}</h3>
-                        <p className="text-xs text-slate-400 leading-relaxed">{item.description}</p>
+                        <h3 className="text-sm font-bold text-white">
+                          {item.title}
+                        </h3>
+                        <p className="text-xs text-slate-400 leading-relaxed">
+                          {item.description}
+                        </p>
                       </div>
                       <div className="flex items-center gap-2 self-end md:self-center">
-                        <button onClick={() => handleOpenEditModal(item)} className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white transition-colors cursor-pointer" title="Edit">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditModal(item)}
+                          className="p-2 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                          title="Edit"
+                        >
                           <Edit3 size={14} />
                         </button>
-                        <button onClick={() => handleDeleteAchievement(item.id)} className="p-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-colors cursor-pointer" title="Hapus">
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteAchievement(item.id)}
+                          className="p-2 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-colors cursor-pointer"
+                          title="Hapus"
+                        >
                           <Trash2 size={14} />
                         </button>
                       </div>
@@ -439,67 +744,151 @@ export default function AchievementsManagementPage() {
             <form onSubmit={handleSaveAchievement} className="space-y-4 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] font-mono text-slate-400 mb-1">Kategori / Badge</label>
-                  <input 
-                    type="text" 
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                    Kategori / Badge
+                  </label>
+                  <input
+                    type="text"
                     required
-                    value={modalForm.badge} 
-                    onChange={(e) => setModalForm({ ...modalForm, badge: e.target.value })} 
-                    className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400" 
+                    value={modalForm.badge}
+                    onChange={(e) =>
+                      setModalForm({ ...modalForm, badge: e.target.value })
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-mono text-slate-400 mb-1">Tanggal</label>
-                  <input type="text" required value={modalForm.date_str} onChange={(e) => setModalForm({ ...modalForm, date_str: e.target.value })} className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400" />
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                    Tanggal
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={modalForm.date_str}
+                    onChange={(e) =>
+                      setModalForm({ ...modalForm, date_str: e.target.value })
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400"
+                  />
                 </div>
               </div>
               <div>
-                <label className="block text-[11px] font-mono text-slate-400 mb-1">Judul Pencapaian</label>
-                <input type="text" required value={modalForm.title} onChange={(e) => setModalForm({ ...modalForm, title: e.target.value })} className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white font-bold focus:border-cyan-400" />
+                <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                  Judul Pencapaian
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={modalForm.title}
+                  onChange={(e) =>
+                    setModalForm({ ...modalForm, title: e.target.value })
+                  }
+                  className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white font-bold focus:border-cyan-400"
+                />
               </div>
               <div>
-                <label className="block text-[11px] font-mono text-slate-400 mb-1">Lokasi</label>
-                <input type="text" required value={modalForm.location} onChange={(e) => setModalForm({ ...modalForm, location: e.target.value })} className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white focus:border-cyan-400" />
+                <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                  Lokasi
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={modalForm.location}
+                  onChange={(e) =>
+                    setModalForm({ ...modalForm, location: e.target.value })
+                  }
+                  className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white focus:border-cyan-400"
+                />
               </div>
               <div>
-                <label className="block text-[11px] font-mono text-slate-400 mb-1">Deskripsi Singkat</label>
-                <textarea rows={3} required value={modalForm.description} onChange={(e) => setModalForm({ ...modalForm, description: e.target.value })} className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white leading-relaxed focus:border-cyan-400" />
+                <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                  Deskripsi Singkat
+                </label>
+                <textarea
+                  rows={3}
+                  required
+                  value={modalForm.description}
+                  onChange={(e) =>
+                    setModalForm({ ...modalForm, description: e.target.value })
+                  }
+                  className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white leading-relaxed focus:border-cyan-400"
+                />
               </div>
               <div>
-                <label className="block text-[11px] font-mono text-slate-400 mb-1">Highlights (Pisahkan koma)</label>
-                <textarea rows={2} value={modalForm.highlightsStr} onChange={(e) => setModalForm({ ...modalForm, highlightsStr: e.target.value })} className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400" />
+                <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                  Highlights (Pisahkan koma)
+                </label>
+                <textarea
+                  rows={2}
+                  value={modalForm.highlightsStr}
+                  onChange={(e) =>
+                    setModalForm({
+                      ...modalForm,
+                      highlightsStr: e.target.value,
+                    })
+                  }
+                  className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400"
+                />
               </div>
 
               <div>
-                <label className="block text-[11px] font-mono text-slate-400 mb-1">Upload Gambar / Berkas</label>
-                <input 
-                  type="file" 
+                <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                  Upload Gambar / Berkas
+                </label>
+                <input
+                  type="file"
                   accept="image/*"
                   onChange={(e) => {
                     if (e.target.files && e.target.files[0]) {
                       setSelectedFile(e.target.files[0]);
                     }
                   }}
-                  className="w-full px-3 py-1.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono text-[11px] file:mr-4 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-cyan-500 file:text-slate-950 hover:file:bg-cyan-400 cursor-pointer" 
+                  className="w-full px-3 py-1.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono text-[11px] file:mr-4 file:py-1 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-cyan-500 file:text-slate-950 hover:file:bg-cyan-400 cursor-pointer"
                 />
-                <input 
-                  type="text" 
-                  value={modalForm.image_url} 
-                  onChange={(e) => setModalForm({ ...modalForm, image_url: e.target.value })} 
-                  className="w-full mt-2 px-3 py-1.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono text-[11px] focus:border-cyan-400" 
+                <input
+                  type="text"
+                  value={modalForm.image_url}
+                  onChange={(e) =>
+                    setModalForm({ ...modalForm, image_url: e.target.value })
+                  }
+                  className="w-full mt-2 px-3 py-1.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono text-[11px] focus:border-cyan-400"
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-mono text-slate-400 mb-1">Credential URL</label>
-                <input type="text" value={modalForm.credential_url} onChange={(e) => setModalForm({ ...modalForm, credential_url: e.target.value })} className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono text-[11px] focus:border-cyan-400" />
+                <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                  Credential URL
+                </label>
+                <input
+                  type="text"
+                  value={modalForm.credential_url}
+                  onChange={(e) =>
+                    setModalForm({
+                      ...modalForm,
+                      credential_url: e.target.value,
+                    })
+                  }
+                  className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono text-[11px] focus:border-cyan-400"
+                />
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-white/5">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 cursor-pointer">Batal</button>
-                <button type="submit" disabled={saving} className="px-4 py-2 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-bold cursor-pointer flex items-center gap-2">
-                  {saving && <Loader2 size={13} className="animate-spin" />}
-                  <span>{saving ? 'Menyimpan...' : 'Simpan Achievement'}</span>
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingItem}
+                  className="px-4 py-2 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-bold cursor-pointer flex items-center gap-2 disabled:opacity-50"
+                >
+                  {savingItem && <Loader2 size={13} className="animate-spin" />}
+                  <span>
+                    {savingItem ? 'Menyimpan...' : 'Simpan Achievement'}
+                  </span>
                 </button>
               </div>
             </form>

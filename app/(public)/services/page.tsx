@@ -2,16 +2,18 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { 
-  Code2, 
-  Palette, 
-  Database, 
-  Cpu, 
-  User, 
+import {
+  Code2,
+  Palette,
+  Database,
+  Cpu,
+  User,
   ArrowRight,
-  ArrowLeft
+  ArrowLeft,
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
+
+export const dynamic = 'force-dynamic';
 
 interface ServiceItem {
   id: string;
@@ -23,6 +25,79 @@ interface ServiceItem {
   watermark: string;
 }
 
+function parseTagsSafely(rawTags: any, fallbackPrice?: any): string[] {
+  if (Array.isArray(rawTags)) {
+    const cleaned = rawTags
+      .map((tag) => {
+        if (typeof tag === 'string') return tag.trim();
+        if (tag && typeof tag === 'object') {
+          return String(tag.name || tag.label || tag.title || '').trim();
+        }
+        return '';
+      })
+      .filter(Boolean);
+    if (cleaned.length > 0) return cleaned;
+  }
+
+  if (typeof rawTags === 'string') {
+    const trimmed = rawTags.trim();
+    if (trimmed) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return parseTagsSafely(parsed, fallbackPrice);
+        }
+      } catch {
+        // Fallback ke pemisahan koma atau baris baru
+      }
+
+      const separator = trimmed.includes('\n') ? '\n' : ',';
+      const splitItems = trimmed
+        .split(separator)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (splitItems.length > 0) return splitItems;
+    }
+  }
+
+  if (fallbackPrice) {
+    return [String(fallbackPrice)];
+  }
+
+  return ['Backend', 'API'];
+}
+
+function resolveServiceVisual(title: string): {
+  icon: React.ReactNode;
+  watermark: string;
+} {
+  const upperTitle = title.toUpperCase();
+
+  if (upperTitle.includes('UI') || upperTitle.includes('DESIGN')) {
+    return {
+      icon: <Palette size={18} className="text-emerald-400" />,
+      watermark: 'UI',
+    };
+  }
+  if (upperTitle.includes('DATABASE') || upperTitle.includes('BACKEND')) {
+    return {
+      icon: <Database size={18} className="text-purple-400" />,
+      watermark: 'SQL',
+    };
+  }
+  if (upperTitle.includes('WEB3') || upperTitle.includes('BLOCKCHAIN')) {
+    return {
+      icon: <Cpu size={18} className="text-amber-400" />,
+      watermark: 'ETH',
+    };
+  }
+
+  return {
+    icon: <Code2 size={18} className="text-accent" />,
+    watermark: '{ }',
+  };
+}
+
 export default function ServicesPage() {
   const { t } = useApp();
   const [activeIndex, setActiveIndex] = useState(0);
@@ -31,93 +106,141 @@ export default function ServicesPage() {
   const [header, setHeader] = useState({
     badge_text: 'MY SERVICES',
     title: 'My Services',
-    subtitle: 'Things I can build, design, and contribute to.'
+    subtitle: 'Things I can build, design, and contribute to.',
   });
 
   const [services, setServices] = useState<ServiceItem[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let isMounted = true;
+
     async function fetchNeonServicesData() {
       try {
-        const response = await fetch('/api/services');
+        const response = await fetch('/api/services', { cache: 'no-store' });
         const json = await response.json();
 
-        if (json.success && json.data && json.data.length > 0) {
-          const mapped = json.data.map((item: any, idx: number) => {
-            const numStr = item.badge || (idx < 9 ? `0${idx + 1}` : `${idx + 1}`);
-            const upperTitle = (item.title || '').toUpperCase();
-            
-            let iconElement = <Code2 size={18} className="text-accent" />;
-            let water = '{ }';
-            if (upperTitle.includes('UI') || upperTitle.includes('DESIGN')) {
-              iconElement = <Palette size={18} className="text-emerald-400" />;
-              water = 'UI';
-            } else if (upperTitle.includes('DATABASE') || upperTitle.includes('BACKEND')) {
-              iconElement = <Database size={18} className="text-purple-400" />;
-              water = 'SQL';
-            } else if (upperTitle.includes('WEB3') || upperTitle.includes('BLOCKCHAIN')) {
-              iconElement = <Cpu size={18} className="text-amber-400" />;
-              water = 'ETH';
-            }
+        if (!isMounted) return;
 
-            return {
-              id: numStr,
-              title: item.title,
-              titleUpper: upperTitle,
-              desc: item.description || '',
-              tags: Array.isArray(item.tags) ? item.tags : (item.price ? [item.price] : ['Backend', 'API']),
-              icon: iconElement,
-              watermark: water
-            };
-          });
-          setServices(mapped);
+        if (json.success) {
+          if (json.header) {
+            setHeader({
+              badge_text: json.header.badge_text || 'MY SERVICES',
+              title: json.header.title || 'My Services',
+              subtitle:
+                json.header.subtitle ||
+                'Things I can build, design, and contribute to.',
+            });
+          }
+
+          if (Array.isArray(json.data) && json.data.length > 0) {
+            const mapped: ServiceItem[] = json.data.map(
+              (item: any, idx: number) => {
+                const numStr =
+                  item.badge ||
+                  (idx < 9 ? `0${idx + 1}` : `${idx + 1}`);
+                const titleStr = item.title || `Service ${idx + 1}`;
+                const upperTitle = titleStr.toUpperCase();
+                const visual = resolveServiceVisual(titleStr);
+
+                return {
+                  id: String(numStr),
+                  title: titleStr,
+                  titleUpper: upperTitle,
+                  desc:
+                    item.description ||
+                    item.desc ||
+                    'End-to-end engineering and architecture delivery.',
+                  tags: parseTagsSafely(item.tags, item.price),
+                  icon: visual.icon,
+                  watermark: item.watermark || visual.watermark,
+                };
+              }
+            );
+            setServices(mapped);
+            setActiveIndex((prev) =>
+              prev >= mapped.length ? 0 : prev
+            );
+          } else {
+            setServices([]);
+            setActiveIndex(0);
+          }
         }
       } catch (err) {
-        console.warn('Gagal memuat data services dari Neon API:', err);
+        if (isMounted) {
+          console.warn('Gagal memuat data services dari Neon API:', err);
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     }
 
     fetchNeonServicesData();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const handlePrev = () => {
+    if (services.length === 0) return;
     setActiveIndex((prev) => (prev > 0 ? prev - 1 : services.length - 1));
   };
 
   const handleNext = () => {
+    if (services.length === 0) return;
     setActiveIndex((prev) => (prev < services.length - 1 ? prev + 1 : 0));
   };
 
   const handleMobileScroll = () => {
-    if (scrollRef.current) {
+    if (scrollRef.current && services.length > 0) {
       const { scrollLeft, offsetWidth } = scrollRef.current;
-      const index = Math.round(scrollLeft / (offsetWidth * 0.75));
-      setActiveIndex(Math.min(index, services.length - 1));
+      const stepWidth = Math.max(offsetWidth * 0.75, 1);
+      const rawIndex = Math.round(scrollLeft / stepWidth);
+      const clampedIndex = Math.max(
+        0,
+        Math.min(rawIndex, services.length - 1)
+      );
+      setActiveIndex(clampedIndex);
     }
   };
 
   const scrollToIndex = (index: number) => {
-    if (scrollRef.current) {
+    if (scrollRef.current && services.length > 0) {
+      const clampedIndex = Math.max(0, Math.min(index, services.length - 1));
       const cardWidth = scrollRef.current.offsetWidth * 0.78;
       scrollRef.current.scrollTo({
-        left: index * cardWidth,
+        left: clampedIndex * cardWidth,
         behavior: 'smooth',
       });
-      setActiveIndex(index);
+      setActiveIndex(clampedIndex);
     }
   };
+
+  if (loading) {
+    return (
+      <main className="w-full max-w-6xl mx-auto px-4 py-20 text-center">
+        <p className="text-sm font-mono text-slate-400 animate-pulse">
+          Memuat layanan dari database Neon...
+        </p>
+      </main>
+    );
+  }
 
   if (services.length === 0) {
     return (
       <main className="w-full max-w-6xl mx-auto px-4 py-20 text-center">
-        <p className="text-sm font-mono text-slate-400 animate-pulse">Memuat layanan dari database Neon...</p>
+        <p className="text-xs font-mono text-[var(--text-muted)] border border-dashed border-[var(--card-border)] rounded-2xl py-12">
+          Belum ada data layanan tercatat di database Neon.
+        </p>
       </main>
     );
   }
 
   return (
     <main className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
-      
       {/* DESKTOP HEADER */}
       <div className="hidden md:flex items-end justify-between mb-6">
         <div>
@@ -134,10 +257,20 @@ export default function ServicesPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          <button onClick={handlePrev} aria-label="Previous service" className="w-9 h-9 rounded-full border border-[var(--card-border)] bg-transparent hover:border-accent hover:bg-white/5 text-[var(--text-muted)] hover:text-[var(--text-main)] flex items-center justify-center transition-all cursor-pointer">
+          <button
+            type="button"
+            onClick={handlePrev}
+            aria-label="Previous service"
+            className="w-9 h-9 rounded-full border border-[var(--card-border)] bg-transparent hover:border-accent hover:bg-white/5 text-[var(--text-muted)] hover:text-[var(--text-main)] flex items-center justify-center transition-all cursor-pointer"
+          >
             <ArrowLeft size={15} />
           </button>
-          <button onClick={handleNext} aria-label="Next service" className="w-9 h-9 rounded-full border border-[var(--card-border)] bg-transparent hover:border-accent hover:bg-white/5 text-[var(--text-muted)] hover:text-[var(--text-main)] flex items-center justify-center transition-all cursor-pointer">
+          <button
+            type="button"
+            onClick={handleNext}
+            aria-label="Next service"
+            className="w-9 h-9 rounded-full border border-[var(--card-border)] bg-transparent hover:border-accent hover:bg-white/5 text-[var(--text-muted)] hover:text-[var(--text-main)] flex items-center justify-center transition-all cursor-pointer"
+          >
             <ArrowRight size={15} />
           </button>
         </div>
@@ -161,8 +294,16 @@ export default function ServicesPage() {
 
             return (
               <div
-                key={index}
+                key={`${item.id}-${index}`}
+                role="button"
+                tabIndex={0}
                 onClick={() => setActiveIndex(index)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setActiveIndex(index);
+                  }
+                }}
                 className={`cursor-pointer rounded-2xl p-5 border transition-all duration-300 flex flex-col justify-between min-h-[280px] ${
                   isSelected
                     ? 'bg-[var(--card-bg)] border-accent shadow-lg ring-1 ring-accent/30'
@@ -189,8 +330,11 @@ export default function ServicesPage() {
                 </div>
 
                 <div className="pt-4 border-t border-[var(--card-border)] flex flex-wrap gap-1 mt-4">
-                  {Array.isArray(item.tags) && item.tags.map((tag) => (
-                    <span key={tag} className="px-2 py-0.5 rounded bg-white/5 border border-[var(--card-border)] text-[9px] font-mono text-[var(--text-muted)]">
+                  {item.tags.map((tag, tagIdx) => (
+                    <span
+                      key={`${tag}-${tagIdx}`}
+                      className="px-2 py-0.5 rounded bg-white/5 border border-[var(--card-border)] text-[9px] font-mono text-[var(--text-muted)]"
+                    >
                       {tag}
                     </span>
                   ))}
@@ -204,7 +348,6 @@ export default function ServicesPage() {
       {/* MOBILE CARDS CAROUSEL */}
       <div className="block md:hidden">
         <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-[30px] p-5 backdrop-blur-xl shadow-2xl relative transition-colors duration-250">
-          
           <div className="flex justify-end mb-3">
             <Link
               href="/services/all"
@@ -232,8 +375,16 @@ export default function ServicesPage() {
 
               return (
                 <div
-                  key={index}
+                  key={`${item.id}-mobile-${index}`}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => scrollToIndex(index)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      scrollToIndex(index);
+                    }
+                  }}
                   className={`snap-start shrink-0 w-[82%] rounded-3xl p-5 relative overflow-hidden transition-all duration-300 flex flex-col justify-between min-h-[320px] cursor-pointer ${
                     isSelected
                       ? 'bg-[var(--card-bg)] border-2 border-accent shadow-xl'
@@ -250,7 +401,10 @@ export default function ServicesPage() {
                         {item.icon}
                       </div>
                       <span className="text-xs font-mono tracking-wider text-[var(--text-muted)]">
-                        {item.id} <span className="text-slate-600">/ {services.length < 10 ? `0${services.length}` : services.length}</span>
+                        {item.id}{' '}
+                        <span className="text-slate-600">
+                          / {services.length < 10 ? `0${services.length}` : services.length}
+                        </span>
                       </span>
                     </div>
 
@@ -264,8 +418,11 @@ export default function ServicesPage() {
                   </div>
 
                   <div className="pt-3.5 border-t border-[var(--card-border)] flex flex-wrap gap-1.5 mt-5">
-                    {Array.isArray(item.tags) && item.tags.map((tag) => (
-                      <span key={tag} className="px-2 py-0.5 rounded-lg bg-black/20 border border-[var(--card-border)] text-[9px] font-mono text-[var(--text-muted)]">
+                    {item.tags.map((tag, tagIdx) => (
+                      <span
+                        key={`${tag}-${tagIdx}`}
+                        className="px-2 py-0.5 rounded-lg bg-black/20 border border-[var(--card-border)] text-[9px] font-mono text-[var(--text-muted)]"
+                      >
                         {tag}
                       </span>
                     ))}
@@ -274,10 +431,8 @@ export default function ServicesPage() {
               );
             })}
           </div>
-
         </div>
       </div>
-
     </main>
   );
 }

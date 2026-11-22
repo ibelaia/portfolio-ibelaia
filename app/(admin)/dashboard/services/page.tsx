@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -24,8 +24,8 @@ import {
   Plus,
   Trash2,
   Edit3,
-  Save,
-  Eye
+  Eye,
+  Radio,
 } from 'lucide-react';
 
 interface ServiceItem {
@@ -37,17 +37,25 @@ interface ServiceItem {
   icon_name: string;
 }
 
+const SERVICES_SYNC_CHANNEL = 'portfolio-sync-services';
+
 export default function ServicesManagementPage() {
   const router = useRouter();
+  const syncChannelRef = useRef<BroadcastChannel | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [savingCard, setSavingCard] = useState(false);
+  const [livePulse, setLivePulse] = useState(false);
+  const [toast, setToast] = useState<{
+    message: string;
+    type: 'success' | 'error';
+  } | null>(null);
 
   const [headerForm, setHeaderForm] = useState({
     badge_text: 'MY SERVICES',
     title: 'My Services',
-    subtitle: 'Things I can build, design, and contribute to.'
+    subtitle: 'Things I can build, design, and contribute to.',
   });
 
   const [services, setServices] = useState<ServiceItem[]>([]);
@@ -59,26 +67,74 @@ export default function ServicesManagementPage() {
     description: '',
     badge: '01',
     tagsStr: 'HTML, CSS, JavaScript',
-    icon_name: 'Code2'
+    icon_name: 'Code2',
   });
 
-  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+  const showToast = (
+    message: string,
+    type: 'success' | 'error' = 'success'
+  ) => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3500);
   };
 
+  const broadcastServicesUpdate = useCallback(
+    (action: string, detailData?: any) => {
+      const eventDetail = {
+        section: 'services',
+        action,
+        updatedAt: Date.now(),
+        data: detailData,
+      };
+
+      try {
+        if (syncChannelRef.current) {
+          syncChannelRef.current.postMessage(eventDetail);
+        }
+      } catch {
+        // Abaikan jika BroadcastChannel tidak tersedia
+      }
+
+      try {
+        localStorage.setItem(
+          SERVICES_SYNC_CHANNEL,
+          JSON.stringify(eventDetail)
+        );
+      } catch {
+        // Abaikan jika localStorage diblokir
+      }
+
+      window.dispatchEvent(
+        new CustomEvent(SERVICES_SYNC_CHANNEL, { detail: eventDetail })
+      );
+      setLivePulse(true);
+      setTimeout(() => setLivePulse(false), 1800);
+    },
+    []
+  );
+
   useEffect(() => {
+    let isMounted = true;
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      syncChannelRef.current = new BroadcastChannel(SERVICES_SYNC_CHANNEL);
+    }
+
     async function loadData() {
       try {
-        const response = await fetch('/api/services');
+        const response = await fetch('/api/services', { cache: 'no-store' });
         const json = await response.json();
+
+        if (!isMounted) return;
 
         if (json.success) {
           if (json.header) {
             setHeaderForm({
               badge_text: json.header.badge_text || 'MY SERVICES',
               title: json.header.title || 'My Services',
-              subtitle: json.header.subtitle || 'Things I can build, design, and contribute to.'
+              subtitle:
+                json.header.subtitle ||
+                'Things I can build, design, and contribute to.',
             });
           }
           if (Array.isArray(json.data) && json.data.length > 0) {
@@ -88,45 +144,62 @@ export default function ServicesManagementPage() {
               {
                 id: '1',
                 title: 'WEB DEVELOPMENT',
-                description: 'Building responsive websites and commerce experiences with modern web technologies.',
+                description:
+                  'Building responsive websites and commerce experiences with modern web technologies.',
                 badge: '01',
                 tags: ['HTML', 'CSS', 'JavaScript', 'E-COMMERCE'],
-                icon_name: 'Code2'
+                icon_name: 'Code2',
               },
               {
                 id: '2',
                 title: 'UI/UX DESIGN',
-                description: 'Designing intuitive wireframes, mockups, and high-fidelity user interface prototypes.',
+                description:
+                  'Designing intuitive wireframes, mockups, and high-fidelity user interface prototypes.',
                 badge: '02',
                 tags: ['FIGMA', 'WIREFRAME', 'PROTOTYPE'],
-                icon_name: 'Palette'
+                icon_name: 'Palette',
               },
               {
                 id: '3',
                 title: 'DATABASE & BACKEND',
-                description: 'Developing scalable backend architectures, RESTful APIs, and optimized databases.',
+                description:
+                  'Developing scalable backend architectures, RESTful APIs, and optimized databases.',
                 badge: '03',
                 tags: ['MYSQL', 'DATABASE', 'API'],
-                icon_name: 'Server'
+                icon_name: 'Server',
               },
               {
                 id: '4',
                 title: 'WEB3 DEVELOPMENT',
-                description: 'Exploring smart contract interactions, dApps integration, and decentralized ecosystems.',
+                description:
+                  'Exploring smart contract interactions, dApps integration, and decentralized ecosystems.',
                 badge: '04',
                 tags: ['SOLIDITY', 'WEB3', 'SMART CONTRACTS'],
-                icon_name: 'Cpu'
-              }
+                icon_name: 'Cpu',
+              },
             ]);
           }
         }
       } catch (err) {
-        console.warn('Gagal memuat data services:', err);
+        if (isMounted) {
+          console.warn('Gagal memuat data services:', err);
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     }
+
     loadData();
+
+    return () => {
+      isMounted = false;
+      if (syncChannelRef.current) {
+        syncChannelRef.current.close();
+        syncChannelRef.current = null;
+      }
+    };
   }, []);
 
   const handleSaveHeader = async (e: React.FormEvent) => {
@@ -137,19 +210,27 @@ export default function ServicesManagementPage() {
       const response = await fetch('/api/services/header', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(headerForm)
+        cache: 'no-store',
+        body: JSON.stringify(headerForm),
       });
       const json = await response.json();
-      setSaving(false);
 
       if (response.ok && json.success) {
-        showToast('Judul dan Deskripsi Services berhasil disimpan ke Neon!');
+        broadcastServicesUpdate('header', json.data ?? headerForm);
+        router.refresh();
+        showToast(
+          'Judul dan Deskripsi Services berhasil disimpan ke Neon & disinkronkan secara real-time!'
+        );
       } else {
-        showToast(`Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`, 'error');
+        showToast(
+          `Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`,
+          'error'
+        );
       }
     } catch (err: any) {
+      showToast(`Error: ${err?.message || 'Terjadi kesalahan'}`, 'error');
+    } finally {
       setSaving(false);
-      showToast(`Error: ${err.message}`, 'error');
     }
   };
 
@@ -160,7 +241,7 @@ export default function ServicesManagementPage() {
       description: '',
       badge: `0${services.length + 1}`,
       tagsStr: 'React, Next.js, Tailwind',
-      icon_name: 'Code2'
+      icon_name: 'Code2',
     });
     setIsModalOpen(true);
   };
@@ -172,14 +253,19 @@ export default function ServicesManagementPage() {
       description: service.description,
       badge: service.badge,
       tagsStr: Array.isArray(service.tags) ? service.tags.join(', ') : '',
-      icon_name: service.icon_name || 'Code2'
+      icon_name: service.icon_name || 'Code2',
     });
     setIsModalOpen(true);
   };
 
   const handleSaveServiceCard = async (e: React.FormEvent) => {
     e.preventDefault();
-    const tagsArray = modalForm.tagsStr.split(',').map(t => t.trim()).filter(Boolean);
+    setSavingCard(true);
+
+    const tagsArray = modalForm.tagsStr
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean);
 
     const cardPayload = {
       id: editingId,
@@ -187,31 +273,50 @@ export default function ServicesManagementPage() {
       description: modalForm.description,
       badge: modalForm.badge,
       tags: tagsArray,
-      icon_name: modalForm.icon_name
+      icon_name: modalForm.icon_name,
     };
 
     try {
       const response = await fetch('/api/services', {
         method: editingId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(cardPayload)
+        cache: 'no-store',
+        body: JSON.stringify(cardPayload),
       });
       const json = await response.json();
 
       if (response.ok && json.success) {
         if (editingId) {
-          setServices(services.map(s => s.id === editingId ? { ...s, ...cardPayload } : s));
-          showToast('Card Service berhasil diperbarui!');
+          setServices((prev) =>
+            prev.map((s) => (s.id === editingId ? { ...s, ...cardPayload } : s))
+          );
+          broadcastServicesUpdate('update_card', json.data ?? cardPayload);
+          showToast(
+            'Card Service berhasil diperbarui & disinkronkan secara real-time!'
+          );
         } else {
-          setServices([...services, json.data || cardPayload]);
-          showToast('Card Service baru berhasil ditambahkan!');
+          const savedItem = json.data || {
+            ...cardPayload,
+            id: String(Date.now()),
+          };
+          setServices((prev) => [...prev, savedItem]);
+          broadcastServicesUpdate('create_card', savedItem);
+          showToast(
+            'Card Service baru berhasil ditambahkan & disinkronkan secara real-time!'
+          );
         }
+        router.refresh();
         setIsModalOpen(false);
       } else {
-        showToast(`Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`, 'error');
+        showToast(
+          `Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`,
+          'error'
+        );
       }
     } catch (err: any) {
-      showToast(`Error: ${err.message}`, 'error');
+      showToast(`Error: ${err?.message || 'Terjadi kesalahan'}`, 'error');
+    } finally {
+      setSavingCard(false);
     }
   };
 
@@ -220,18 +325,24 @@ export default function ServicesManagementPage() {
 
     try {
       const response = await fetch(`/api/services?id=${id}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        cache: 'no-store',
       });
       const json = await response.json();
 
       if (response.ok && json.success) {
-        setServices(services.filter(s => s.id !== id));
-        showToast('Card Service berhasil dihapus!');
+        setServices((prev) => prev.filter((s) => s.id !== id));
+        broadcastServicesUpdate('delete_card', { id });
+        router.refresh();
+        showToast('Card Service berhasil dihapus secara real-time!');
       } else {
-        showToast(`Gagal menghapus: ${json.error || 'Terjadi kesalahan'}`, 'error');
+        showToast(
+          `Gagal menghapus: ${json.error || 'Terjadi kesalahan'}`,
+          'error'
+        );
       }
     } catch (err: any) {
-      showToast(`Error: ${err.message}`, 'error');
+      showToast(`Error: ${err?.message || 'Terjadi kesalahan'}`, 'error');
     }
   };
 
@@ -241,12 +352,19 @@ export default function ServicesManagementPage() {
 
   return (
     <div className="min-h-screen bg-[#07090e] text-[#94a3b8] flex flex-col lg:flex-row antialiased">
-
       {toast && (
-        <div className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl backdrop-blur-md border shadow-2xl flex items-center gap-2.5 text-xs font-medium animate-in fade-in duration-200 ${
-          toast.type === 'success' ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300' : 'bg-red-500/15 border-red-500/30 text-red-300'
-        }`}>
-          {toast.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+        <div
+          className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl backdrop-blur-md border shadow-2xl flex items-center gap-2.5 text-xs font-medium animate-in fade-in duration-200 ${
+            toast.type === 'success'
+              ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+              : 'bg-red-500/15 border-red-500/30 text-red-300'
+          }`}
+        >
+          {toast.type === 'success' ? (
+            <CheckCircle2 size={16} />
+          ) : (
+            <AlertCircle size={16} />
+          )}
           <span>{toast.message}</span>
         </div>
       )}
@@ -261,41 +379,69 @@ export default function ServicesManagementPage() {
 
           <div className="space-y-6 text-xs">
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Overview</p>
-              <Link href="/dashboard" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all">
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Overview
+              </p>
+              <Link
+                href="/dashboard"
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all"
+              >
                 <LayoutDashboard size={16} />
                 <span>Dashboard</span>
               </Link>
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Website Content</p>
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Website Content
+              </p>
               <div className="space-y-1">
-                <Link href="/dashboard/home" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/home"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Home size={15} />
                   <span>Home</span>
                 </Link>
-                <Link href="/dashboard/about" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/about"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <User size={15} />
                   <span>About</span>
                 </Link>
-                <Link href="/dashboard/services" className="flex items-center gap-3 px-3 py-2.5 rounded-xl font-semibold bg-[#581c87]/60 text-white border border-[#9333ea]/30 transition-all">
+                <Link
+                  href="/dashboard/services"
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl font-semibold bg-[#581c87]/60 text-white border border-[#9333ea]/30 transition-all"
+                >
                   <Wrench size={15} className="text-[#c084fc]" />
                   <span>Services</span>
                 </Link>
-                <Link href="/dashboard/projects" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/projects"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <FolderGit2 size={15} />
                   <span>Projects</span>
                 </Link>
-                <Link href="/dashboard/achievements" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/achievements"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Award size={15} />
                   <span>Achievements</span>
                 </Link>
-                <Link href="/dashboard/certificates" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/certificates"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <FileBadge size={15} />
                   <span>Certificates</span>
                 </Link>
-                <Link href="/dashboard/contact" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/contact"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Mail size={15} />
                   <span>Contact</span>
                 </Link>
@@ -303,25 +449,41 @@ export default function ServicesManagementPage() {
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Assets</p>
-              <Link href="/dashboard/media" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Assets
+              </p>
+              <Link
+                href="/dashboard/media"
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+              >
                 <FolderArchive size={15} />
                 <span>Media Library</span>
               </Link>
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Settings</p>
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Settings
+              </p>
               <div className="space-y-1">
-                <Link href="/dashboard/appearance" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
+                <Link
+                  href="/dashboard/appearance"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+                >
                   <Palette size={15} />
                   <span>Appearance</span>
                 </Link>
-                <Link href="/dashboard/seo" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
+                <Link
+                  href="/dashboard/seo"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+                >
                   <SearchCheck size={15} />
                   <span>SEO Settings</span>
                 </Link>
-                <Link href="/dashboard/settings" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
+                <Link
+                  href="/dashboard/settings"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+                >
                   <Settings size={15} />
                   <span>General Settings</span>
                 </Link>
@@ -331,11 +493,19 @@ export default function ServicesManagementPage() {
         </div>
 
         <div className="pt-4 border-t border-white/5 space-y-3">
-          <Link href="/services" target="_blank" className="w-full py-2 px-3 rounded-xl border border-white/10 hover:border-white/20 text-slate-300 hover:text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors">
+          <Link
+            href="/services"
+            target="_blank"
+            className="w-full py-2 px-3 rounded-xl border border-white/10 hover:border-white/20 text-slate-300 hover:text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
+          >
             <span>Preview Services Page</span>
             <ExternalLink size={13} />
           </Link>
-          <button onClick={handleLogout} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors cursor-pointer">
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors cursor-pointer"
+          >
             <LogOut size={15} />
             <span>Logout</span>
           </button>
@@ -344,13 +514,33 @@ export default function ServicesManagementPage() {
 
       {/* MAIN CONTENT */}
       <main className="flex-1 px-4 sm:px-8 py-6 max-w-6xl w-full mx-auto space-y-6">
-        
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Services Management</h1>
-            <p className="text-xs text-slate-400 mt-1">Kelola judul halaman, subjudul, dan kartu layanan (services cards) via Neon.</p>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                Services Management
+              </h1>
+              <span
+                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono border transition-colors ${
+                  livePulse
+                    ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300'
+                    : 'bg-white/5 border-white/10 text-slate-400'
+                }`}
+              >
+                <Radio size={11} className="text-emerald-400" />
+                <span>LIVE SYNC</span>
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">
+              Kelola judul halaman, subjudul, dan kartu layanan (services cards)
+              via Neon secara dinamis dan real-time.
+            </p>
           </div>
-          <Link href="/services" target="_blank" className="px-3.5 py-2 rounded-xl bg-[#0b0e17] border border-white/10 hover:border-white/20 text-xs font-mono text-slate-300 hover:text-white flex items-center gap-2 transition-colors self-start sm:self-auto">
+          <Link
+            href="/services"
+            target="_blank"
+            className="px-3.5 py-2 rounded-xl bg-[#0b0e17] border border-white/10 hover:border-white/20 text-xs font-mono text-slate-300 hover:text-white flex items-center gap-2 transition-colors self-start sm:self-auto"
+          >
             <Eye size={13} className="text-cyan-400" />
             <span>Lihat Halaman Publik</span>
           </Link>
@@ -363,40 +553,59 @@ export default function ServicesManagementPage() {
           </div>
         ) : (
           <div className="space-y-8">
-            
-            <form onSubmit={handleSaveHeader} className="bg-[#0b0e17] border border-white/5 rounded-2xl p-6 space-y-4">
+            <form
+              onSubmit={handleSaveHeader}
+              className="bg-[#0b0e17] border border-white/5 rounded-2xl p-6 space-y-4"
+            >
               <div className="flex items-center gap-2 pb-3 border-b border-white/5">
                 <Wrench size={16} className="text-cyan-400" />
-                <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">1. Pengaturan Judul & Header Halaman</span>
+                <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">
+                  1. Pengaturan Judul & Header Halaman
+                </span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-[11px] font-mono text-slate-400 mb-1">Badge Teks Atas</label>
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                    Badge Teks Atas
+                  </label>
                   <input
                     type="text"
                     value={headerForm.badge_text}
-                    onChange={(e) => setHeaderForm({ ...headerForm, badge_text: e.target.value })}
+                    onChange={(e) =>
+                      setHeaderForm({
+                        ...headerForm,
+                        badge_text: e.target.value,
+                      })
+                    }
                     className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs font-mono focus:border-cyan-400"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-mono text-slate-400 mb-1">Judul Utama (Title)</label>
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                    Judul Utama (Title)
+                  </label>
                   <input
                     type="text"
                     value={headerForm.title}
-                    onChange={(e) => setHeaderForm({ ...headerForm, title: e.target.value })}
+                    onChange={(e) =>
+                      setHeaderForm({ ...headerForm, title: e.target.value })
+                    }
                     className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs font-bold focus:border-cyan-400"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-[11px] font-mono text-slate-400 mb-1">Subjudul / Deskripsi Singkat</label>
+                <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                  Subjudul / Deskripsi Singkat
+                </label>
                 <input
                   type="text"
                   value={headerForm.subtitle}
-                  onChange={(e) => setHeaderForm({ ...headerForm, subtitle: e.target.value })}
+                  onChange={(e) =>
+                    setHeaderForm({ ...headerForm, subtitle: e.target.value })
+                  }
                   className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs focus:border-cyan-400"
                 />
               </div>
@@ -405,7 +614,7 @@ export default function ServicesManagementPage() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-4 py-2 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-bold text-xs flex items-center gap-2 transition-all cursor-pointer"
+                  className="px-4 py-2 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-bold text-xs flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
                 >
                   {saving && <Loader2 size={13} className="animate-spin" />}
                   <span>Simpan Header</span>
@@ -417,9 +626,12 @@ export default function ServicesManagementPage() {
               <div className="flex items-center justify-between pb-3 border-b border-white/5">
                 <div className="flex items-center gap-2">
                   <FolderArchive size={16} className="text-purple-400" />
-                  <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">2. Daftar Kartu Layanan (Services Cards)</span>
+                  <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">
+                    2. Daftar Kartu Layanan (Services Cards)
+                  </span>
                 </div>
                 <button
+                  type="button"
                   onClick={handleOpenAddModal}
                   className="px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-lg shadow-purple-600/20"
                 >
@@ -430,7 +642,10 @@ export default function ServicesManagementPage() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
                 {services.map((item) => (
-                  <div key={item.id} className="bg-[#07090e] border border-white/10 rounded-xl p-5 flex flex-col justify-between group hover:border-cyan-500/30 transition-all">
+                  <div
+                    key={item.id}
+                    className="bg-[#07090e] border border-white/10 rounded-xl p-5 flex flex-col justify-between group hover:border-cyan-500/30 transition-all"
+                  >
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-bold">
@@ -438,6 +653,7 @@ export default function ServicesManagementPage() {
                         </span>
                         <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
                           <button
+                            type="button"
                             onClick={() => handleOpenEditModal(item)}
                             className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white transition-colors cursor-pointer"
                             title="Edit Card"
@@ -445,6 +661,7 @@ export default function ServicesManagementPage() {
                             <Edit3 size={13} />
                           </button>
                           <button
+                            type="button"
                             onClick={() => handleDeleteService(item.id)}
                             className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-colors cursor-pointer"
                             title="Hapus Card"
@@ -454,55 +671,70 @@ export default function ServicesManagementPage() {
                         </div>
                       </div>
 
-                      <h3 className="text-sm font-bold text-white pt-1">{item.title}</h3>
-                      <p className="text-xs text-slate-400 leading-relaxed">{item.description}</p>
+                      <h3 className="text-sm font-bold text-white pt-1">
+                        {item.title}
+                      </h3>
+                      <p className="text-xs text-slate-400 leading-relaxed">
+                        {item.description}
+                      </p>
                     </div>
 
                     <div className="pt-4 mt-4 border-t border-white/5 flex flex-wrap gap-1">
-                      {Array.isArray(item.tags) && item.tags.map((tag, idx) => (
-                        <span key={idx} className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-[9px] font-mono text-slate-300">
-                          {tag}
-                        </span>
-                      ))}
+                      {Array.isArray(item.tags) &&
+                        item.tags.map((tag, idx) => (
+                          <span
+                            key={idx}
+                            className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-[9px] font-mono text-slate-300"
+                          >
+                            {tag}
+                          </span>
+                        ))}
                     </div>
                   </div>
                 ))}
               </div>
-
             </div>
-
           </div>
         )}
-
       </main>
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-[#0b0e17] border border-white/10 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95 duration-150">
             <h2 className="text-base font-bold text-white border-b border-white/5 pb-3">
-              {editingId ? 'Edit Kartu Layanan' : 'Tambah Kartu Layanan Baru'}
+              {editingId
+                ? 'Edit Kartu Layanan'
+                : 'Tambah Kartu Layanan Baru'}
             </h2>
 
             <form onSubmit={handleSaveServiceCard} className="space-y-4 text-xs">
               <div>
-                <label className="block text-[11px] font-mono text-slate-400 mb-1">Judul Layanan (Title)</label>
+                <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                  Judul Layanan (Title)
+                </label>
                 <input
                   type="text"
                   required
                   value={modalForm.title}
-                  onChange={(e) => setModalForm({ ...modalForm, title: e.target.value })}
+                  onChange={(e) =>
+                    setModalForm({ ...modalForm, title: e.target.value })
+                  }
                   placeholder="Contoh: MOBILE APP DEV"
                   className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400"
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-mono text-slate-400 mb-1">Deskripsi Layanan</label>
+                <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                  Deskripsi Layanan
+                </label>
                 <textarea
                   rows={3}
                   required
                   value={modalForm.description}
-                  onChange={(e) => setModalForm({ ...modalForm, description: e.target.value })}
+                  onChange={(e) =>
+                    setModalForm({ ...modalForm, description: e.target.value })
+                  }
                   placeholder="Deskripsi singkat layanan..."
                   className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white leading-relaxed focus:border-cyan-400"
                 />
@@ -510,32 +742,44 @@ export default function ServicesManagementPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] font-mono text-slate-400 mb-1">Nomor Badge (cth: 01)</label>
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                    Nomor Badge (cth: 01)
+                  </label>
                   <input
                     type="text"
                     required
                     value={modalForm.badge}
-                    onChange={(e) => setModalForm({ ...modalForm, badge: e.target.value })}
+                    onChange={(e) =>
+                      setModalForm({ ...modalForm, badge: e.target.value })
+                    }
                     className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-mono text-slate-400 mb-1">Icon (Code2, Cpu, dll)</label>
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                    Icon (Code2, Cpu, dll)
+                  </label>
                   <input
                     type="text"
                     value={modalForm.icon_name}
-                    onChange={(e) => setModalForm({ ...modalForm, icon_name: e.target.value })}
+                    onChange={(e) =>
+                      setModalForm({ ...modalForm, icon_name: e.target.value })
+                    }
                     className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-[11px] font-mono text-slate-400 mb-1">Tags (Pisahkan dengan koma)</label>
+                <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                  Tags (Pisahkan dengan koma)
+                </label>
                 <input
                   type="text"
                   value={modalForm.tagsStr}
-                  onChange={(e) => setModalForm({ ...modalForm, tagsStr: e.target.value })}
+                  onChange={(e) =>
+                    setModalForm({ ...modalForm, tagsStr: e.target.value })
+                  }
                   placeholder="React, Next.js, API"
                   className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400"
                 />
@@ -551,16 +795,17 @@ export default function ServicesManagementPage() {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-bold transition-all cursor-pointer shadow-lg shadow-cyan-400/20"
+                  disabled={savingCard}
+                  className="px-4 py-2 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-bold transition-all cursor-pointer shadow-lg shadow-cyan-400/20 disabled:opacity-50 flex items-center gap-1.5"
                 >
-                  Simpan Card
+                  {savingCard && <Loader2 size={13} className="animate-spin" />}
+                  <span>Simpan Card</span>
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
-
     </div>
   );
 }

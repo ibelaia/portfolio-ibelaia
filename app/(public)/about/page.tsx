@@ -1,14 +1,14 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { 
-  GraduationCap, 
-  Code2, 
-  FileDown, 
-  User, 
-  ArrowUpRight, 
-  Terminal, 
-  Cpu 
+import {
+  GraduationCap,
+  Code2,
+  FileDown,
+  User,
+  ArrowUpRight,
+  Terminal,
+  Cpu,
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 
@@ -35,65 +35,133 @@ interface AboutPublicData {
 const fallbackData: AboutPublicData = {
   badge_text: 'ABOUT ME',
   name: 'Ibe Laia',
-  bio_paragraph_1: "I'm an Informatics student focusing on modern full-stack web development and clean system architectures. I bridge clean UI engineering with robust backend workflows, turning practical concepts into scalable, accessible digital solutions.",
-  bio_paragraph_2: 'Passionate about modular engineering, system reliability, and continuous exploration in modern web ecosystems.',
+  bio_paragraph_1:
+    "I'm an Informatics student focusing on modern full-stack web development and clean system architectures. I bridge clean UI engineering with robust backend workflows, turning practical concepts into scalable, accessible digital solutions.",
+  bio_paragraph_2:
+    'Passionate about modular engineering, system reliability, and continuous exploration in modern web ecosystems.',
   cv_url: '/assets/resume.pdf',
   contact_btn_link: '/contact',
   edu_major: 'Informatics',
   edu_institution: 'UPN "Veteran" Jawa Timur',
-  edu_period: '2024 — Present',
+  edu_period: '2026 - Present',
   focus_items: ['Web Architecture', 'Scalable APIs', 'UI/UX Systems'],
   focus_tag: 'Production Ready',
   interests_tags: ['Full-Stack', 'System Design', 'Web3'],
   interests_tag: 'Exploration Track',
-  what_i_do_items: ['Full-Stack Systems', 'Interface Design', 'Workflow Automation'],
+  what_i_do_items: [
+    'Full-Stack Systems',
+    'Interface Design',
+    'Workflow Automation',
+  ],
   what_i_do_tag: 'Problem Solver',
 };
+
+function parseStringListSafely(raw: any, fallback: string[]): string[] {
+  if (Array.isArray(raw)) {
+    const cleaned = raw
+      .map((entry) => {
+        if (typeof entry === 'string') return entry.trim();
+        if (entry && typeof entry === 'object') {
+          return String(entry.label || entry.name || entry.title || '').trim();
+        }
+        return '';
+      })
+      .filter(Boolean);
+    return cleaned.length > 0 ? cleaned : fallback;
+  }
+
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return fallback;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parseStringListSafely(parsed, fallback);
+      }
+    } catch {
+      // Fallback ke pemisahan baris baru atau koma
+    }
+
+    const separator = trimmed.includes('\n') ? '\n' : ',';
+    const items = trimmed
+      .split(separator)
+      .map((s) => s.replace(/^[-•*]\s*/, '').trim())
+      .filter(Boolean);
+    return items.length > 0 ? items : fallback;
+  }
+
+  return fallback;
+}
 
 export default function AboutPage() {
   const { t } = useApp();
   const [data, setData] = useState<AboutPublicData>(fallbackData);
 
   useEffect(() => {
+    let isMounted = true;
+
     async function fetchNeonAbout() {
       try {
-        const response = await fetch('/api/about');
+        const response = await fetch('/api/about', { cache: 'no-store' });
         const json = await response.json();
+
+        if (!isMounted) return;
 
         if (json.success && json.data) {
           const res = json.data;
           setData({
             badge_text: res.badge_text || fallbackData.badge_text,
             name: res.name || res.title || fallbackData.name,
-            bio_paragraph_1: res.bio || res.bio_paragraph_1 || fallbackData.bio_paragraph_1,
-            bio_paragraph_2: res.bio_paragraph_2 || fallbackData.bio_paragraph_2,
-            cv_url: res.cv_url || res.avatar_url || fallbackData.cv_url,
-            contact_btn_link: res.contact_btn_link || fallbackData.contact_btn_link,
-            edu_major: res.edu_major || fallbackData.edu_major,
-            edu_institution: res.edu_institution || fallbackData.edu_institution,
-            edu_period: res.experience_years || res.edu_period || fallbackData.edu_period,
-            focus_items: Array.isArray(res.focus_items) && res.focus_items.length > 0 ? res.focus_items : fallbackData.focus_items,
+            bio_paragraph_1:
+              res.bio || res.bio_paragraph_1 || fallbackData.bio_paragraph_1,
+            bio_paragraph_2:
+              res.bio_paragraph_2 || fallbackData.bio_paragraph_2,
+            cv_url: res.cv_url || res.resume_url || fallbackData.cv_url,
+            contact_btn_link:
+              res.contact_btn_link || fallbackData.contact_btn_link,
+            edu_major:
+              res.edu_major || res.education_major || fallbackData.edu_major,
+            edu_institution:
+              res.edu_institution ||
+              res.education_institution ||
+              fallbackData.edu_institution,
+            edu_period:
+              res.edu_period || res.education_period || fallbackData.edu_period,
+            focus_items: parseStringListSafely(
+              res.focus_items,
+              fallbackData.focus_items
+            ),
             focus_tag: res.focus_tag || fallbackData.focus_tag,
-            interests_tags: Array.isArray(res.interests_tags) && res.interests_tags.length > 0 ? res.interests_tags : fallbackData.interests_tags,
+            interests_tags: parseStringListSafely(
+              res.interests_tags,
+              fallbackData.interests_tags
+            ),
             interests_tag: res.interests_tag || fallbackData.interests_tag,
-            what_i_do_items: Array.isArray(res.what_i_do_items) && res.what_i_do_items.length > 0 ? res.what_i_do_items : fallbackData.what_i_do_items,
+            what_i_do_items: parseStringListSafely(
+              res.what_i_do_items,
+              fallbackData.what_i_do_items
+            ),
             what_i_do_tag: res.what_i_do_tag || fallbackData.what_i_do_tag,
           });
         }
       } catch (err) {
-        console.error('Error loading public about data from Neon API:', err);
+        if (isMounted) {
+          console.error('Error loading public about data from Neon API:', err);
+        }
       }
     }
 
     fetchNeonAbout();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   return (
     <main className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
-
       {/* Bento Grid Simetris & Proporsional */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-4 lg:gap-5 items-stretch">
-
         {/* KARTU KIRI (7 Kolom): Profil & Tombol Aksi */}
         <div className="md:col-span-7 bg-[var(--card-bg)] border border-[var(--card-border)] rounded-3xl p-6 sm:p-7 backdrop-blur-xl shadow-xl flex flex-col justify-between transition-colors duration-250">
           <div>
@@ -117,7 +185,7 @@ export default function AboutPage() {
             )}
           </div>
 
-          {/* Tombol Aksi: Download CV + About Me */}
+          {/* Tombol Aksi: Download CV + Contact / About */}
           <div className="flex flex-wrap items-center gap-3 pt-4 border-t border-[var(--card-border)]">
             <a
               href={data.cv_url}
@@ -143,7 +211,6 @@ export default function AboutPage() {
 
         {/* KARTU KANAN (5 Kolom): 4 Mini Bento Box */}
         <div className="md:col-span-5 grid grid-cols-1 sm:grid-cols-2 gap-4 items-stretch">
-
           {/* Box 1: Education */}
           <div className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-2xl p-4 sm:p-5 backdrop-blur-xl flex flex-col justify-between transition-colors duration-250">
             <div>
@@ -153,8 +220,12 @@ export default function AboutPage() {
               <h2 className="text-xs font-mono uppercase tracking-wider text-[var(--text-muted)] font-bold mb-1">
                 {t('Education', 'Pendidikan')}
               </h2>
-              <div className="text-sm font-bold text-[var(--text-main)] leading-tight">{data.edu_major}</div>
-              <div className="text-[11px] text-[var(--text-muted)] mt-1">{data.edu_institution}</div>
+              <div className="text-sm font-bold text-[var(--text-main)] leading-tight">
+                {data.edu_major}
+              </div>
+              <div className="text-[11px] text-[var(--text-muted)] mt-1">
+                {data.edu_institution}
+              </div>
             </div>
             <span className="text-[10px] font-mono text-accent mt-3 block">
               {data.edu_period}
@@ -195,7 +266,10 @@ export default function AboutPage() {
               </h2>
               <div className="flex flex-wrap gap-1.5">
                 {data.interests_tags.map((tag, idx) => (
-                  <span key={idx} className="px-2 py-0.5 rounded bg-white/5 border border-[var(--card-border)] text-[10px] font-mono text-[var(--text-muted)]">
+                  <span
+                    key={idx}
+                    className="px-2 py-0.5 rounded bg-white/5 border border-[var(--card-border)] text-[10px] font-mono text-[var(--text-muted)]"
+                  >
                     {tag}
                   </span>
                 ))}
@@ -228,9 +302,7 @@ export default function AboutPage() {
               {data.what_i_do_tag}
             </span>
           </div>
-
         </div>
-
       </div>
     </main>
   );

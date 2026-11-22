@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -27,8 +27,8 @@ import {
   Briefcase,
   MapPin,
   AtSign,
-  Code2,
-  PanelBottom
+  PanelBottom,
+  Radio,
 } from 'lucide-react';
 
 interface GeneralData {
@@ -43,12 +43,19 @@ interface GeneralData {
   copyright_text: string;
 }
 
+const SETTINGS_SYNC_CHANNEL = 'portfolio-sync-settings';
+
 export default function GeneralSettingsAdminPage() {
   const router = useRouter();
+  const syncChannelRef = useRef<BroadcastChannel | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [livePulse, setLivePulse] = useState(false);
+  const [toast, setToast] = useState<{
+    message: string;
+    type: 'success' | 'error';
+  } | null>(null);
 
   const [form, setForm] = useState<GeneralData>({
     site_name: 'IbeLaia.Dev',
@@ -58,20 +65,60 @@ export default function GeneralSettingsAdminPage() {
     location: 'Surabaya, Indonesia',
     github_url: '',
     linkedin_url: '',
-    footer_description: 'Building digital solutions with code, creativity, and purpose.',
-    copyright_text: '2026 IbeLaia.Dev. All rights reserved.'
+    footer_description:
+      'Building digital solutions with code, creativity, and purpose.',
+    copyright_text: '2026 IbeLaia.Dev. All rights reserved.',
   });
 
-  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+  const showToast = (
+    message: string,
+    type: 'success' | 'error' = 'success'
+  ) => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3500);
   };
 
+  const broadcastSettingsUpdate = useCallback((updatedData: GeneralData) => {
+    const eventDetail = {
+      section: 'settings',
+      updatedAt: Date.now(),
+      data: updatedData,
+    };
+
+    try {
+      if (syncChannelRef.current) {
+        syncChannelRef.current.postMessage(eventDetail);
+      }
+    } catch {
+      // Abaikan jika BroadcastChannel tidak tersedia
+    }
+
+    try {
+      localStorage.setItem(SETTINGS_SYNC_CHANNEL, JSON.stringify(eventDetail));
+    } catch {
+      // Abaikan jika localStorage diblokir
+    }
+
+    window.dispatchEvent(
+      new CustomEvent(SETTINGS_SYNC_CHANNEL, { detail: eventDetail })
+    );
+    setLivePulse(true);
+    setTimeout(() => setLivePulse(false), 1800);
+  }, []);
+
   useEffect(() => {
+    let isMounted = true;
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      syncChannelRef.current = new BroadcastChannel(SETTINGS_SYNC_CHANNEL);
+    }
+
     async function loadGeneral() {
       try {
-        const response = await fetch('/api/settings');
+        const response = await fetch('/api/settings', { cache: 'no-store' });
         const json = await response.json();
+
+        if (!isMounted) return;
 
         if (json.success && json.data) {
           const data = json.data;
@@ -84,16 +131,29 @@ export default function GeneralSettingsAdminPage() {
             github_url: data.github_url || '',
             linkedin_url: data.linkedin_url || '',
             footer_description: data.footer_description || '',
-            copyright_text: data.copyright_text || ''
+            copyright_text: data.copyright_text || '',
           });
         }
       } catch (err) {
-        console.warn('Gagal memuat pengaturan general:', err);
+        if (isMounted) {
+          console.warn('Gagal memuat pengaturan general:', err);
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     }
+
     loadGeneral();
+
+    return () => {
+      isMounted = false;
+      if (syncChannelRef.current) {
+        syncChannelRef.current.close();
+        syncChannelRef.current = null;
+      }
+    };
   }, []);
 
   const handleSave = async (e: React.FormEvent) => {
@@ -104,19 +164,27 @@ export default function GeneralSettingsAdminPage() {
       const response = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form)
+        cache: 'no-store',
+        body: JSON.stringify(form),
       });
       const json = await response.json();
-      setSaving(false);
 
       if (response.ok && json.success) {
-        showToast('Pengaturan General & Footer berhasil disimpan ke Neon!');
+        broadcastSettingsUpdate(json.data ?? form);
+        router.refresh();
+        showToast(
+          'Pengaturan General & Footer berhasil disimpan ke Neon & disinkronkan secara real-time!'
+        );
       } else {
-        showToast(`Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`, 'error');
+        showToast(
+          `Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`,
+          'error'
+        );
       }
     } catch (err: any) {
+      showToast(`Error: ${err?.message || 'Terjadi kesalahan'}`, 'error');
+    } finally {
       setSaving(false);
-      showToast(`Error: ${err.message}`, 'error');
     }
   };
 
@@ -126,12 +194,19 @@ export default function GeneralSettingsAdminPage() {
 
   return (
     <div className="min-h-screen bg-[#07090e] text-[#94a3b8] flex flex-col lg:flex-row antialiased">
-
       {toast && (
-        <div className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl backdrop-blur-md border shadow-2xl flex items-center gap-2.5 text-xs font-medium animate-in fade-in duration-200 ${
-          toast.type === 'success' ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300' : 'bg-red-500/15 border-red-500/30 text-red-300'
-        }`}>
-          {toast.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+        <div
+          className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl backdrop-blur-md border shadow-2xl flex items-center gap-2.5 text-xs font-medium animate-in fade-in duration-200 ${
+            toast.type === 'success'
+              ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+              : 'bg-red-500/15 border-red-500/30 text-red-300'
+          }`}
+        >
+          {toast.type === 'success' ? (
+            <CheckCircle2 size={16} />
+          ) : (
+            <AlertCircle size={16} />
+          )}
           <span>{toast.message}</span>
         </div>
       )}
@@ -146,41 +221,69 @@ export default function GeneralSettingsAdminPage() {
 
           <div className="space-y-6 text-xs">
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Overview</p>
-              <Link href="/dashboard" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all">
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Overview
+              </p>
+              <Link
+                href="/dashboard"
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all"
+              >
                 <LayoutDashboard size={16} />
                 <span>Dashboard</span>
               </Link>
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Website Content</p>
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Website Content
+              </p>
               <div className="space-y-1">
-                <Link href="/dashboard/home" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/home"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Home size={15} />
                   <span>Home</span>
                 </Link>
-                <Link href="/dashboard/about" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/about"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <User size={15} />
                   <span>About</span>
                 </Link>
-                <Link href="/dashboard/services" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/services"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Wrench size={15} />
                   <span>Services</span>
                 </Link>
-                <Link href="/dashboard/projects" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/projects"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <FolderGit2 size={15} />
                   <span>Projects</span>
                 </Link>
-                <Link href="/dashboard/achievements" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/achievements"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Award size={15} />
                   <span>Achievements</span>
                 </Link>
-                <Link href="/dashboard/certificates" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/certificates"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <FileBadge size={15} />
                   <span>Certificates</span>
                 </Link>
-                <Link href="/dashboard/contact" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/contact"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Mail size={15} />
                   <span>Contact</span>
                 </Link>
@@ -188,25 +291,41 @@ export default function GeneralSettingsAdminPage() {
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Assets</p>
-              <Link href="/dashboard/media" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Assets
+              </p>
+              <Link
+                href="/dashboard/media"
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+              >
                 <FolderArchive size={15} />
                 <span>Media Library</span>
               </Link>
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Settings</p>
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Settings
+              </p>
               <div className="space-y-1">
-                <Link href="/dashboard/appearance" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/appearance"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Palette size={15} />
                   <span>Appearance</span>
                 </Link>
-                <Link href="/dashboard/seo" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/seo"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <SearchCheck size={15} />
                   <span>SEO Settings</span>
                 </Link>
-                <Link href="/dashboard/settings" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-semibold bg-[#581c87]/60 text-white border border-[#9333ea]/30 transition-all">
+                <Link
+                  href="/dashboard/settings"
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl font-semibold bg-[#581c87]/60 text-white border border-[#9333ea]/30 transition-all"
+                >
                   <Settings size={15} className="text-[#c084fc]" />
                   <span>General Settings</span>
                 </Link>
@@ -216,11 +335,19 @@ export default function GeneralSettingsAdminPage() {
         </div>
 
         <div className="pt-4 border-t border-white/5 space-y-3">
-          <Link href="/" target="_blank" className="w-full py-2 px-3 rounded-xl border border-white/10 hover:border-white/20 text-slate-300 hover:text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors">
+          <Link
+            href="/"
+            target="_blank"
+            className="w-full py-2 px-3 rounded-xl border border-white/10 hover:border-white/20 text-slate-300 hover:text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
+          >
             <span>Preview Website</span>
             <ExternalLink size={13} />
           </Link>
-          <button onClick={handleLogout} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors cursor-pointer">
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors cursor-pointer"
+          >
             <LogOut size={15} />
             <span>Logout</span>
           </button>
@@ -229,13 +356,33 @@ export default function GeneralSettingsAdminPage() {
 
       {/* MAIN CONTENT */}
       <main className="flex-1 px-4 sm:px-8 py-6 max-w-5xl w-full mx-auto space-y-6">
-        
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">General & Footer Settings</h1>
-            <p className="text-xs text-slate-400 mt-1">Kelola identitas dasar website, status kerja, tautan sosial, serta konten bagian Footer publik via Neon.</p>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                General & Footer Settings
+              </h1>
+              <span
+                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono border transition-colors ${
+                  livePulse
+                    ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300'
+                    : 'bg-white/5 border-white/10 text-slate-400'
+                }`}
+              >
+                <Radio size={11} className="text-emerald-400" />
+                <span>LIVE SYNC</span>
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">
+              Kelola identitas dasar website, status kerja, tautan sosial, serta
+              konten bagian Footer publik via Neon secara dinamis dan real-time.
+            </p>
           </div>
-          <Link href="/" target="_blank" className="px-3.5 py-2 rounded-xl bg-[#0b0e17] border border-white/10 hover:border-white/20 text-xs font-mono text-slate-300 hover:text-white flex items-center gap-2 transition-colors self-start sm:self-auto">
+          <Link
+            href="/"
+            target="_blank"
+            className="px-3.5 py-2 rounded-xl bg-[#0b0e17] border border-white/10 hover:border-white/20 text-xs font-mono text-slate-300 hover:text-white flex items-center gap-2 transition-colors self-start sm:self-auto"
+          >
             <Eye size={13} className="text-cyan-400" />
             <span>Lihat Website Publik</span>
           </Link>
@@ -248,31 +395,40 @@ export default function GeneralSettingsAdminPage() {
           </div>
         ) : (
           <form onSubmit={handleSave} className="space-y-6">
-            
             {/* Kartu 1: Identitas Situs */}
             <div className="bg-[#0b0e17] border border-white/5 rounded-2xl p-6 space-y-4 shadow-xl">
               <div className="flex items-center gap-2 pb-3 border-b border-white/5">
                 <Globe size={16} className="text-cyan-400" />
-                <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">1. Identitas & Slogan Situs</span>
+                <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">
+                  1. Identitas & Slogan Situs
+                </span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                 <div className="space-y-1.5">
-                  <label className="block text-[11px] font-mono text-slate-400">Nama Situs (Site Name & Logo)</label>
+                  <label className="block text-[11px] font-mono text-slate-400">
+                    Nama Situs (Site Name & Logo)
+                  </label>
                   <input
                     type="text"
                     value={form.site_name}
-                    onChange={(e) => setForm({ ...form, site_name: e.target.value })}
+                    onChange={(e) =>
+                      setForm({ ...form, site_name: e.target.value })
+                    }
                     className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400 outline-none"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="block text-[11px] font-mono text-slate-400">Slogan / Tagline Profesional</label>
+                  <label className="block text-[11px] font-mono text-slate-400">
+                    Slogan / Tagline Profesional
+                  </label>
                   <input
                     type="text"
                     value={form.site_tagline}
-                    onChange={(e) => setForm({ ...form, site_tagline: e.target.value })}
+                    onChange={(e) =>
+                      setForm({ ...form, site_tagline: e.target.value })
+                    }
                     className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400 outline-none"
                   />
                 </div>
@@ -283,16 +439,22 @@ export default function GeneralSettingsAdminPage() {
             <div className="bg-[#0b0e17] border border-white/5 rounded-2xl p-6 space-y-4 shadow-xl">
               <div className="flex items-center gap-2 pb-3 border-b border-white/5">
                 <Briefcase size={16} className="text-purple-400" />
-                <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">2. Status Ketersediaan & Lokasi</span>
+                <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">
+                  2. Status Ketersediaan & Lokasi
+                </span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
                 <div className="space-y-1.5">
-                  <label className="block text-[11px] font-mono text-slate-400">Status Kerja (Availability)</label>
+                  <label className="block text-[11px] font-mono text-slate-400">
+                    Status Kerja (Availability)
+                  </label>
                   <input
                     type="text"
                     value={form.availability_status}
-                    onChange={(e) => setForm({ ...form, availability_status: e.target.value })}
+                    onChange={(e) =>
+                      setForm({ ...form, availability_status: e.target.value })
+                    }
                     className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400 outline-none"
                   />
                 </div>
@@ -305,7 +467,9 @@ export default function GeneralSettingsAdminPage() {
                   <input
                     type="email"
                     value={form.contact_email}
-                    onChange={(e) => setForm({ ...form, contact_email: e.target.value })}
+                    onChange={(e) =>
+                      setForm({ ...form, contact_email: e.target.value })
+                    }
                     className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400 outline-none"
                   />
                 </div>
@@ -318,7 +482,9 @@ export default function GeneralSettingsAdminPage() {
                   <input
                     type="text"
                     value={form.location}
-                    onChange={(e) => setForm({ ...form, location: e.target.value })}
+                    onChange={(e) =>
+                      setForm({ ...form, location: e.target.value })
+                    }
                     className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400 outline-none"
                   />
                 </div>
@@ -329,26 +495,36 @@ export default function GeneralSettingsAdminPage() {
             <div className="bg-[#0b0e17] border border-white/5 rounded-2xl p-6 space-y-4 shadow-xl">
               <div className="flex items-center gap-2 pb-3 border-b border-white/5">
                 <PanelBottom size={16} className="text-emerald-400" />
-                <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">3. Konten Footer Website</span>
+                <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">
+                  3. Konten Footer Website
+                </span>
               </div>
 
               <div className="space-y-4 text-xs">
                 <div className="space-y-1.5">
-                  <label className="block text-[11px] font-mono text-slate-400">Deskripsi Footer (Di bawah Logo)</label>
+                  <label className="block text-[11px] font-mono text-slate-400">
+                    Deskripsi Footer (Di bawah Logo)
+                  </label>
                   <textarea
                     rows={2}
                     value={form.footer_description}
-                    onChange={(e) => setForm({ ...form, footer_description: e.target.value })}
+                    onChange={(e) =>
+                      setForm({ ...form, footer_description: e.target.value })
+                    }
                     className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400 outline-none resize-none"
                   />
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="block text-[11px] font-mono text-slate-400">Teks Hak Cipta (Copyright Footer)</label>
+                  <label className="block text-[11px] font-mono text-slate-400">
+                    Teks Hak Cipta (Copyright Footer)
+                  </label>
                   <input
                     type="text"
                     value={form.copyright_text}
-                    onChange={(e) => setForm({ ...form, copyright_text: e.target.value })}
+                    onChange={(e) =>
+                      setForm({ ...form, copyright_text: e.target.value })
+                    }
                     className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400 outline-none"
                   />
                 </div>
@@ -363,10 +539,11 @@ export default function GeneralSettingsAdminPage() {
               >
                 {saving && <Loader2 size={14} className="animate-spin" />}
                 <Save size={14} />
-                <span>{saving ? 'Menyimpan...' : 'Simpan General & Footer'}</span>
+                <span>
+                  {saving ? 'Menyimpan...' : 'Simpan General & Footer'}
+                </span>
               </button>
             </div>
-
           </form>
         )}
       </main>

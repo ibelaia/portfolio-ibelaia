@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
@@ -32,7 +32,8 @@ import {
   X,
   Save,
   Upload,
-  Star
+  Star,
+  Radio,
 } from 'lucide-react';
 
 interface SubProjectItem {
@@ -61,38 +62,84 @@ interface Project {
   collection_items?: SubProjectItem[];
 }
 
+const PROJECTS_LIST_SYNC_CHANNEL = 'portfolio-sync-projects';
+
 export default function ProjectsListPage() {
   const router = useRouter();
   const { signOut } = useAuth();
+  const syncChannelRef = useRef<BroadcastChannel | null>(null);
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+  const [livePulse, setLivePulse] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'all' | 'single' | 'multi'>('all');
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [toast, setToast] = useState<{
+    message: string;
+    type: 'success' | 'error';
+  } | null>(null);
 
   const [isMultiModalOpen, setIsMultiModalOpen] = useState(false);
-  const [selectedMultiProject, setSelectedMultiProject] = useState<Project | null>(null);
+  const [selectedMultiProject, setSelectedMultiProject] =
+    useState<Project | null>(null);
   const [subItems, setSubItems] = useState<SubProjectItem[]>([]);
   const [savingSub, setSavingSub] = useState(false);
 
   const activeSubInputRef = useRef<HTMLInputElement>(null);
   const [activeSubId, setActiveSubId] = useState<string | null>(null);
 
-  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+  const showToast = (
+    message: string,
+    type: 'success' | 'error' = 'success'
+  ) => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3500);
   };
 
-  useEffect(() => {
-    fetchProjects();
-  }, []);
+  const broadcastProjectsUpdate = useCallback(
+    (action: string, detailData?: any) => {
+      const eventDetail = {
+        section: 'projects',
+        action,
+        updatedAt: Date.now(),
+        data: detailData,
+      };
 
-  const fetchProjects = async () => {
-    setLoading(true);
+      try {
+        if (syncChannelRef.current) {
+          syncChannelRef.current.postMessage(eventDetail);
+        }
+      } catch {
+        // Abaikan jika BroadcastChannel tidak tersedia
+      }
+
+      try {
+        localStorage.setItem(
+          PROJECTS_LIST_SYNC_CHANNEL,
+          JSON.stringify(eventDetail)
+        );
+      } catch {
+        // Abaikan jika localStorage diblokir
+      }
+
+      window.dispatchEvent(
+        new CustomEvent(PROJECTS_LIST_SYNC_CHANNEL, { detail: eventDetail })
+      );
+      setLivePulse(true);
+      setTimeout(() => setLivePulse(false), 1800);
+    },
+    []
+  );
+
+  const fetchProjects = useCallback(async (isMountedRef?: { current: boolean }) => {
+    if (!isMountedRef || isMountedRef.current) {
+      setLoading(true);
+    }
     try {
-      const response = await fetch('/api/projects');
+      const response = await fetch('/api/projects', { cache: 'no-store' });
       const json = await response.json();
+
+      if (isMountedRef && !isMountedRef.current) return;
 
       if (json.success && Array.isArray(json.data)) {
         const sortedData = [...json.data].sort((a, b) => {
@@ -102,36 +149,87 @@ export default function ProjectsListPage() {
         setProjects(sortedData);
       }
     } catch (err) {
-      console.warn('Gagal memuat daftar proyek dari Neon:', err);
+      if (!isMountedRef || isMountedRef.current) {
+        console.warn('Gagal memuat daftar proyek dari Neon:', err);
+      }
     } finally {
-      setLoading(false);
+      if (!isMountedRef || isMountedRef.current) {
+        setLoading(false);
+      }
     }
-  };
+  }, []);
 
-  const handleToggleFeatured = async (id: string, currentStatus: boolean, title: string) => {
+  useEffect(() => {
+    const isMountedRef = { current: true };
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      syncChannelRef.current = new BroadcastChannel(PROJECTS_LIST_SYNC_CHANNEL);
+      syncChannelRef.current.onmessage = () => {
+        if (isMountedRef.current) {
+          fetchProjects(isMountedRef);
+        }
+      };
+    }
+
+    const handleStorageSync = (e: StorageEvent) => {
+      if (e.key === PROJECTS_LIST_SYNC_CHANNEL && isMountedRef.current) {
+        fetchProjects(isMountedRef);
+      }
+    };
+
+    window.addEventListener('storage', handleStorageSync);
+    fetchProjects(isMountedRef);
+
+    return () => {
+      isMountedRef.current = false;
+      window.removeEventListener('storage', handleStorageSync);
+      if (syncChannelRef.current) {
+        syncChannelRef.current.close();
+        syncChannelRef.current = null;
+      }
+    };
+  }, [fetchProjects]);
+
+  const handleToggleFeatured = async (
+    id: string,
+    currentStatus: boolean,
+    title: string
+  ) => {
     const newStatus = !currentStatus;
     try {
       const response = await fetch('/api/projects', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, is_featured: newStatus })
+        cache: 'no-store',
+        body: JSON.stringify({ id, is_featured: newStatus }),
       });
       const json = await response.json();
 
       if (response.ok && json.success) {
-        setProjects(prev => {
-          const updated = prev.map(p => p.id === id ? { ...p, is_featured: newStatus } : p);
+        setProjects((prev) => {
+          const updated = prev.map((p) =>
+            p.id === id ? { ...p, is_featured: newStatus } : p
+          );
           return updated.sort((a, b) => {
             if (a.is_featured === b.is_featured) return 0;
             return a.is_featured ? -1 : 1;
           });
         });
-        showToast(newStatus ? `Proyek "${title}" disematkan ke halaman utama!` : `Proyek "${title}" dilepas dari sematan.`);
+        broadcastProjectsUpdate('featured', { id, is_featured: newStatus });
+        router.refresh();
+        showToast(
+          newStatus
+            ? `Proyek "${title}" disematkan ke halaman utama & disinkronkan secara real-time!`
+            : `Proyek "${title}" dilepas dari sematan & disinkronkan secara real-time.`
+        );
       } else {
-        showToast(`Gagal memperbarui status: ${json.error || 'Terjadi kesalahan'}`, 'error');
+        showToast(
+          `Gagal memperbarui status: ${json.error || 'Terjadi kesalahan'}`,
+          'error'
+        );
       }
     } catch (err: any) {
-      showToast(`Error: ${err.message}`, 'error');
+      showToast(`Error: ${err?.message || 'Terjadi kesalahan'}`, 'error');
     }
   };
 
@@ -140,18 +238,26 @@ export default function ProjectsListPage() {
 
     try {
       const response = await fetch(`/api/projects/${id}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        cache: 'no-store',
       });
       const json = await response.json();
 
       if (response.ok && json.success) {
-        setProjects(prev => prev.filter(p => p.id !== id));
-        showToast(`Proyek "${title}" berhasil dihapus.`);
+        setProjects((prev) => prev.filter((p) => p.id !== id));
+        broadcastProjectsUpdate('delete', { id });
+        router.refresh();
+        showToast(
+          `Proyek "${title}" berhasil dihapus secara real-time.`
+        );
       } else {
-        showToast(`Gagal menghapus: ${json.error || 'Terjadi kesalahan'}`, 'error');
+        showToast(
+          `Gagal menghapus: ${json.error || 'Terjadi kesalahan'}`,
+          'error'
+        );
       }
     } catch (err: any) {
-      showToast(`Error: ${err.message}`, 'error');
+      showToast(`Error: ${err?.message || 'Terjadi kesalahan'}`, 'error');
     }
   };
 
@@ -167,19 +273,26 @@ export default function ProjectsListPage() {
       title: `Sub-Proyek Baru ${subItems.length + 1}`,
       subtitle: 'UI/UX Exploration',
       desc: 'Deskripsi singkat item eksplorasi desain ini...',
-      image: 'https://images.unsplash.com/photo-1526367790999-0150786686a2?auto=format&fit=crop&w=800&q=80',
+      image:
+        'https://images.unsplash.com/photo-1526367790999-0150786686a2?auto=format&fit=crop&w=800&q=80',
       link: '',
-      tags: ['Figma', 'UI/UX']
+      tags: ['Figma', 'UI/UX'],
     };
-    setSubItems([...subItems, newItem]);
+    setSubItems((prev) => [...prev, newItem]);
   };
 
-  const handleUpdateSubItem = (id: string, field: keyof SubProjectItem, val: any) => {
-    setSubItems(subItems.map(item => item.id === id ? { ...item, [field]: val } : item));
+  const handleUpdateSubItem = (
+    id: string,
+    field: keyof SubProjectItem,
+    val: any
+  ) => {
+    setSubItems((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, [field]: val } : item))
+    );
   };
 
   const handleRemoveSubItem = (id: string) => {
-    setSubItems(subItems.filter(item => item.id !== id));
+    setSubItems((prev) => prev.filter((item) => item.id !== id));
   };
 
   const handleSubFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -188,6 +301,7 @@ export default function ProjectsListPage() {
 
     if (file.size > 4 * 1024 * 1024) {
       showToast('Ukuran file maksimal 4MB', 'error');
+      e.target.value = '';
       return;
     }
 
@@ -199,6 +313,7 @@ export default function ProjectsListPage() {
       }
     };
     reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   const handleSaveSubItems = async () => {
@@ -209,35 +324,57 @@ export default function ProjectsListPage() {
       const response = await fetch('/api/projects', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: selectedMultiProject.id, collection_items: subItems })
+        cache: 'no-store',
+        body: JSON.stringify({
+          id: selectedMultiProject.id,
+          collection_items: subItems,
+        }),
       });
       const json = await response.json();
-      setSavingSub(false);
 
       if (response.ok && json.success) {
-        showToast('Item koleksi multi-proyek berhasil diperbarui ke Neon!');
+        broadcastProjectsUpdate('sub_items', {
+          id: selectedMultiProject.id,
+          collection_items: subItems,
+        });
+        router.refresh();
+        showToast(
+          'Item koleksi multi-proyek berhasil diperbarui ke Neon & disinkronkan secara real-time!'
+        );
         setIsMultiModalOpen(false);
-        fetchProjects();
+        await fetchProjects();
       } else {
-        showToast(`Gagal menyimpan item koleksi: ${json.error || 'Terjadi kesalahan'}`, 'error');
+        showToast(
+          `Gagal menyimpan item koleksi: ${json.error || 'Terjadi kesalahan'}`,
+          'error'
+        );
       }
     } catch (err: any) {
+      showToast(`Error: ${err?.message || 'Terjadi kesalahan'}`, 'error');
+    } finally {
       setSavingSub(false);
-      showToast(`Error: ${err.message}`, 'error');
     }
   };
 
   const handleLogout = async () => {
-    await signOut(() => router.push('/admin/login'));
+    try {
+      if (typeof signOut === 'function') {
+        await signOut();
+      }
+    } catch {
+      // Lanjutkan navigasi meski signOut gagal
+    } finally {
+      router.replace('/login');
+    }
   };
 
-  const filteredProjects = projects.filter(p => {
-    const matchesTab = 
-      activeTab === 'all' || 
-      (activeTab === 'single' && (p.type === 'single' || !p.type)) || 
+  const filteredProjects = projects.filter((p) => {
+    const matchesTab =
+      activeTab === 'all' ||
+      (activeTab === 'single' && (p.type === 'single' || !p.type)) ||
       (activeTab === 'multi' && p.type === 'multi');
 
-    const matchesSearch = 
+    const matchesSearch =
       p.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.category.toLowerCase().includes(searchQuery.toLowerCase());
 
@@ -246,14 +383,27 @@ export default function ProjectsListPage() {
 
   return (
     <div className="min-h-screen bg-[#07090e] text-[#94a3b8] flex flex-col lg:flex-row antialiased selection:bg-cyan-500/30 selection:text-cyan-200">
-      
-      <input type="file" ref={activeSubInputRef} onChange={handleSubFileUpload} accept="image/*" className="hidden" />
+      <input
+        type="file"
+        ref={activeSubInputRef}
+        onChange={handleSubFileUpload}
+        accept="image/*"
+        className="hidden"
+      />
 
       {toast && (
-        <div className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl backdrop-blur-md border shadow-2xl flex items-center gap-2.5 text-xs font-medium animate-in fade-in duration-200 ${
-          toast.type === 'success' ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300' : 'bg-red-500/15 border-red-500/30 text-red-300'
-        }`}>
-          {toast.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+        <div
+          className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl backdrop-blur-md border shadow-2xl flex items-center gap-2.5 text-xs font-medium animate-in fade-in duration-200 ${
+            toast.type === 'success'
+              ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+              : 'bg-red-500/15 border-red-500/30 text-red-300'
+          }`}
+        >
+          {toast.type === 'success' ? (
+            <CheckCircle2 size={16} />
+          ) : (
+            <AlertCircle size={16} />
+          )}
           <span>{toast.message}</span>
         </div>
       )}
@@ -268,41 +418,69 @@ export default function ProjectsListPage() {
 
           <div className="space-y-6 text-xs">
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Overview</p>
-              <Link href="/dashboard" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all">
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Overview
+              </p>
+              <Link
+                href="/dashboard"
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all"
+              >
                 <LayoutDashboard size={16} />
                 <span>Dashboard</span>
               </Link>
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Website Content</p>
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Website Content
+              </p>
               <div className="space-y-1">
-                <Link href="/dashboard/home" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/home"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Home size={15} />
                   <span>Home</span>
                 </Link>
-                <Link href="/dashboard/about" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/about"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <User size={15} />
                   <span>About</span>
                 </Link>
-                <Link href="/dashboard/services" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/services"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Wrench size={15} />
                   <span>Services</span>
                 </Link>
-                <Link href="/dashboard/projects/list" className="flex items-center gap-3 px-3 py-2.5 rounded-xl font-semibold bg-[#581c87]/60 text-white border border-[#9333ea]/30 transition-all">
+                <Link
+                  href="/dashboard/projects/list"
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl font-semibold bg-[#581c87]/60 text-white border border-[#9333ea]/30 transition-all"
+                >
                   <FolderGit2 size={15} className="text-[#c084fc]" />
                   <span>Projects</span>
                 </Link>
-                <Link href="/dashboard/achievements" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/achievements"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Award size={15} />
                   <span>Achievements</span>
                 </Link>
-                <Link href="/dashboard/certificates" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/certificates"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <FileBadge size={15} />
                   <span>Certificates</span>
                 </Link>
-                <Link href="/dashboard/contact" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/contact"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Mail size={15} />
                   <span>Contact</span>
                 </Link>
@@ -310,25 +488,41 @@ export default function ProjectsListPage() {
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Assets</p>
-              <Link href="/dashboard/media" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Assets
+              </p>
+              <Link
+                href="/dashboard/media"
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+              >
                 <FolderArchive size={15} />
                 <span>Media Library</span>
               </Link>
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Settings</p>
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Settings
+              </p>
               <div className="space-y-1">
-                <Link href="/dashboard/appearance" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/appearance"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Palette size={15} />
                   <span>Appearance</span>
                 </Link>
-                <Link href="/dashboard/seo" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/seo"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <SearchCheck size={15} />
                   <span>SEO Settings</span>
                 </Link>
-                <Link href="/dashboard/settings" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/settings"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Settings size={15} />
                   <span>General Settings</span>
                 </Link>
@@ -338,11 +532,19 @@ export default function ProjectsListPage() {
         </div>
 
         <div className="pt-4 border-t border-white/5 space-y-3">
-          <Link href="/projects" target="_blank" className="w-full py-2 px-3 rounded-xl border border-white/10 hover:border-white/20 text-slate-300 hover:text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors">
+          <Link
+            href="/projects"
+            target="_blank"
+            className="w-full py-2 px-3 rounded-xl border border-white/10 hover:border-white/20 text-slate-300 hover:text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
+          >
             <span>Preview Projects</span>
             <ExternalLink size={13} />
           </Link>
-          <button onClick={handleLogout} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors cursor-pointer">
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors cursor-pointer"
+          >
             <LogOut size={15} />
             <span>Logout</span>
           </button>
@@ -351,15 +553,34 @@ export default function ProjectsListPage() {
 
       {/* MAIN CONTENT */}
       <main className="flex-1 px-4 sm:px-8 py-6 max-w-6xl w-full mx-auto space-y-6 overflow-x-hidden">
-        
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
           <div className="space-y-1">
-            <Link href="/dashboard/projects" className="inline-flex items-center gap-1.5 text-xs font-mono text-cyan-400 hover:underline mb-1">
+            <Link
+              href="/dashboard/projects"
+              className="inline-flex items-center gap-1.5 text-xs font-mono text-cyan-400 hover:underline mb-1"
+            >
               <ArrowLeft size={13} />
               <span>Kembali ke Projects Hub</span>
             </Link>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Kelola & Daftar Proyek Terpublikasi</h1>
-            <p className="text-xs text-slate-400">Pusat daftar seluruh studi kasus dan koleksi portofolio yang aktif via Neon.</p>
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                Kelola & Daftar Proyek Terpublikasi
+              </h1>
+              <span
+                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono border transition-colors ${
+                  livePulse
+                    ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300'
+                    : 'bg-white/5 border-white/10 text-slate-400'
+                }`}
+              >
+                <Radio size={11} className="text-emerald-400" />
+                <span>LIVE SYNC</span>
+              </span>
+            </div>
+            <p className="text-xs text-slate-400">
+              Pusat daftar seluruh studi kasus dan koleksi portofolio yang aktif
+              via Neon secara dinamis dan real-time.
+            </p>
           </div>
 
           <div className="relative w-full sm:w-72">
@@ -377,6 +598,7 @@ export default function ProjectsListPage() {
         {/* Filter Tabs */}
         <div className="flex flex-wrap items-center gap-2 pb-2">
           <button
+            type="button"
             onClick={() => setActiveTab('all')}
             className={`px-4 py-2 rounded-xl text-xs font-mono font-semibold transition-all cursor-pointer ${
               activeTab === 'all'
@@ -387,6 +609,7 @@ export default function ProjectsListPage() {
             Semua ({projects.length})
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab('single')}
             className={`px-4 py-2 rounded-xl text-xs font-mono font-semibold transition-all cursor-pointer ${
               activeTab === 'single'
@@ -394,9 +617,11 @@ export default function ProjectsListPage() {
                 : 'bg-[#0b0e17] border border-white/10 text-slate-400 hover:text-white'
             }`}
           >
-            Single Case Study ({projects.filter(p => p.type === 'single' || !p.type).length})
+            Single Case Study (
+            {projects.filter((p) => p.type === 'single' || !p.type).length})
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab('multi')}
             className={`px-4 py-2 rounded-xl text-xs font-mono font-semibold transition-all cursor-pointer ${
               activeTab === 'multi'
@@ -404,7 +629,8 @@ export default function ProjectsListPage() {
                 : 'bg-[#0b0e17] border border-white/10 text-slate-400 hover:text-white'
             }`}
           >
-            Multi-Project Collection ({projects.filter(p => p.type === 'multi').length})
+            Multi-Project Collection (
+            {projects.filter((p) => p.type === 'multi').length})
           </button>
         </div>
 
@@ -417,24 +643,39 @@ export default function ProjectsListPage() {
         ) : filteredProjects.length === 0 ? (
           <div className="py-20 text-center bg-[#0b0e17] border border-white/5 rounded-3xl p-8 space-y-3">
             <FolderGit2 size={36} className="mx-auto text-slate-600" />
-            <p className="text-sm font-semibold text-white">Tidak ada proyek ditemukan pada kategori ini</p>
+            <p className="text-sm font-semibold text-white">
+              Tidak ada proyek ditemukan pada kategori ini
+            </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {filteredProjects.map((p) => {
               const isMulti = p.type === 'multi';
-              const targetPublicUrl = isMulti ? `/projects/collection/${p.slug}` : `/projects/${p.slug}`;
-              const subItemsCount = Array.isArray(p.collection_items) ? p.collection_items.length : 0;
+              const targetPublicUrl = isMulti
+                ? `/projects/collection/${p.slug}`
+                : `/projects/${p.slug}`;
+              const subItemsCount = Array.isArray(p.collection_items)
+                ? p.collection_items.length
+                : 0;
               const isStarred = Boolean(p.is_featured);
 
               return (
-                <div key={p.id} className={`bg-[#0b0e17] border rounded-2xl overflow-hidden flex flex-col justify-between transition-all group shadow-xl ${
-                  isStarred ? 'border-amber-400/50 shadow-amber-500/10' : 'border-white/5 hover:border-white/15'
-                }`}>
+                <div
+                  key={p.id}
+                  className={`bg-[#0b0e17] border rounded-2xl overflow-hidden flex flex-col justify-between transition-all group shadow-xl ${
+                    isStarred
+                      ? 'border-amber-400/50 shadow-amber-500/10'
+                      : 'border-white/5 hover:border-white/15'
+                  }`}
+                >
                   <div>
                     <div className="relative w-full h-36 bg-slate-950 overflow-hidden">
-                      <img src={p.thumbnail || '/placeholder.svg'} alt={p.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                      
+                      <img
+                        src={p.thumbnail || '/placeholder.svg'}
+                        alt={p.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+
                       <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
                         <span className="px-2 py-0.5 rounded-md text-[10px] font-mono bg-black/80 backdrop-blur-md border border-white/10 text-cyan-400 font-bold">
                           {p.category}
@@ -449,17 +690,28 @@ export default function ProjectsListPage() {
                       <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5">
                         <button
                           type="button"
-                          onClick={() => handleToggleFeatured(p.id, isStarred, p.title)}
+                          onClick={() =>
+                            handleToggleFeatured(p.id, isStarred, p.title)
+                          }
                           className={`p-1.5 rounded-xl backdrop-blur-md border transition-all cursor-pointer shadow-lg flex items-center gap-1 text-[10px] font-mono font-bold ${
                             isStarred
                               ? 'bg-amber-500/90 border-amber-400 text-slate-950 shadow-amber-500/30'
                               : 'bg-black/60 border-white/10 text-slate-400 hover:text-amber-300'
                           }`}
-                          title={isStarred ? 'Proyek Unggulan (Tampil di Web Personal)' : 'Jadikan Proyek Unggulan'}
+                          title={
+                            isStarred
+                              ? 'Proyek Unggulan (Tampil di Web Personal)'
+                              : 'Jadikan Proyek Unggulan'
+                          }
                         >
-                          <Star size={13} className={isStarred ? 'fill-slate-950 text-slate-950' : ''} />
+                          <Star
+                            size={13}
+                            className={
+                              isStarred ? 'fill-slate-950 text-slate-950' : ''
+                            }
+                          />
                         </button>
-                        
+
                         <span className="px-2 py-0.5 rounded text-[9px] font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                           {p.status || 'PUBLISHED'}
                         </span>
@@ -467,13 +719,22 @@ export default function ProjectsListPage() {
                     </div>
 
                     <div className="p-4 space-y-2">
-                      <h4 className="text-xs font-bold text-white group-hover:text-cyan-400 transition-colors line-clamp-1">{p.title}</h4>
-                      <p className="text-[11px] text-slate-400 line-clamp-2 leading-relaxed">{p.overview}</p>
+                      <h4 className="text-xs font-bold text-white group-hover:text-cyan-400 transition-colors line-clamp-1">
+                        {p.title}
+                      </h4>
+                      <p className="text-[11px] text-slate-400 line-clamp-2 leading-relaxed">
+                        {p.overview}
+                      </p>
                     </div>
                   </div>
 
                   <div className="px-4 py-3 border-t border-white/5 flex items-center justify-between bg-[#07090e]/50 text-xs">
-                    <Link href={targetPublicUrl} target="_blank" className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-cyan-400 transition-colors" title="Lihat Halaman Publik">
+                    <Link
+                      href={targetPublicUrl}
+                      target="_blank"
+                      className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-cyan-400 transition-colors"
+                      title="Lihat Halaman Publik"
+                    >
                       <Eye size={13} />
                     </Link>
                     <div className="flex items-center gap-2">
@@ -521,20 +782,23 @@ export default function ProjectsListPage() {
             })}
           </div>
         )}
-
       </main>
 
       {/* MODAL KELOLA ITEM MULTI-PROJECT */}
       {isMultiModalOpen && selectedMultiProject && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-3 sm:p-6 overflow-y-auto">
           <div className="bg-[#0b0e17] border border-purple-500/30 rounded-3xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl animate-in fade-in duration-200">
-            
             <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-[#0b0e17] shrink-0">
               <div className="flex items-center gap-2.5">
                 <Layers size={18} className="text-purple-400" />
                 <div>
-                  <h3 className="text-sm font-bold text-white">Kelola Sub-Item Koleksi: {selectedMultiProject.title}</h3>
-                  <p className="text-[10px] font-mono text-slate-400">Tambah, ubah, atau unggah gambar mockup untuk setiap item di koleksi ini.</p>
+                  <h3 className="text-sm font-bold text-white">
+                    Kelola Sub-Item Koleksi: {selectedMultiProject.title}
+                  </h3>
+                  <p className="text-[10px] font-mono text-slate-400">
+                    Tambah, ubah, atau unggah gambar mockup untuk setiap item di
+                    koleksi ini.
+                  </p>
                 </div>
               </div>
               <button
@@ -548,7 +812,9 @@ export default function ProjectsListPage() {
 
             <div className="p-6 overflow-y-auto space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-mono font-bold text-purple-300 uppercase tracking-wider">Daftar Sub-Proyek ({subItems.length})</span>
+                <span className="text-xs font-mono font-bold text-purple-300 uppercase tracking-wider">
+                  Daftar Sub-Proyek ({subItems.length})
+                </span>
                 <button
                   type="button"
                   onClick={handleAddSubItem}
@@ -561,14 +827,20 @@ export default function ProjectsListPage() {
 
               {subItems.length === 0 ? (
                 <div className="py-12 text-center bg-[#07090e] border border-dashed border-white/10 rounded-2xl p-6 text-slate-500 font-mono text-xs">
-                  Belum ada sub-proyek dalam koleksi ini. Klik tombol di atas untuk menambahkannya.
+                  Belum ada sub-proyek dalam koleksi ini. Klik tombol di atas
+                  untuk menambahkannya.
                 </div>
               ) : (
                 <div className="space-y-4">
                   {subItems.map((item, idx) => (
-                    <div key={item.id} className="p-4 rounded-xl bg-[#07090e] border border-white/10 space-y-3 relative">
+                    <div
+                      key={item.id}
+                      className="p-4 rounded-xl bg-[#07090e] border border-white/10 space-y-3 relative"
+                    >
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-mono font-bold text-white">Sub-Item #{idx + 1}</span>
+                        <span className="text-xs font-mono font-bold text-white">
+                          Sub-Item #{idx + 1}
+                        </span>
                         <button
                           type="button"
                           onClick={() => handleRemoveSubItem(item.id)}
@@ -581,36 +853,64 @@ export default function ProjectsListPage() {
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-slate-500 text-[10px] font-mono mb-1">Judul Sub-Proyek</label>
+                          <label className="block text-slate-500 text-[10px] font-mono mb-1">
+                            Judul Sub-Proyek
+                          </label>
                           <input
                             type="text"
                             value={item.title}
-                            onChange={(e) => handleUpdateSubItem(item.id, 'title', e.target.value)}
+                            onChange={(e) =>
+                              handleUpdateSubItem(
+                                item.id,
+                                'title',
+                                e.target.value
+                              )
+                            }
                             className="w-full px-3 py-1.5 rounded-lg bg-[#0b0e17] border border-white/10 text-white text-xs"
                           />
                         </div>
                         <div>
-                          <label className="block text-slate-500 text-[10px] font-mono mb-1">Sub-judul / Badge</label>
+                          <label className="block text-slate-500 text-[10px] font-mono mb-1">
+                            Sub-judul / Badge
+                          </label>
                           <input
                             type="text"
                             value={item.subtitle}
-                            onChange={(e) => handleUpdateSubItem(item.id, 'subtitle', e.target.value)}
+                            onChange={(e) =>
+                              handleUpdateSubItem(
+                                item.id,
+                                'subtitle',
+                                e.target.value
+                              )
+                            }
                             className="w-full px-3 py-1.5 rounded-lg bg-[#0b0e17] border border-white/10 text-white text-xs"
                           />
                         </div>
                       </div>
 
                       <div className="space-y-1.5">
-                        <label className="block text-slate-500 text-[10px] font-mono">Gambar Mockup / Pratinjau</label>
+                        <label className="block text-slate-500 text-[10px] font-mono">
+                          Gambar Mockup / Pratinjau
+                        </label>
                         <div className="flex items-center gap-3">
                           <div className="w-16 h-12 rounded-lg overflow-hidden bg-slate-950 border border-white/10 shrink-0">
-                            <img src={item.image || '/placeholder.svg'} alt={item.title} className="w-full h-full object-cover" />
+                            <img
+                              src={item.image || '/placeholder.svg'}
+                              alt={item.title}
+                              className="w-full h-full object-cover"
+                            />
                           </div>
                           <div className="flex-1 flex items-center gap-2">
                             <input
                               type="text"
                               value={item.image}
-                              onChange={(e) => handleUpdateSubItem(item.id, 'image', e.target.value)}
+                              onChange={(e) =>
+                                handleUpdateSubItem(
+                                  item.id,
+                                  'image',
+                                  e.target.value
+                                )
+                              }
                               placeholder="https://images.unsplash.com/..."
                               className="w-full px-3 py-1.5 rounded-lg bg-[#0b0e17] border border-white/10 text-slate-300 font-mono text-[11px]"
                             />
@@ -631,21 +931,44 @@ export default function ProjectsListPage() {
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-slate-500 text-[10px] font-mono mb-1">Tautan Figma / Live (Opsional)</label>
+                          <label className="block text-slate-500 text-[10px] font-mono mb-1">
+                            Tautan Figma / Live (Opsional)
+                          </label>
                           <input
                             type="text"
                             value={item.link || ''}
-                            onChange={(e) => handleUpdateSubItem(item.id, 'link', e.target.value)}
+                            onChange={(e) =>
+                              handleUpdateSubItem(
+                                item.id,
+                                'link',
+                                e.target.value
+                              )
+                            }
                             placeholder="https://figma.com/..."
                             className="w-full px-3 py-1.5 rounded-lg bg-[#0b0e17] border border-white/10 text-slate-300 font-mono text-[11px]"
                           />
                         </div>
                         <div>
-                          <label className="block text-slate-500 text-[10px] font-mono mb-1">Tech Tags (Pisahkan koma)</label>
+                          <label className="block text-slate-500 text-[10px] font-mono mb-1">
+                            Tech Tags (Pisahkan koma)
+                          </label>
                           <input
                             type="text"
-                            value={Array.isArray(item.tags) ? item.tags.join(', ') : ''}
-                            onChange={(e) => handleUpdateSubItem(item.id, 'tags', e.target.value.split(',').map(t => t.trim()).filter(Boolean))}
+                            value={
+                              Array.isArray(item.tags)
+                                ? item.tags.join(', ')
+                                : ''
+                            }
+                            onChange={(e) =>
+                              handleUpdateSubItem(
+                                item.id,
+                                'tags',
+                                e.target.value
+                                  .split(',')
+                                  .map((t) => t.trim())
+                                  .filter(Boolean)
+                              )
+                            }
                             placeholder="Figma, Mobile UI, Wireframe"
                             className="w-full px-3 py-1.5 rounded-lg bg-[#0b0e17] border border-white/10 text-slate-300 font-mono text-[11px]"
                           />
@@ -653,11 +976,15 @@ export default function ProjectsListPage() {
                       </div>
 
                       <div>
-                        <label className="block text-slate-500 text-[10px] font-mono mb-1">Deskripsi Item</label>
+                        <label className="block text-slate-500 text-[10px] font-mono mb-1">
+                          Deskripsi Item
+                        </label>
                         <textarea
                           rows={2}
                           value={item.desc}
-                          onChange={(e) => handleUpdateSubItem(item.id, 'desc', e.target.value)}
+                          onChange={(e) =>
+                            handleUpdateSubItem(item.id, 'desc', e.target.value)
+                          }
                           className="w-full px-3 py-1.5 rounded-lg bg-[#0b0e17] border border-white/10 text-white text-xs leading-relaxed"
                         />
                       </div>
@@ -686,11 +1013,9 @@ export default function ProjectsListPage() {
                 <span>Simpan Item Koleksi ke Neon</span>
               </button>
             </div>
-
           </div>
         </div>
       )}
-
     </div>
   );
 }

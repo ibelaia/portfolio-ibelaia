@@ -26,22 +26,74 @@ import {
   Code2,
   Sparkles,
   Terminal,
-  Upload
+  Upload,
+  Radio,
 } from 'lucide-react';
+
+const ABOUT_SYNC_CHANNEL = 'portfolio-sync-about';
+
+function formatMultilineValue(raw: any, fallback: string): string {
+  if (Array.isArray(raw)) {
+    const cleaned = raw.map((item) => String(item ?? '').trim()).filter(Boolean);
+    return cleaned.length > 0 ? cleaned.join('\n') : fallback;
+  }
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return fallback;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return formatMultilineValue(parsed, fallback);
+      }
+    } catch {
+      // Gunakan string mentah jika bukan JSON array
+    }
+    return trimmed;
+  }
+  return fallback;
+}
+
+function formatCommaTagsValue(raw: any, fallback: string): string {
+  if (Array.isArray(raw)) {
+    const cleaned = raw.map((item) => String(item ?? '').trim()).filter(Boolean);
+    return cleaned.length > 0 ? cleaned.join(', ') : fallback;
+  }
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return fallback;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return formatCommaTagsValue(parsed, fallback);
+      }
+    } catch {
+      // Gunakan string mentah jika bukan JSON array
+    }
+    return trimmed;
+  }
+  return fallback;
+}
 
 export default function AboutManagementPage() {
   const router = useRouter();
   const cvInputRef = useRef<HTMLInputElement>(null);
+  const syncChannelRef = useRef<BroadcastChannel | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [livePulse, setLivePulse] = useState(false);
+  const [toast, setToast] = useState<{
+    message: string;
+    type: 'success' | 'error';
+  } | null>(null);
 
   const [form, setForm] = useState({
     badge_text: 'ABOUT ME',
     name: 'Ibe Laia',
-    bio_paragraph_1: "I'm an Informatics student focusing on modern full-stack web development and clean system architectures. I bridge clean UI engineering with robust backend workflows, turning practical concepts into scalable, accessible digital solutions.",
-    bio_paragraph_2: 'Passionate about modular engineering, system reliability, and continuous exploration in modern web ecosystems.',
+    bio_paragraph_1:
+      "I'm an Informatics student focusing on modern full-stack web development and clean system architectures. I bridge clean UI engineering with robust backend workflows, turning practical concepts into scalable, accessible digital solutions.",
+    bio_paragraph_2:
+      'Passionate about modular engineering, system reliability, and continuous exploration in modern web ecosystems.',
     cv_url: '/resume.pdf',
     contact_btn_link: '/contact',
     edu_major: 'Informatics',
@@ -51,20 +103,58 @@ export default function AboutManagementPage() {
     focus_tag: 'Production Ready',
     interests_tags: 'Full-Stack, System Design, Web3',
     interests_tag: 'Exploration Track',
-    what_i_do_items: 'Full-Stack Systems\nInterface Design\nWorkflow Automation',
-    what_i_do_tag: 'Problem Solver'
+    what_i_do_items:
+      'Full-Stack Systems\nInterface Design\nWorkflow Automation',
+    what_i_do_tag: 'Problem Solver',
   });
 
-  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+  const showToast = (
+    message: string,
+    type: 'success' | 'error' = 'success'
+  ) => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3500);
   };
 
+  const broadcastAboutUpdate = (updatedPayload: Record<string, any>) => {
+    const eventDetail = {
+      section: 'about',
+      updatedAt: Date.now(),
+      payload: updatedPayload,
+    };
+
+    try {
+      if (syncChannelRef.current) {
+        syncChannelRef.current.postMessage(eventDetail);
+      }
+    } catch {
+      // Abaikan jika BroadcastChannel tidak tersedia
+    }
+
+    try {
+      localStorage.setItem(ABOUT_SYNC_CHANNEL, JSON.stringify(eventDetail));
+    } catch {
+      // Abaikan jika localStorage diblokir
+    }
+
+    window.dispatchEvent(new CustomEvent(ABOUT_SYNC_CHANNEL, { detail: eventDetail }));
+    setLivePulse(true);
+    setTimeout(() => setLivePulse(false), 1800);
+  };
+
   useEffect(() => {
+    let isMounted = true;
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      syncChannelRef.current = new BroadcastChannel(ABOUT_SYNC_CHANNEL);
+    }
+
     async function loadAboutData() {
       try {
-        const response = await fetch('/api/about');
+        const response = await fetch('/api/about', { cache: 'no-store' });
         const json = await response.json();
+
+        if (!isMounted) return;
 
         if (json.success && json.data) {
           const data = json.data;
@@ -78,21 +168,43 @@ export default function AboutManagementPage() {
             edu_major: data.edu_major ?? 'Informatics',
             edu_institution: data.edu_institution ?? 'UPN "Veteran" Jawa Timur',
             edu_period: data.edu_period ?? '2024 — Present',
-            focus_items: Array.isArray(data.focus_items) ? data.focus_items.join('\n') : (data.focus_items || ''),
+            focus_items: formatMultilineValue(
+              data.focus_items,
+              'Web Architecture\nScalable APIs\nUI/UX Systems'
+            ),
             focus_tag: data.focus_tag ?? 'Production Ready',
-            interests_tags: Array.isArray(data.interests_tags) ? data.interests_tags.join(', ') : (data.interests_tags || ''),
+            interests_tags: formatCommaTagsValue(
+              data.interests_tags,
+              'Full-Stack, System Design, Web3'
+            ),
             interests_tag: data.interests_tag ?? 'Exploration Track',
-            what_i_do_items: Array.isArray(data.what_i_do_items) ? data.what_i_do_items.join('\n') : (data.what_i_do_items || ''),
-            what_i_do_tag: data.what_i_do_tag ?? 'Problem Solver'
+            what_i_do_items: formatMultilineValue(
+              data.what_i_do_items,
+              'Full-Stack Systems\nInterface Design\nWorkflow Automation'
+            ),
+            what_i_do_tag: data.what_i_do_tag ?? 'Problem Solver',
           });
         }
       } catch (err) {
-        console.warn('Gagal memuat data About dari API:', err);
+        if (isMounted) {
+          console.warn('Gagal memuat data About dari API:', err);
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     }
+
     loadAboutData();
+
+    return () => {
+      isMounted = false;
+      if (syncChannelRef.current) {
+        syncChannelRef.current.close();
+        syncChannelRef.current = null;
+      }
+    };
   }, []);
 
   const handleCvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -107,9 +219,12 @@ export default function AboutManagementPage() {
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === 'string') {
-        setForm(prev => ({ ...prev, cv_url: reader.result as string }));
+        setForm((prev) => ({ ...prev, cv_url: reader.result as string }));
         showToast('Berkas CV berhasil diunggah!');
       }
+    };
+    reader.onerror = () => {
+      showToast('Gagal membaca berkas CV', 'error');
     };
     reader.readAsDataURL(file);
   };
@@ -119,41 +234,59 @@ export default function AboutManagementPage() {
     setSaving(true);
 
     const payload = {
-      badge_text: form.badge_text,
-      name: form.name,
+      badge_text: form.badge_text.trim() || 'ABOUT ME',
+      name: form.name.trim() || 'Ibe Laia',
       bio_paragraph_1: form.bio_paragraph_1,
       bio_paragraph_2: form.bio_paragraph_2,
-      cv_url: form.cv_url,
-      contact_btn_link: form.contact_btn_link,
-      edu_major: form.edu_major,
-      edu_institution: form.edu_institution,
-      edu_period: form.edu_period,
-      focus_items: form.focus_items.split('\n').map(i => i.trim()).filter(Boolean),
-      focus_tag: form.focus_tag,
-      interests_tags: form.interests_tags.split(',').map(i => i.trim()).filter(Boolean),
-      interests_tag: form.interests_tag,
-      what_i_do_items: form.what_i_do_items.split('\n').map(i => i.trim()).filter(Boolean),
-      what_i_do_tag: form.what_i_do_tag
+      cv_url: form.cv_url.trim() || '/resume.pdf',
+      contact_btn_link: form.contact_btn_link.trim() || '/contact',
+      edu_major: form.edu_major.trim() || 'Informatics',
+      edu_institution: form.edu_institution.trim() || 'UPN "Veteran" Jawa Timur',
+      edu_period: form.edu_period.trim() || '2024 — Present',
+      focus_items: form.focus_items
+        .split('\n')
+        .map((i) => i.trim())
+        .filter(Boolean),
+      focus_tag: form.focus_tag.trim() || 'Production Ready',
+      interests_tags: form.interests_tags
+        .split(',')
+        .map((i) => i.trim())
+        .filter(Boolean),
+      interests_tag: form.interests_tag.trim() || 'Exploration Track',
+      what_i_do_items: form.what_i_do_items
+        .split('\n')
+        .map((i) => i.trim())
+        .filter(Boolean),
+      what_i_do_tag: form.what_i_do_tag.trim() || 'Problem Solver',
     };
 
     try {
       const response = await fetch('/api/about', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        cache: 'no-store',
+        body: JSON.stringify(payload),
       });
 
       const json = await response.json();
-      setSaving(false);
 
       if (response.ok && json.success) {
-        showToast('Data halaman About berhasil disimpan ke Neon PostgreSQL!');
+        const mergedData = json.data ?? payload;
+        broadcastAboutUpdate(mergedData);
+        router.refresh();
+        showToast(
+          'Data halaman About berhasil disimpan dan disinkronkan secara real-time!'
+        );
       } else {
-        showToast(`Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`, 'error');
+        showToast(
+          `Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`,
+          'error'
+        );
       }
     } catch (err: any) {
+      showToast(`Error: ${err?.message || 'Terjadi kesalahan'}`, 'error');
+    } finally {
       setSaving(false);
-      showToast(`Error: ${err.message || 'Terjadi kesalahan'}`, 'error');
     }
   };
 
@@ -163,13 +296,27 @@ export default function AboutManagementPage() {
 
   return (
     <div className="min-h-screen bg-[#07090e] text-[#94a3b8] flex flex-col lg:flex-row antialiased">
-      <input type="file" ref={cvInputRef} onChange={handleCvUpload} accept=".pdf,.doc,.docx" className="hidden" />
+      <input
+        type="file"
+        ref={cvInputRef}
+        onChange={handleCvUpload}
+        accept=".pdf,.doc,.docx"
+        className="hidden"
+      />
 
       {toast && (
-        <div className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl backdrop-blur-md border shadow-2xl flex items-center gap-2.5 text-xs font-medium animate-in fade-in duration-200 ${
-          toast.type === 'success' ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300' : 'bg-red-500/15 border-red-500/30 text-red-300'
-        }`}>
-          {toast.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+        <div
+          className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl backdrop-blur-md border shadow-2xl flex items-center gap-2.5 text-xs font-medium animate-in fade-in duration-200 ${
+            toast.type === 'success'
+              ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+              : 'bg-red-500/15 border-red-500/30 text-red-300'
+          }`}
+        >
+          {toast.type === 'success' ? (
+            <CheckCircle2 size={16} />
+          ) : (
+            <AlertCircle size={16} />
+          )}
           <span>{toast.message}</span>
         </div>
       )}
@@ -184,41 +331,69 @@ export default function AboutManagementPage() {
 
           <div className="space-y-6 text-xs">
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Overview</p>
-              <Link href="/dashboard" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all">
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Overview
+              </p>
+              <Link
+                href="/dashboard"
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all"
+              >
                 <LayoutDashboard size={16} />
                 <span>Dashboard</span>
               </Link>
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Website Content</p>
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Website Content
+              </p>
               <div className="space-y-1">
-                <Link href="/dashboard/home" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/home"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Home size={15} />
                   <span>Home</span>
                 </Link>
-                <Link href="/dashboard/about" className="flex items-center gap-3 px-3 py-2.5 rounded-xl font-semibold bg-[#581c87]/60 text-white border border-[#9333ea]/30 transition-all">
+                <Link
+                  href="/dashboard/about"
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl font-semibold bg-[#581c87]/60 text-white border border-[#9333ea]/30 transition-all"
+                >
                   <User size={15} className="text-[#c084fc]" />
                   <span>About</span>
                 </Link>
-                <Link href="/dashboard/services" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/services"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Wrench size={15} />
                   <span>Services</span>
                 </Link>
-                <Link href="/dashboard/projects" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/projects"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <FolderGit2 size={15} />
                   <span>Projects</span>
                 </Link>
-                <Link href="/dashboard/achievements" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/achievements"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Award size={15} />
                   <span>Achievements</span>
                 </Link>
-                <Link href="/dashboard/certificates" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/certificates"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <FileBadge size={15} />
                   <span>Certificates</span>
                 </Link>
-                <Link href="/dashboard/contact" className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+                <Link
+                  href="/dashboard/contact"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                >
                   <Mail size={15} />
                   <span>Contact</span>
                 </Link>
@@ -226,25 +401,41 @@ export default function AboutManagementPage() {
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Assets</p>
-              <Link href="/dashboard/media" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Assets
+              </p>
+              <Link
+                href="/dashboard/media"
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+              >
                 <FolderArchive size={15} />
                 <span>Media Library</span>
               </Link>
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">Settings</p>
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+                Settings
+              </p>
               <div className="space-y-1">
-                <Link href="/dashboard/appearance" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
+                <Link
+                  href="/dashboard/appearance"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+                >
                   <Palette size={15} />
                   <span>Appearance</span>
                 </Link>
-                <Link href="/dashboard/seo" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
+                <Link
+                  href="/dashboard/seo"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+                >
                   <SearchCheck size={15} />
                   <span>SEO Settings</span>
                 </Link>
-                <Link href="/dashboard/settings" className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
+                <Link
+                  href="/dashboard/settings"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+                >
                   <Settings size={15} />
                   <span>General Settings</span>
                 </Link>
@@ -254,11 +445,19 @@ export default function AboutManagementPage() {
         </div>
 
         <div className="pt-4 border-t border-white/5 space-y-3">
-          <Link href="/about" target="_blank" className="w-full py-2 px-3 rounded-xl border border-white/10 hover:border-white/20 text-slate-300 hover:text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors">
+          <Link
+            href="/about"
+            target="_blank"
+            className="w-full py-2 px-3 rounded-xl border border-white/10 hover:border-white/20 text-slate-300 hover:text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
+          >
             <span>Preview About Page</span>
             <ExternalLink size={13} />
           </Link>
-          <button onClick={handleLogout} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors cursor-pointer">
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors cursor-pointer"
+          >
             <LogOut size={15} />
             <span>Logout</span>
           </button>
@@ -267,7 +466,9 @@ export default function AboutManagementPage() {
               IB
             </div>
             <div>
-              <p className="text-xs font-bold text-white leading-tight">Ibe Laia</p>
+              <p className="text-xs font-bold text-white leading-tight">
+                Ibe Laia
+              </p>
               <p className="text-[10px] text-slate-500">Owner</p>
             </div>
           </div>
@@ -278,10 +479,31 @@ export default function AboutManagementPage() {
       <main className="flex-1 px-4 sm:px-8 py-6 max-w-6xl w-full mx-auto space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">About Management</h1>
-            <p className="text-xs text-slate-400 mt-1">Kelola bio profil, riwayat pendidikan, fokus teknologi, minat, serta tautan CV.</p>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                About Management
+              </h1>
+              <span
+                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono border transition-colors ${
+                  livePulse
+                    ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300'
+                    : 'bg-white/5 border-white/10 text-slate-400'
+                }`}
+              >
+                <Radio size={11} className="text-emerald-400" />
+                <span>LIVE SYNC</span>
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-1">
+              Kelola bio profil, riwayat pendidikan, fokus teknologi, minat,
+              serta tautan CV secara dinamis dan real-time.
+            </p>
           </div>
-          <Link href="/about" target="_blank" className="px-3.5 py-2 rounded-xl bg-[#0b0e17] border border-white/10 hover:border-white/20 text-xs font-mono text-slate-300 hover:text-white flex items-center gap-2 transition-colors self-start sm:self-auto">
+          <Link
+            href="/about"
+            target="_blank"
+            className="px-3.5 py-2 rounded-xl bg-[#0b0e17] border border-white/10 hover:border-white/20 text-xs font-mono text-slate-300 hover:text-white flex items-center gap-2 transition-colors self-start sm:self-auto"
+          >
             <Eye size={13} className="text-cyan-400" />
             <span>Lihat Halaman Publik</span>
           </Link>
@@ -295,41 +517,91 @@ export default function AboutManagementPage() {
         ) : (
           <form onSubmit={handleSave} className="space-y-6">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              
               {/* Kolom Kiri: Profil & Bio */}
               <div className="lg:col-span-6 bg-[#0b0e17] border border-white/5 rounded-2xl p-5 sm:p-6 space-y-4">
                 <div className="flex items-center gap-2 pb-3 border-b border-white/5">
                   <User size={16} className="text-cyan-400" />
-                  <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">1. Kartu Utama Profil & Bio</span>
+                  <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">
+                    1. Kartu Utama Profil & Bio
+                  </span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[11px] font-mono text-slate-400 mb-1">Badge Teks</label>
-                    <input type="text" value={form.badge_text} onChange={(e) => setForm({ ...form, badge_text: e.target.value })} className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs font-mono focus:border-cyan-400" />
+                    <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                      Badge Teks
+                    </label>
+                    <input
+                      type="text"
+                      value={form.badge_text}
+                      onChange={(e) =>
+                        setForm({ ...form, badge_text: e.target.value })
+                      }
+                      className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs font-mono focus:border-cyan-400"
+                    />
                   </div>
                   <div>
-                    <label className="block text-[11px] font-mono text-slate-400 mb-1">Nama Tampilan</label>
-                    <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs font-bold focus:border-cyan-400" />
+                    <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                      Nama Tampilan
+                    </label>
+                    <input
+                      type="text"
+                      value={form.name}
+                      onChange={(e) =>
+                        setForm({ ...form, name: e.target.value })
+                      }
+                      className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs font-bold focus:border-cyan-400"
+                    />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-mono text-slate-400 mb-1">Paragraf Bio 1</label>
-                  <textarea rows={4} value={form.bio_paragraph_1} onChange={(e) => setForm({ ...form, bio_paragraph_1: e.target.value })} className="w-full px-3 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs leading-relaxed focus:border-cyan-400" />
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                    Paragraf Bio 1
+                  </label>
+                  <textarea
+                    rows={4}
+                    value={form.bio_paragraph_1}
+                    onChange={(e) =>
+                      setForm({ ...form, bio_paragraph_1: e.target.value })
+                    }
+                    className="w-full px-3 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs leading-relaxed focus:border-cyan-400"
+                  />
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-mono text-slate-400 mb-1">Paragraf Bio 2</label>
-                  <textarea rows={3} value={form.bio_paragraph_2} onChange={(e) => setForm({ ...form, bio_paragraph_2: e.target.value })} className="w-full px-3 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs leading-relaxed focus:border-cyan-400" />
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                    Paragraf Bio 2
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={form.bio_paragraph_2}
+                    onChange={(e) =>
+                      setForm({ ...form, bio_paragraph_2: e.target.value })
+                    }
+                    className="w-full px-3 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs leading-relaxed focus:border-cyan-400"
+                  />
                 </div>
 
                 <div className="pt-2 border-t border-white/5 space-y-3">
                   <div>
-                    <label className="block text-[11px] font-mono text-slate-400 mb-1.5">Berkas CV (Tautan atau Unggah)</label>
+                    <label className="block text-[11px] font-mono text-slate-400 mb-1.5">
+                      Berkas CV (Tautan atau Unggah)
+                    </label>
                     <div className="flex gap-2">
-                      <input type="text" value={form.cv_url} onChange={(e) => setForm({ ...form, cv_url: e.target.value })} className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-slate-300 text-xs font-mono focus:border-cyan-400" />
-                      <button type="button" onClick={() => cvInputRef.current?.click()} className="px-3 py-2 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 text-cyan-300 font-mono text-xs flex items-center gap-1.5 shrink-0 cursor-pointer">
+                      <input
+                        type="text"
+                        value={form.cv_url}
+                        onChange={(e) =>
+                          setForm({ ...form, cv_url: e.target.value })
+                        }
+                        className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-slate-300 text-xs font-mono focus:border-cyan-400"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => cvInputRef.current?.click()}
+                        className="px-3 py-2 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-500/30 text-cyan-300 font-mono text-xs flex items-center gap-1.5 shrink-0 cursor-pointer"
+                      >
                         <Upload size={13} />
                         <span>Unggah CV</span>
                       </button>
@@ -337,34 +609,71 @@ export default function AboutManagementPage() {
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-mono text-slate-400 mb-1">Tautan Tombol Sekunder</label>
-                    <input type="text" value={form.contact_btn_link} onChange={(e) => setForm({ ...form, contact_btn_link: e.target.value })} className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-slate-300 text-xs font-mono focus:border-cyan-400" />
+                    <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                      Tautan Tombol Sekunder
+                    </label>
+                    <input
+                      type="text"
+                      value={form.contact_btn_link}
+                      onChange={(e) =>
+                        setForm({ ...form, contact_btn_link: e.target.value })
+                      }
+                      className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-slate-300 text-xs font-mono focus:border-cyan-400"
+                    />
                   </div>
                 </div>
               </div>
 
               {/* Kolom Kanan: 4 Kartu */}
               <div className="lg:col-span-6 space-y-5">
-                
                 {/* Education */}
                 <div className="bg-[#0b0e17] border border-white/5 rounded-2xl p-5 space-y-3">
                   <div className="flex items-center gap-2 pb-2 border-b border-white/5">
                     <GraduationCap size={15} className="text-cyan-400" />
-                    <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">2. Education</span>
+                    <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">
+                      2. Education
+                    </span>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-[10px] font-mono text-slate-500 mb-1">Jurusan</label>
-                      <input type="text" value={form.edu_major} onChange={(e) => setForm({ ...form, edu_major: e.target.value })} className="w-full px-3 py-1.5 rounded-lg bg-[#07090e] border border-white/10 text-white text-xs focus:border-cyan-400" />
+                      <label className="block text-[10px] font-mono text-slate-500 mb-1">
+                        Jurusan
+                      </label>
+                      <input
+                        type="text"
+                        value={form.edu_major}
+                        onChange={(e) =>
+                          setForm({ ...form, edu_major: e.target.value })
+                        }
+                        className="w-full px-3 py-1.5 rounded-lg bg-[#07090e] border border-white/10 text-white text-xs focus:border-cyan-400"
+                      />
                     </div>
                     <div>
-                      <label className="block text-[10px] font-mono text-slate-500 mb-1">Periode</label>
-                      <input type="text" value={form.edu_period} onChange={(e) => setForm({ ...form, edu_period: e.target.value })} className="w-full px-3 py-1.5 rounded-lg bg-[#07090e] border border-white/10 text-cyan-400 font-mono text-xs focus:border-cyan-400" />
+                      <label className="block text-[10px] font-mono text-slate-500 mb-1">
+                        Periode
+                      </label>
+                      <input
+                        type="text"
+                        value={form.edu_period}
+                        onChange={(e) =>
+                          setForm({ ...form, edu_period: e.target.value })
+                        }
+                        className="w-full px-3 py-1.5 rounded-lg bg-[#07090e] border border-white/10 text-cyan-400 font-mono text-xs focus:border-cyan-400"
+                      />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-[10px] font-mono text-slate-500 mb-1">Institusi</label>
-                    <input type="text" value={form.edu_institution} onChange={(e) => setForm({ ...form, edu_institution: e.target.value })} className="w-full px-3 py-1.5 rounded-lg bg-[#07090e] border border-white/10 text-slate-300 text-xs focus:border-cyan-400" />
+                    <label className="block text-[10px] font-mono text-slate-500 mb-1">
+                      Institusi
+                    </label>
+                    <input
+                      type="text"
+                      value={form.edu_institution}
+                      onChange={(e) =>
+                        setForm({ ...form, edu_institution: e.target.value })
+                      }
+                      className="w-full px-3 py-1.5 rounded-lg bg-[#07090e] border border-white/10 text-slate-300 text-xs focus:border-cyan-400"
+                    />
                   </div>
                 </div>
 
@@ -372,15 +681,35 @@ export default function AboutManagementPage() {
                 <div className="bg-[#0b0e17] border border-white/5 rounded-2xl p-5 space-y-3">
                   <div className="flex items-center gap-2 pb-2 border-b border-white/5">
                     <Code2 size={15} className="text-purple-400" />
-                    <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">3. Current Focus</span>
+                    <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">
+                      3. Current Focus
+                    </span>
                   </div>
                   <div>
-                    <label className="block text-[10px] font-mono text-slate-500 mb-1">Poin Fokus (Satu baris per poin)</label>
-                    <textarea rows={3} value={form.focus_items} onChange={(e) => setForm({ ...form, focus_items: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-[#07090e] border border-white/10 text-white text-xs font-mono leading-relaxed focus:border-cyan-400" />
+                    <label className="block text-[10px] font-mono text-slate-500 mb-1">
+                      Poin Fokus (Satu baris per poin)
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={form.focus_items}
+                      onChange={(e) =>
+                        setForm({ ...form, focus_items: e.target.value })
+                      }
+                      className="w-full px-3 py-2 rounded-lg bg-[#07090e] border border-white/10 text-white text-xs font-mono leading-relaxed focus:border-cyan-400"
+                    />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-mono text-slate-500 mb-1">Label Tag Bawah</label>
-                    <input type="text" value={form.focus_tag} onChange={(e) => setForm({ ...form, focus_tag: e.target.value })} className="w-full px-3 py-1.5 rounded-lg bg-[#07090e] border border-white/10 text-slate-400 font-mono text-xs focus:border-cyan-400" />
+                    <label className="block text-[10px] font-mono text-slate-500 mb-1">
+                      Label Tag Bawah
+                    </label>
+                    <input
+                      type="text"
+                      value={form.focus_tag}
+                      onChange={(e) =>
+                        setForm({ ...form, focus_tag: e.target.value })
+                      }
+                      className="w-full px-3 py-1.5 rounded-lg bg-[#07090e] border border-white/10 text-slate-400 font-mono text-xs focus:border-cyan-400"
+                    />
                   </div>
                 </div>
 
@@ -388,15 +717,35 @@ export default function AboutManagementPage() {
                 <div className="bg-[#0b0e17] border border-white/5 rounded-2xl p-5 space-y-3">
                   <div className="flex items-center gap-2 pb-2 border-b border-white/5">
                     <Sparkles size={15} className="text-emerald-400" />
-                    <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">4. Interests</span>
+                    <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">
+                      4. Interests
+                    </span>
                   </div>
                   <div>
-                    <label className="block text-[10px] font-mono text-slate-500 mb-1">Badge Minat (Pisahkan dengan koma)</label>
-                    <input type="text" value={form.interests_tags} onChange={(e) => setForm({ ...form, interests_tags: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-[#07090e] border border-white/10 text-white text-xs font-mono focus:border-cyan-400" />
+                    <label className="block text-[10px] font-mono text-slate-500 mb-1">
+                      Badge Minat (Pisahkan dengan koma)
+                    </label>
+                    <input
+                      type="text"
+                      value={form.interests_tags}
+                      onChange={(e) =>
+                        setForm({ ...form, interests_tags: e.target.value })
+                      }
+                      className="w-full px-3 py-2 rounded-lg bg-[#07090e] border border-white/10 text-white text-xs font-mono focus:border-cyan-400"
+                    />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-mono text-slate-500 mb-1">Label Tag Bawah</label>
-                    <input type="text" value={form.interests_tag} onChange={(e) => setForm({ ...form, interests_tag: e.target.value })} className="w-full px-3 py-1.5 rounded-lg bg-[#07090e] border border-white/10 text-slate-400 font-mono text-xs focus:border-cyan-400" />
+                    <label className="block text-[10px] font-mono text-slate-500 mb-1">
+                      Label Tag Bawah
+                    </label>
+                    <input
+                      type="text"
+                      value={form.interests_tag}
+                      onChange={(e) =>
+                        setForm({ ...form, interests_tag: e.target.value })
+                      }
+                      className="w-full px-3 py-1.5 rounded-lg bg-[#07090e] border border-white/10 text-slate-400 font-mono text-xs focus:border-cyan-400"
+                    />
                   </div>
                 </div>
 
@@ -404,26 +753,53 @@ export default function AboutManagementPage() {
                 <div className="bg-[#0b0e17] border border-white/5 rounded-2xl p-5 space-y-3">
                   <div className="flex items-center gap-2 pb-2 border-b border-white/5">
                     <Terminal size={15} className="text-amber-400" />
-                    <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">5. What I Do</span>
+                    <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">
+                      5. What I Do
+                    </span>
                   </div>
                   <div>
-                    <label className="block text-[10px] font-mono text-slate-500 mb-1">Layanan Utama (Satu baris per poin)</label>
-                    <textarea rows={3} value={form.what_i_do_items} onChange={(e) => setForm({ ...form, what_i_do_items: e.target.value })} className="w-full px-3 py-2 rounded-lg bg-[#07090e] border border-white/10 text-white text-xs font-mono leading-relaxed focus:border-cyan-400" />
+                    <label className="block text-[10px] font-mono text-slate-500 mb-1">
+                      Layanan Utama (Satu baris per poin)
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={form.what_i_do_items}
+                      onChange={(e) =>
+                        setForm({ ...form, what_i_do_items: e.target.value })
+                      }
+                      className="w-full px-3 py-2 rounded-lg bg-[#07090e] border border-white/10 text-white text-xs font-mono leading-relaxed focus:border-cyan-400"
+                    />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-mono text-slate-500 mb-1">Label Tag Bawah</label>
-                    <input type="text" value={form.what_i_do_tag} onChange={(e) => setForm({ ...form, what_i_do_tag: e.target.value })} className="w-full px-3 py-1.5 rounded-lg bg-[#07090e] border border-white/10 text-slate-400 font-mono text-xs focus:border-cyan-400" />
+                    <label className="block text-[10px] font-mono text-slate-500 mb-1">
+                      Label Tag Bawah
+                    </label>
+                    <input
+                      type="text"
+                      value={form.what_i_do_tag}
+                      onChange={(e) =>
+                        setForm({ ...form, what_i_do_tag: e.target.value })
+                      }
+                      className="w-full px-3 py-1.5 rounded-lg bg-[#07090e] border border-white/10 text-slate-400 font-mono text-xs focus:border-cyan-400"
+                    />
                   </div>
                 </div>
-
               </div>
             </div>
 
             <div className="flex items-center justify-end gap-3 sticky bottom-4 z-20 p-4 bg-[#07090e]/80 backdrop-blur-md rounded-2xl border border-white/5">
-              <Link href="/about" target="_blank" className="px-4 py-2.5 rounded-xl border border-white/10 hover:border-white/20 text-slate-300 hover:text-white text-xs font-semibold transition-colors">
+              <Link
+                href="/about"
+                target="_blank"
+                className="px-4 py-2.5 rounded-xl border border-white/10 hover:border-white/20 text-slate-300 hover:text-white text-xs font-semibold transition-colors"
+              >
                 Pratinjau Perubahan
               </Link>
-              <button type="submit" disabled={saving} className="px-5 py-2.5 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-bold text-xs flex items-center gap-2 transition-all shadow-md shadow-cyan-500/20 active:scale-95 disabled:opacity-50 cursor-pointer">
+              <button
+                type="submit"
+                disabled={saving}
+                className="px-5 py-2.5 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-bold text-xs flex items-center gap-2 transition-all shadow-md shadow-cyan-500/20 active:scale-95 disabled:opacity-50 cursor-pointer"
+              >
                 {saving && <Loader2 size={13} className="animate-spin" />}
                 <span>Simpan Perubahan About</span>
               </button>
