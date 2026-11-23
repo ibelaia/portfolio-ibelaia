@@ -1,9 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '@clerk/nextjs';
 import {
   LayoutDashboard,
   Home,
@@ -19,250 +18,224 @@ import {
   Settings,
   ExternalLink,
   LogOut,
+  Upload,
+  RefreshCw,
+  Trash2,
+  Copy,
+  Check,
+  Image as ImageIcon,
+  Loader2,
   CheckCircle2,
   AlertCircle,
-  Loader2,
-  Upload,
-  Copy,
-  Trash2,
-  Image as ImageIcon,
-  Eye,
-  RefreshCcw,
-  Radio,
 } from 'lucide-react';
 
-interface MediaFile {
+interface MediaItem {
+  id: string;
   name: string;
-  id?: string | null;
-  updated_at?: string | null;
-  created_at?: string | null;
-  size?: number | null;
-  publicUrl: string;
+  url: string;
+  mime_type: string;
+  size_bytes: number;
+  created_at: string;
 }
 
-const MEDIA_SYNC_CHANNEL = 'portfolio-sync-media';
-
-function formatFileDate(rawDate?: string | null): string {
-  if (!rawDate) return '';
-  const parsed = new Date(rawDate);
-  if (Number.isNaN(parsed.getTime())) return '';
-  return parsed.toLocaleDateString('id-ID');
-}
-
-function formatFileSizeKb(size?: number | null): string {
-  if (typeof size !== 'number' || Number.isNaN(size) || size < 0) {
-    return '0 KB';
-  }
-  return `${Math.round(size / 1024)} KB`;
+function formatFileSize(bytes: number): string {
+  if (!bytes || bytes <= 0) return '0 KB';
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  return `${(kb / 1024).toFixed(2)} MB`;
 }
 
 export default function MediaLibraryPage() {
   const router = useRouter();
-  const { signOut } = useAuth();
-  const syncChannelRef = useRef<BroadcastChannel | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  const [items, setItems] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
-  const [livePulse, setLivePulse] = useState(false);
-  const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [toast, setToast] = useState<{
     message: string;
     type: 'success' | 'error';
   } | null>(null);
 
-  const showToast = (
-    message: string,
-    type: 'success' | 'error' = 'success'
-  ) => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3500);
-  };
+  const showToast = useCallback(
+    (message: string, type: 'success' | 'error' = 'success') => {
+      setToast({ message, type });
+      setTimeout(() => setToast(null), 4000);
+    },
+    []
+  );
 
-  const broadcastMediaUpdate = useCallback((action: string, detailData?: any) => {
-    const eventDetail = {
-      section: 'media',
-      action,
-      updatedAt: Date.now(),
-      data: detailData,
-    };
-
+  const fetchMedia = useCallback(async () => {
+    setLoading(true);
     try {
-      if (syncChannelRef.current) {
-        syncChannelRef.current.postMessage(eventDetail);
+      const response = await fetch(`/api/media?t=${Date.now()}`, {
+        cache: 'no-store',
+      });
+      const rawText = await response.text();
+      let json: any = null;
+      try {
+        json = rawText ? JSON.parse(rawText) : null;
+      } catch {
+        json = null;
       }
-    } catch {
-      // Abaikan jika BroadcastChannel tidak tersedia
-    }
 
-    try {
-      localStorage.setItem(MEDIA_SYNC_CHANNEL, JSON.stringify(eventDetail));
-    } catch {
-      // Abaikan jika localStorage diblokir
-    }
-
-    window.dispatchEvent(
-      new CustomEvent(MEDIA_SYNC_CHANNEL, { detail: eventDetail })
-    );
-    setLivePulse(true);
-    setTimeout(() => setLivePulse(false), 1800);
-  }, []);
-
-  const fetchMediaFiles = useCallback(async (isMountedRef?: { current: boolean }) => {
-    if (!isMountedRef || isMountedRef.current) {
-      setLoading(true);
-    }
-    try {
-      // Mengambil data dari endpoint API R2/Media mandiri
-      const res = await fetch('/api/media', { cache: 'no-store' });
-      if (isMountedRef && !isMountedRef.current) return;
-
-      if (res.ok) {
-        const json = await res.json();
-        if (json.success && Array.isArray(json.data)) {
-          setMediaFiles(json.data);
-        } else {
-          setMediaFiles([]);
-        }
+      if (response.ok && json?.success) {
+        const list = Array.isArray(json.items)
+          ? json.items
+          : Array.isArray(json.media)
+            ? json.media
+            : [];
+        setItems(list);
       } else {
-        setMediaFiles([]);
+        showToast(
+          json?.error || `Gagal memuat galeri media (HTTP ${response.status})`,
+          'error'
+        );
       }
-    } catch (err) {
-      if (!isMountedRef || isMountedRef.current) {
-        console.warn('Gagal memuat daftar media:', err);
-        setMediaFiles([]);
-      }
+    } catch (err: any) {
+      showToast(
+        err?.message || 'Terjadi kesalahan saat memuat galeri media.',
+        'error'
+      );
     } finally {
-      if (!isMountedRef || isMountedRef.current) {
-        setLoading(false);
-      }
+      setLoading(false);
     }
-  }, []);
+  }, [showToast]);
 
   useEffect(() => {
-    const isMountedRef = { current: true };
+    fetchMedia();
+  }, [fetchMedia]);
 
-    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-      syncChannelRef.current = new BroadcastChannel(MEDIA_SYNC_CHANNEL);
-      syncChannelRef.current.onmessage = () => {
-        if (isMountedRef.current) {
-          fetchMediaFiles(isMountedRef);
-        }
-      };
+  const handleUploadFile = async (file: File | undefined | null) => {
+    if (!file) return;
+
+    const allowedTypes = [
+      'image/png',
+      'image/jpeg',
+      'image/jpg',
+      'image/webp',
+      'image/svg+xml',
+    ];
+    if (file.type && !allowedTypes.includes(file.type)) {
+      showToast(
+        'Format berkas tidak didukung. Gunakan PNG, JPG, WEBP, atau SVG.',
+        'error'
+      );
+      return;
     }
 
-    const handleStorageSync = (e: StorageEvent) => {
-      if (e.key === MEDIA_SYNC_CHANNEL && isMountedRef.current) {
-        fetchMediaFiles(isMountedRef);
-      }
-    };
-
-    window.addEventListener('storage', handleStorageSync);
-    fetchMediaFiles(isMountedRef);
-
-    return () => {
-      isMountedRef.current = false;
-      window.removeEventListener('storage', handleStorageSync);
-      if (syncChannelRef.current) {
-        syncChannelRef.current.close();
-        syncChannelRef.current = null;
-      }
-    };
-  }, [fetchMediaFiles]);
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
+    if (file.size > 2 * 1024 * 1024) {
+      showToast('Ukuran gambar maksimal 2 MB.', 'error');
+      return;
+    }
 
     setUploading(true);
-    let successCount = 0;
-
     try {
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        const formData = new FormData();
-        formData.append('file', file);
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('name', file.name);
 
-        try {
-          const res = await fetch('/api/media/upload', {
-            method: 'POST',
-            cache: 'no-store',
-            body: formData,
-          });
+      const response = await fetch('/api/media', {
+        method: 'POST',
+        cache: 'no-store',
+        body: formData,
+      });
+      const rawText = await response.text();
+      let json: any = null;
+      try {
+        json = rawText ? JSON.parse(rawText) : null;
+      } catch {
+        json = null;
+      }
 
-          if (res.ok) {
-            const json = await res.json();
-            if (json.success) {
-              successCount++;
-            }
-          }
-        } catch (err) {
-          console.error('Upload error:', err);
+      if (response.ok && json?.success) {
+        const created = json.item || json.data;
+        if (created) {
+          setItems((prev) => [created, ...prev]);
+        } else {
+          await fetchMedia();
         }
-      }
-
-      if (successCount > 0) {
-        await fetchMediaFiles();
-        broadcastMediaUpdate('upload', { count: successCount });
         router.refresh();
-        showToast(
-          `${successCount} file gambar berhasil diunggah dan disinkronkan secara real-time!`
-        );
+        showToast('Gambar berhasil diunggah ke Media Library!');
       } else {
-        showToast('Gagal mengunggah file.', 'error');
+        showToast(
+          json?.error || `Gagal mengunggah gambar (HTTP ${response.status})`,
+          'error'
+        );
       }
+    } catch (err: any) {
+      showToast(
+        err?.message || 'Terjadi kesalahan saat mengunggah gambar.',
+        'error'
+      );
     } finally {
       setUploading(false);
-      e.target.value = '';
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
-  const handleCopyUrl = (url: string) => {
-    navigator.clipboard.writeText(url);
-    showToast('URL gambar berhasil disalin ke clipboard!');
-  };
-
-  const handleDeleteFile = async (fileName: string) => {
-    if (!confirm(`Hapus file "${fileName}" dari Media Library?`)) return;
+  const handleDelete = async (id: string) => {
+    if (!confirm('Hapus aset gambar ini dari Media Library?')) return;
 
     try {
-      const res = await fetch(
-        `/api/media?name=${encodeURIComponent(fileName)}`,
+      const response = await fetch(
+        `/api/media?id=${encodeURIComponent(id)}`,
         {
           method: 'DELETE',
           cache: 'no-store',
         }
       );
-
-      if (res.ok) {
-        setMediaFiles((prev) => prev.filter((f) => f.name !== fileName));
-        broadcastMediaUpdate('delete', { name: fileName });
-        router.refresh();
-        showToast('File berhasil dihapus secara real-time.');
-      } else {
-        showToast('Gagal menghapus file dari server.', 'error');
+      const rawText = await response.text();
+      let json: any = null;
+      try {
+        json = rawText ? JSON.parse(rawText) : null;
+      } catch {
+        json = null;
       }
-    } catch {
-      showToast('Terjadi kesalahan sistem saat menghapus.', 'error');
+
+      if (response.ok && json?.success) {
+        setItems((prev) => prev.filter((item) => item.id !== id));
+        router.refresh();
+        showToast('Aset media berhasil dihapus.');
+      } else {
+        showToast(
+          json?.error || `Gagal menghapus aset (HTTP ${response.status})`,
+          'error'
+        );
+      }
+    } catch (err: any) {
+      showToast(
+        err?.message || 'Terjadi kesalahan saat menghapus aset.',
+        'error'
+      );
     }
   };
 
-  const handleLogout = async () => {
+  const handleCopyUrl = async (item: MediaItem) => {
     try {
-      if (typeof signOut === 'function') {
-        await signOut();
-      }
+      await navigator.clipboard.writeText(item.url);
+      setCopiedId(item.id);
+      showToast(`URL "${item.name}" disalin ke clipboard.`);
+      setTimeout(() => setCopiedId(null), 2000);
     } catch {
-      // Lanjutkan navigasi meski signOut gagal
-    } finally {
-      router.replace('/login');
+      showToast('Gagal menyalin URL ke clipboard.', 'error');
     }
+  };
+
+  const handleLogout = () => {
+    router.replace('/login');
   };
 
   return (
     <div className="min-h-screen bg-[#07090e] text-[#94a3b8] flex flex-col lg:flex-row antialiased">
       {toast && (
         <div
-          className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl backdrop-blur-md border shadow-2xl flex items-center gap-2.5 text-xs font-medium animate-in fade-in duration-200 ${
+          className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl backdrop-blur-md border shadow-2xl flex items-center gap-2.5 text-xs font-medium ${
             toast.type === 'success'
               ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
               : 'bg-red-500/15 border-red-500/30 text-red-300'
@@ -376,21 +349,21 @@ export default function MediaLibraryPage() {
               <div className="space-y-1">
                 <Link
                   href="/dashboard/appearance"
-                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
                 >
                   <Palette size={15} />
                   <span>Appearance</span>
                 </Link>
                 <Link
                   href="/dashboard/seo"
-                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
                 >
                   <SearchCheck size={15} />
                   <span>SEO Settings</span>
                 </Link>
                 <Link
                   href="/dashboard/settings"
-                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
                 >
                   <Settings size={15} />
                   <span>General Settings</span>
@@ -421,105 +394,114 @@ export default function MediaLibraryPage() {
       </aside>
 
       {/* MAIN CONTENT */}
-      <main className="flex-1 px-4 sm:px-8 py-6 max-w-7xl w-full mx-auto space-y-6">
+      <main className="flex-1 px-4 sm:px-8 py-6 max-w-6xl w-full mx-auto space-y-8">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
           <div>
-            <div className="flex items-center gap-2.5">
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-                Media Library
-              </h1>
-              <span
-                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono border transition-colors ${
-                  livePulse
-                    ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300'
-                    : 'bg-white/5 border-white/10 text-slate-400'
-                }`}
-              >
-                <Radio size={11} className="text-emerald-400" />
-                <span>LIVE SYNC</span>
-              </span>
-            </div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+              Media Library
+            </h1>
             <p className="text-xs text-slate-400 mt-1">
               Pusat penyimpanan aset gambar dan berkas digital untuk portofolio
-              secara dinamis dan real-time.
+              secara dinamis.
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
             <button
               type="button"
-              onClick={() => fetchMediaFiles()}
-              className="px-3.5 py-2 rounded-xl bg-[#0b0e17] border border-white/10 hover:border-white/20 text-xs font-mono text-slate-300 hover:text-white flex items-center gap-2 transition-colors cursor-pointer"
-              title="Refresh Galeri"
+              onClick={fetchMedia}
+              disabled={loading}
+              className="px-3.5 py-2.5 rounded-xl bg-[#0b0e17] border border-white/10 hover:border-white/20 text-xs font-semibold text-slate-200 hover:text-white flex items-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
             >
-              <RefreshCcw size={13} className="text-cyan-400" />
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
               <span>Muat Ulang</span>
             </button>
 
-            <label className="px-4 py-2.5 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-bold text-xs flex items-center gap-2 transition-all shadow-lg shadow-cyan-400/20 cursor-pointer active:scale-95">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="px-4 py-2.5 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-bold text-xs flex items-center gap-2 transition-all shadow-lg shadow-cyan-400/20 active:scale-95 cursor-pointer disabled:opacity-50"
+            >
               {uploading ? (
                 <Loader2 size={14} className="animate-spin" />
               ) : (
                 <Upload size={14} />
               )}
-              <span>
-                {uploading ? 'Mengunggah...' : 'Upload Gambar Baru'}
-              </span>
-              <input
-                type="file"
-                multiple
-                accept="image/*"
-                onChange={handleFileUpload}
-                className="hidden"
-              />
-            </label>
+              <span>{uploading ? 'Mengunggah...' : 'Upload Gambar Baru'}</span>
+            </button>
           </div>
         </div>
 
-        <div className="bg-[#0b0e17] border border-white/5 rounded-2xl p-6 sm:p-8 text-center space-y-3 relative overflow-hidden group hover:border-cyan-500/30 transition-all shadow-xl">
-          <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 flex items-center justify-center mx-auto mb-2 group-hover:scale-110 transition-transform">
-            <ImageIcon size={24} />
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/png,image/jpeg,image/jpg,image/webp,image/svg+xml"
+          onChange={(e) => handleUploadFile(e.target.files?.[0])}
+          className="hidden"
+        />
+
+        {/* DROPZONE */}
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            setIsDragging(true);
+          }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setIsDragging(false);
+            const droppedFile = e.dataTransfer.files?.[0];
+            handleUploadFile(droppedFile);
+          }}
+          className={`bg-[#0b0e17] rounded-2xl p-8 sm:p-10 border border-dashed transition-all text-center space-y-3 ${
+            isDragging
+              ? 'border-cyan-400 bg-cyan-500/5'
+              : 'border-white/15 hover:border-white/25'
+          }`}
+        >
+          <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 flex items-center justify-center mx-auto">
+            <ImageIcon size={22} />
           </div>
-          <h2 className="text-sm font-bold text-white">
+          <p className="text-sm font-bold text-white">
             Seret dan letakkan gambar ke sini, atau klik untuk memilih file
-          </h2>
-          <p className="text-xs text-slate-400 max-w-md mx-auto">
-            Mendukung format PNG, JPG, WEBP, atau SVG. Setiap file yang diunggah
-            akan otomatis menghasilkan URL publik untuk digunakan pada proyek atau
-            sertifikat Anda.
+          </p>
+          <p className="text-xs text-slate-400 max-w-lg mx-auto leading-relaxed">
+            Mendukung format PNG, JPG, WEBP, atau SVG (maks. 2 MB). Setiap file
+            yang diunggah akan tersimpan di database dan dapat digunakan pada
+            proyek, prestasi, atau sertifikat Anda.
           </p>
           <div className="pt-2">
-            <label className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-mono text-slate-200 cursor-pointer transition-colors">
-              <Upload size={13} className="text-cyan-400" />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-white inline-flex items-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              <Upload size={14} className="text-cyan-400" />
               <span>Pilih Berkas dari Perangkat</span>
-              <input
-                type="file"
-                multiple
-                accept="image/*"
-                onChange={handleFileUpload}
-                className="hidden"
-              />
-            </label>
+            </button>
           </div>
         </div>
 
+        {/* DAFTAR ASET TERSIMPAN */}
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-xs font-mono uppercase tracking-wider text-white font-bold flex items-center gap-2">
-              <FolderArchive size={15} className="text-purple-400" />
-              <span>Daftar Aset Tersimpan ({mediaFiles.length} File)</span>
-            </h3>
+            <h2 className="text-xs font-mono uppercase tracking-wider text-slate-300 font-bold flex items-center gap-2">
+              <FolderArchive size={14} className="text-purple-400" />
+              <span>Daftar Aset Tersimpan ({items.length} File)</span>
+            </h2>
           </div>
 
           {loading ? (
-            <div className="py-24 text-center text-xs font-mono text-slate-500 flex items-center justify-center gap-2">
-              <Loader2 size={18} className="animate-spin text-cyan-400" />
+            <div className="bg-[#0b0e17] border border-white/5 rounded-2xl py-16 text-center text-xs font-mono text-slate-400 flex items-center justify-center gap-2">
+              <Loader2 size={16} className="animate-spin text-cyan-400" />
               <span>Memuat galeri media...</span>
             </div>
-          ) : mediaFiles.length === 0 ? (
-            <div className="py-20 text-center bg-[#0b0e17] border border-white/5 rounded-2xl p-8 space-y-2">
-              <ImageIcon size={32} className="mx-auto text-slate-600" />
-              <p className="text-xs font-semibold text-white">
+          ) : items.length === 0 ? (
+            <div className="bg-[#0b0e17] border border-white/5 rounded-2xl py-14 px-4 text-center space-y-2">
+              <ImageIcon size={30} className="mx-auto text-slate-600" />
+              <p className="text-xs font-semibold text-slate-300">
                 Belum ada file media di dalam penyimpanan
               </p>
               <p className="text-[11px] text-slate-500">
@@ -527,63 +509,62 @@ export default function MediaLibraryPage() {
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {mediaFiles.map((file) => (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {items.map((item) => (
                 <div
-                  key={file.name}
-                  className="bg-[#0b0e17] border border-white/5 hover:border-white/15 rounded-2xl overflow-hidden flex flex-col justify-between group shadow-xl transition-all"
+                  key={item.id}
+                  className="bg-[#0b0e17] border border-white/10 hover:border-white/20 rounded-2xl overflow-hidden flex flex-col justify-between transition-all"
                 >
-                  <div className="relative w-full h-36 bg-slate-950 overflow-hidden">
-                    <img
-                      src={file.publicUrl}
-                      alt={file.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    />
-                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                      <a
-                        href={file.publicUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="p-2 rounded-xl bg-white/10 backdrop-blur-md text-white hover:bg-white/20 transition-colors"
-                        title="Buka Gambar di Tab Baru"
+                  <div className="aspect-video bg-[#07090e] flex items-center justify-center overflow-hidden border-b border-white/5">
+                    {item.url ? (
+                      <img
+                        src={item.url}
+                        alt={item.name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <ImageIcon size={24} className="text-slate-600" />
+                    )}
+                  </div>
+
+                  <div className="p-4 space-y-3">
+                    <div>
+                      <p className="text-xs font-bold text-white truncate">
+                        {item.name}
+                      </p>
+                      <p className="text-[10px] font-mono text-slate-500 mt-0.5">
+                        {item.mime_type} • {formatFileSize(item.size_bytes)}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/5">
+                      <button
+                        type="button"
+                        onClick={() => handleCopyUrl(item)}
+                        className="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-200 hover:text-white border border-white/10 text-[11px] font-mono inline-flex items-center gap-1.5 transition-colors cursor-pointer"
                       >
-                        <Eye size={14} />
-                      </a>
+                        {copiedId === item.id ? (
+                          <>
+                            <Check size={12} className="text-emerald-400" />
+                            <span>Tersalin</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy size={12} className="text-cyan-400" />
+                            <span>Salin URL</span>
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(item.id)}
+                        className="p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors cursor-pointer"
+                        title="Hapus Aset"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </div>
-                  </div>
-
-                  <div className="p-3.5 space-y-1.5 flex-1">
-                    <p
-                      className="text-xs font-bold text-white truncate"
-                      title={file.name}
-                    >
-                      {file.name}
-                    </p>
-                    <div className="flex items-center justify-between text-[10px] font-mono text-slate-500">
-                      <span>{formatFileSizeKb(file.size)}</span>
-                      <span>{formatFileDate(file.created_at)}</span>
-                    </div>
-                  </div>
-
-                  <div className="px-3.5 py-2.5 border-t border-white/5 flex items-center justify-between bg-[#07090e]/60">
-                    <button
-                      type="button"
-                      onClick={() => handleCopyUrl(file.publicUrl)}
-                      className="px-2.5 py-1 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 font-mono text-[11px] flex items-center gap-1.5 transition-colors cursor-pointer"
-                      title="Salin Tautan Publik"
-                    >
-                      <Copy size={11} />
-                      <span>Salin URL</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteFile(file.name)}
-                      className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-colors cursor-pointer"
-                      title="Hapus File"
-                    >
-                      <Trash2 size={13} />
-                    </button>
                   </div>
                 </div>
               ))}

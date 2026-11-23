@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+@theme inline {
+  --font-sans: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 @layer base {
   :root {
     --bg-primary: #070913;
@@ -8,15 +13,54 @@
     --text-main: #f8fafc;
     --text-muted: #94a3b8;
     --accent: #06b6d4;
+    --card-radius: 16px;
+    --glass-blur: blur(12px);
   }
 
   /* Dynamic Accent Colors */
-  html[data-accent="cyan"] { --accent: #06b6d4; }
-  html[data-accent="purple"] { --accent: #a855f7; }
-  html[data-accent="emerald"] { --accent: #34d399; }
-  html[data-accent="rose"] { --accent: #f43f5e; }
-  html[data-accent="amber"] { --accent: #fbbf24; }
+  html[data-accent="cyan"] {
+    --accent: #06b6d4;
+  }
 
+  html[data-accent="purple"] {
+    --accent: #a855f7;
+  }
+
+  html[data-accent="emerald"] {
+    --accent: #34d399;
+  }
+
+  html[data-accent="rose"] {
+    --accent: #f43f5e;
+  }
+
+  html[data-accent="amber"] {
+    --accent: #fbbf24;
+  }
+
+  /* Border Radius Sync */
+  html[data-radius="rounded-xl"] {
+    --card-radius: 12px;
+  }
+
+  html[data-radius="rounded-2xl"] {
+    --card-radius: 16px;
+  }
+
+  html[data-radius="rounded-3xl"] {
+    --card-radius: 24px;
+  }
+
+  /* Glassmorphism Toggle Sync */
+  html[data-glass="true"] {
+    --glass-blur: blur(12px);
+  }
+
+  html[data-glass="false"] {
+    --glass-blur: none;
+  }
+
+  /* Theme Mode */
   html.light {
     --bg-primary: #f8fafc;
     --card-bg: #ffffff;

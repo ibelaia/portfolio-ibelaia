@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import {
   Code2,
@@ -15,15 +15,44 @@ import { useApp } from '@/context/AppContext';
 
 export const dynamic = 'force-dynamic';
 
+const SERVICES_SYNC_CHANNEL = 'portfolio-sync-services';
+const ADMIN_SYNC_CHANNEL = 'portfolio-admin-sync';
+const SERVICES_STORAGE_KEY = 'portfolio_services_settings';
+
+type LangCode = 'en' | 'id';
+
 interface ServiceItem {
   id: string;
+  rawId?: string;
   title: string;
+  title_id: string;
   titleUpper: string;
+  titleUpperId: string;
   desc: string;
+  desc_id: string;
   tags: string[];
+  tags_id: string[];
   icon: React.ReactNode;
   watermark: string;
 }
+
+interface ServicesHeaderState {
+  badge_text: string;
+  badge_text_id: string;
+  title: string;
+  title_id: string;
+  subtitle: string;
+  subtitle_id: string;
+}
+
+const DEFAULT_HEADER: ServicesHeaderState = {
+  badge_text: 'MY SERVICES',
+  badge_text_id: 'LAYANAN SAYA',
+  title: 'My Services',
+  title_id: 'Layanan Saya',
+  subtitle: 'Things I can build, design, and contribute to.',
+  subtitle_id: 'Hal yang dapat saya bangun, rancang, dan kontribusikan.',
+};
 
 function parseTagsSafely(rawTags: any, fallbackPrice?: any): string[] {
   if (Array.isArray(rawTags)) {
@@ -98,22 +127,196 @@ function resolveServiceVisual(title: string): {
   };
 }
 
+function resolveLangFromContext(appCtx: any): LangCode {
+  const rawLang = String(
+    appCtx?.lang || appCtx?.language || appCtx?.locale || ''
+  )
+    .toLowerCase()
+    .trim();
+  if (rawLang === 'id' || rawLang.startsWith('id-')) return 'id';
+  if (rawLang === 'en' || rawLang.startsWith('en-')) return 'en';
+
+  if (typeof window !== 'undefined') {
+    const htmlLang =
+      document.documentElement.lang?.toLowerCase().trim() || '';
+    if (htmlLang === 'id' || htmlLang.startsWith('id-')) return 'id';
+
+    const navLinks = Array.from(
+      document.querySelectorAll('header a, nav a, header button, nav button')
+    );
+    for (const el of navLinks) {
+      const txt = (el.textContent || '').trim();
+      if (txt === 'Beranda' || txt === 'Tentang' || txt === 'Layanan') {
+        return 'id';
+      }
+      if (txt === 'Home' || txt === 'About' || txt === 'Services') {
+        return 'en';
+      }
+    }
+  }
+
+  return 'en';
+}
+
+function mapServiceCards(rawList: any[]): ServiceItem[] {
+  return rawList.map((item: any, idx: number) => {
+    const numStr =
+      item.badge || (idx < 9 ? `0${idx + 1}` : `${idx + 1}`);
+    const titleStr = item.title || `Service ${idx + 1}`;
+    const titleIdStr =
+      typeof item.title_id === 'string' && item.title_id.trim()
+        ? item.title_id.trim()
+        : titleStr;
+    const upperTitle = titleStr.toUpperCase();
+    const upperTitleId = titleIdStr.toUpperCase();
+    const visual = resolveServiceVisual(titleStr);
+    const parsedTags = parseTagsSafely(item.tags, item.price);
+    const parsedTagsId =
+      item.tags_id !== undefined
+        ? parseTagsSafely(item.tags_id, item.price)
+        : parsedTags;
+
+    return {
+      id: String(numStr),
+      rawId: item.id ? String(item.id) : undefined,
+      title: titleStr,
+      title_id: titleIdStr,
+      titleUpper: upperTitle,
+      titleUpperId: upperTitleId,
+      desc:
+        item.description ||
+        item.desc ||
+        'End-to-end engineering and architecture delivery.',
+      desc_id:
+        typeof (item.description_id ?? item.desc_id) === 'string' &&
+        (item.description_id ?? item.desc_id).trim()
+          ? (item.description_id ?? item.desc_id)
+          : item.description ||
+            item.desc ||
+            'End-to-end engineering and architecture delivery.',
+      tags: parsedTags,
+      tags_id: parsedTagsId,
+      icon: visual.icon,
+      watermark: item.watermark || visual.watermark,
+    };
+  });
+}
+
 export default function ServicesPage() {
-  const { t } = useApp();
+  const appContext = useApp() as any;
+  const { t } = appContext;
   const [activeIndex, setActiveIndex] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const [header, setHeader] = useState({
-    badge_text: 'MY SERVICES',
-    title: 'My Services',
-    subtitle: 'Things I can build, design, and contribute to.',
-  });
-
+  const [header, setHeader] = useState<ServicesHeaderState>(DEFAULT_HEADER);
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [lang, setLang] = useState<LangCode>(() =>
+    resolveLangFromContext(appContext)
+  );
+
+  useEffect(() => {
+    setLang(resolveLangFromContext(appContext));
+  }, [appContext]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('MutationObserver' in window)) {
+      return;
+    }
+    const observer = new MutationObserver(() => {
+      setLang(resolveLangFromContext(appContext));
+    });
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['lang'],
+    });
+    return () => observer.disconnect();
+  }, [appContext]);
+
+  const applyServicesPayload = useCallback(
+    (payload: {
+      header?: Record<string, any> | null;
+      items?: any[] | null;
+      singleCard?: Record<string, any> | null;
+      action?: string;
+    }) => {
+      if (payload.header && typeof payload.header === 'object') {
+        setHeader((prev) => ({
+          badge_text: payload.header?.badge_text || prev.badge_text,
+          badge_text_id:
+            typeof payload.header?.badge_text_id === 'string' &&
+            payload.header.badge_text_id.trim()
+              ? payload.header.badge_text_id
+              : prev.badge_text_id,
+          title: payload.header?.title || prev.title,
+          title_id:
+            typeof payload.header?.title_id === 'string' &&
+            payload.header.title_id.trim()
+              ? payload.header.title_id
+              : prev.title_id,
+          subtitle: payload.header?.subtitle || prev.subtitle,
+          subtitle_id:
+            typeof payload.header?.subtitle_id === 'string' &&
+            payload.header.subtitle_id.trim()
+              ? payload.header.subtitle_id
+              : prev.subtitle_id,
+        }));
+      }
+
+      if (Array.isArray(payload.items)) {
+        const mapped = mapServiceCards(payload.items);
+        setServices(mapped);
+        setActiveIndex((prev) => (prev >= mapped.length ? 0 : prev));
+      } else if (payload.singleCard && typeof payload.singleCard === 'object') {
+        const mappedSingle = mapServiceCards([payload.singleCard])[0];
+        if (mappedSingle) {
+          setServices((prev) => {
+            const idxByRawId = mappedSingle.rawId
+              ? prev.findIndex((s) => s.rawId === mappedSingle.rawId)
+              : -1;
+            const idxByBadge = prev.findIndex((s) => s.id === mappedSingle.id);
+            const targetIdx = idxByRawId !== -1 ? idxByRawId : idxByBadge;
+
+            if (targetIdx !== -1) {
+              const next = [...prev];
+              next[targetIdx] = {
+                ...next[targetIdx],
+                ...mappedSingle,
+                icon: next[targetIdx].icon || mappedSingle.icon,
+              };
+              return next;
+            }
+            return [...prev, mappedSingle];
+          });
+        }
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     let isMounted = true;
+
+    try {
+      const cachedRaw = localStorage.getItem(SERVICES_STORAGE_KEY);
+      if (cachedRaw) {
+        const cached = JSON.parse(cachedRaw);
+        if (cached && typeof cached === 'object' && isMounted) {
+          applyServicesPayload({
+            header: cached.header || null,
+            items: Array.isArray(cached.data) ? cached.data : null,
+          });
+          setLoading(false);
+        }
+      }
+    } catch {
+      // Abaikan jika localStorage tidak tersedia
+    }
 
     async function fetchNeonServicesData() {
       try {
@@ -123,47 +326,20 @@ export default function ServicesPage() {
         if (!isMounted) return;
 
         if (json.success) {
-          if (json.header) {
-            setHeader({
-              badge_text: json.header.badge_text || 'MY SERVICES',
-              title: json.header.title || 'My Services',
-              subtitle:
-                json.header.subtitle ||
-                'Things I can build, design, and contribute to.',
-            });
-          }
-
-          if (Array.isArray(json.data) && json.data.length > 0) {
-            const mapped: ServiceItem[] = json.data.map(
-              (item: any, idx: number) => {
-                const numStr =
-                  item.badge ||
-                  (idx < 9 ? `0${idx + 1}` : `${idx + 1}`);
-                const titleStr = item.title || `Service ${idx + 1}`;
-                const upperTitle = titleStr.toUpperCase();
-                const visual = resolveServiceVisual(titleStr);
-
-                return {
-                  id: String(numStr),
-                  title: titleStr,
-                  titleUpper: upperTitle,
-                  desc:
-                    item.description ||
-                    item.desc ||
-                    'End-to-end engineering and architecture delivery.',
-                  tags: parseTagsSafely(item.tags, item.price),
-                  icon: visual.icon,
-                  watermark: item.watermark || visual.watermark,
-                };
-              }
+          applyServicesPayload({
+            header: json.header || null,
+            items: Array.isArray(json.data) ? json.data : [],
+          });
+          try {
+            localStorage.setItem(
+              SERVICES_STORAGE_KEY,
+              JSON.stringify({
+                header: json.header || null,
+                data: Array.isArray(json.data) ? json.data : [],
+              })
             );
-            setServices(mapped);
-            setActiveIndex((prev) =>
-              prev >= mapped.length ? 0 : prev
-            );
-          } else {
-            setServices([]);
-            setActiveIndex(0);
+          } catch {
+            // Abaikan error penyimpanan lokal
           }
         }
       } catch (err) {
@@ -179,10 +355,69 @@ export default function ServicesPage() {
 
     fetchNeonServicesData();
 
+    const handleRealtimeMessage = (event: MessageEvent) => {
+      if (!isMounted) return;
+      const payload = event?.data || {};
+      if (payload.section && payload.section !== 'services') return;
+
+      if (payload.action === 'header' && payload.data) {
+        applyServicesPayload({ header: payload.data });
+      } else if (Array.isArray(payload.data)) {
+        applyServicesPayload({ items: payload.data });
+      } else if (payload.data && typeof payload.data === 'object') {
+        applyServicesPayload({ singleCard: payload.data });
+      }
+      fetchNeonServicesData();
+    };
+
+    const handleCustomSync = (event: Event) => {
+      if (!isMounted) return;
+      const customEvent = event as CustomEvent;
+      const detail = customEvent.detail || {};
+      if (detail.action === 'header' && detail.data) {
+        applyServicesPayload({ header: detail.data });
+      } else if (Array.isArray(detail.data)) {
+        applyServicesPayload({ items: detail.data });
+      } else if (detail.data && typeof detail.data === 'object') {
+        applyServicesPayload({ singleCard: detail.data });
+      }
+      fetchNeonServicesData();
+    };
+
+    const handleStorage = (event: StorageEvent) => {
+      if (!isMounted) return;
+      if (
+        !event.key ||
+        event.key === SERVICES_STORAGE_KEY ||
+        event.key === SERVICES_SYNC_CHANNEL
+      ) {
+        fetchNeonServicesData();
+      }
+      setLang(resolveLangFromContext(appContext));
+    };
+
+    let servicesChannel: BroadcastChannel | null = null;
+    let adminChannel: BroadcastChannel | null = null;
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      servicesChannel = new BroadcastChannel(SERVICES_SYNC_CHANNEL);
+      servicesChannel.onmessage = handleRealtimeMessage;
+
+      adminChannel = new BroadcastChannel(ADMIN_SYNC_CHANNEL);
+      adminChannel.onmessage = handleRealtimeMessage;
+    }
+
+    window.addEventListener(SERVICES_SYNC_CHANNEL, handleCustomSync);
+    window.addEventListener('storage', handleStorage);
+
     return () => {
       isMounted = false;
+      window.removeEventListener(SERVICES_SYNC_CHANNEL, handleCustomSync);
+      window.removeEventListener('storage', handleStorage);
+      if (servicesChannel) servicesChannel.close();
+      if (adminChannel) adminChannel.close();
     };
-  }, []);
+  }, [applyServicesPayload, appContext]);
 
   const handlePrev = () => {
     if (services.length === 0) return;
@@ -223,7 +458,10 @@ export default function ServicesPage() {
     return (
       <main className="w-full max-w-6xl mx-auto px-4 py-20 text-center">
         <p className="text-sm font-mono text-slate-400 animate-pulse">
-          Memuat layanan dari database Neon...
+          {t(
+            'Loading services from Neon database...',
+            'Memuat layanan dari database Neon...'
+          )}
         </p>
       </main>
     );
@@ -233,11 +471,26 @@ export default function ServicesPage() {
     return (
       <main className="w-full max-w-6xl mx-auto px-4 py-20 text-center">
         <p className="text-xs font-mono text-[var(--text-muted)] border border-dashed border-[var(--card-border)] rounded-2xl py-12">
-          Belum ada data layanan tercatat di database Neon.
+          {t(
+            'No services recorded in Neon database yet.',
+            'Belum ada data layanan tercatat di database Neon.'
+          )}
         </p>
       </main>
     );
   }
+
+  const isId = lang === 'id';
+  const displayBadge =
+    isId && header.badge_text_id.trim()
+      ? header.badge_text_id
+      : header.badge_text;
+  const displayTitle =
+    isId && header.title_id.trim() ? header.title_id : header.title;
+  const displaySubtitle =
+    isId && header.subtitle_id.trim()
+      ? header.subtitle_id
+      : header.subtitle;
 
   return (
     <main className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
@@ -246,13 +499,13 @@ export default function ServicesPage() {
         <div>
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent/10 border border-accent/20 text-[11px] font-mono text-accent mb-2">
             <span className="w-1.5 h-1.5 rounded-full bg-accent" />
-            <span>{header.badge_text}</span>
+            <span>{displayBadge}</span>
           </div>
           <h1 className="text-3xl lg:text-4xl font-extrabold text-[var(--text-main)] tracking-tight">
-            {header.title}
+            {displayTitle}
           </h1>
           <p className="text-xs sm:text-sm text-[var(--text-muted)] mt-1">
-            {header.subtitle}
+            {displaySubtitle}
           </p>
         </div>
 
@@ -279,10 +532,10 @@ export default function ServicesPage() {
       {/* MOBILE HEADER */}
       <div className="block md:hidden text-center my-4">
         <h1 className="text-3xl font-extrabold text-[var(--text-main)] tracking-tight">
-          {header.title}
+          {displayTitle}
         </h1>
         <p className="text-xs text-[var(--text-muted)] mt-1 max-w-xs mx-auto">
-          {header.subtitle}
+          {displaySubtitle}
         </p>
       </div>
 
@@ -291,6 +544,9 @@ export default function ServicesPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {services.map((item, index) => {
             const isSelected = activeIndex === index;
+            const cardTitleUpper = isId ? item.titleUpperId : item.titleUpper;
+            const cardDesc = isId ? item.desc_id : item.desc;
+            const cardTags = isId ? item.tags_id : item.tags;
 
             return (
               <div
@@ -321,16 +577,16 @@ export default function ServicesPage() {
                   </div>
 
                   <h2 className="text-xs font-mono font-bold tracking-wider text-[var(--text-main)] mb-2 leading-snug">
-                    {item.titleUpper}
+                    {cardTitleUpper}
                   </h2>
 
                   <p className="text-xs text-[var(--text-muted)] leading-relaxed line-clamp-3">
-                    {item.desc}
+                    {cardDesc}
                   </p>
                 </div>
 
                 <div className="pt-4 border-t border-[var(--card-border)] flex flex-wrap gap-1 mt-4">
-                  {item.tags.map((tag, tagIdx) => (
+                  {cardTags.map((tag, tagIdx) => (
                     <span
                       key={`${tag}-${tagIdx}`}
                       className="px-2 py-0.5 rounded bg-white/5 border border-[var(--card-border)] text-[9px] font-mono text-[var(--text-muted)]"
@@ -372,6 +628,9 @@ export default function ServicesPage() {
           >
             {services.map((item, index) => {
               const isSelected = activeIndex === index;
+              const cardTitle = isId ? item.title_id : item.title;
+              const cardDesc = isId ? item.desc_id : item.desc;
+              const cardTags = isId ? item.tags_id : item.tags;
 
               return (
                 <div
@@ -403,22 +662,25 @@ export default function ServicesPage() {
                       <span className="text-xs font-mono tracking-wider text-[var(--text-muted)]">
                         {item.id}{' '}
                         <span className="text-slate-600">
-                          / {services.length < 10 ? `0${services.length}` : services.length}
+                          /{' '}
+                          {services.length < 10
+                            ? `0${services.length}`
+                            : services.length}
                         </span>
                       </span>
                     </div>
 
                     <h2 className="text-lg font-bold text-[var(--text-main)] tracking-tight mb-2.5">
-                      {item.title}
+                      {cardTitle}
                     </h2>
 
                     <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-                      {item.desc}
+                      {cardDesc}
                     </p>
                   </div>
 
                   <div className="pt-3.5 border-t border-[var(--card-border)] flex flex-wrap gap-1.5 mt-5">
-                    {item.tags.map((tag, tagIdx) => (
+                    {cardTags.map((tag, tagIdx) => (
                       <span
                         key={`${tag}-${tagIdx}`}
                         className="px-2 py-0.5 rounded-lg bg-black/20 border border-[var(--card-border)] text-[9px] font-mono text-[var(--text-muted)]"

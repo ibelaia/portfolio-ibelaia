@@ -27,14 +27,18 @@ import {
   Sparkles,
   Terminal,
   Upload,
-  Radio,
+  Languages,
 } from 'lucide-react';
 
 const ABOUT_SYNC_CHANNEL = 'portfolio-sync-about';
+const ABOUT_STORAGE_KEY = 'portfolio_about_settings';
+const ABOUT_BILINGUAL_STORAGE_KEY = 'portfolio_about_bilingual';
 
 function formatMultilineValue(raw: any, fallback: string): string {
   if (Array.isArray(raw)) {
-    const cleaned = raw.map((item) => String(item ?? '').trim()).filter(Boolean);
+    const cleaned = raw
+      .map((item) => String(item ?? '').trim())
+      .filter(Boolean);
     return cleaned.length > 0 ? cleaned.join('\n') : fallback;
   }
   if (typeof raw === 'string') {
@@ -55,7 +59,9 @@ function formatMultilineValue(raw: any, fallback: string): string {
 
 function formatCommaTagsValue(raw: any, fallback: string): string {
   if (Array.isArray(raw)) {
-    const cleaned = raw.map((item) => String(item ?? '').trim()).filter(Boolean);
+    const cleaned = raw
+      .map((item) => String(item ?? '').trim())
+      .filter(Boolean);
     return cleaned.length > 0 ? cleaned.join(', ') : fallback;
   }
   if (typeof raw === 'string') {
@@ -81,7 +87,7 @@ export default function AboutManagementPage() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [livePulse, setLivePulse] = useState(false);
+  const [editLang, setEditLang] = useState<'en' | 'id'>('en');
   const [toast, setToast] = useState<{
     message: string;
     type: 'success' | 'error';
@@ -89,23 +95,36 @@ export default function AboutManagementPage() {
 
   const [form, setForm] = useState({
     badge_text: 'ABOUT ME',
+    badge_text_id: 'TENTANG SAYA',
     name: 'Ibe Laia',
     bio_paragraph_1:
       "I'm an Informatics student focusing on modern full-stack web development and clean system architectures. I bridge clean UI engineering with robust backend workflows, turning practical concepts into scalable, accessible digital solutions.",
+    bio_paragraph_1_id:
+      'Saya adalah mahasiswa Informatika yang berfokus pada pengembangan web full-stack modern dan arsitektur sistem yang bersih. Saya menghubungkan rekayasa UI yang rapi dengan alur kerja backend yang andal untuk menghadirkan solusi digital yang skalabel.',
     bio_paragraph_2:
       'Passionate about modular engineering, system reliability, and continuous exploration in modern web ecosystems.',
+    bio_paragraph_2_id:
+      'Antusias terhadap rekayasa modular, keandalan sistem, serta eksplorasi berkelanjutan di ekosistem web modern.',
     cv_url: '/resume.pdf',
     contact_btn_link: '/contact',
     edu_major: 'Informatics',
+    edu_major_id: 'Informatika',
     edu_institution: 'UPN "Veteran" Jawa Timur',
     edu_period: '2024 — Present',
     focus_items: 'Web Architecture\nScalable APIs\nUI/UX Systems',
+    focus_items_id: 'Arsitektur Web\nAPI Skalabel\nSistem UI/UX',
     focus_tag: 'Production Ready',
+    focus_tag_id: 'Siap Produksi',
     interests_tags: 'Full-Stack, System Design, Web3',
+    interests_tags_id: 'Full-Stack, Desain Sistem, Web3',
     interests_tag: 'Exploration Track',
+    interests_tag_id: 'Jalur Eksplorasi',
     what_i_do_items:
       'Full-Stack Systems\nInterface Design\nWorkflow Automation',
+    what_i_do_items_id:
+      'Sistem Full-Stack\nDesain Antarmuka\nOtomatisasi Alur Kerja',
     what_i_do_tag: 'Problem Solver',
+    what_i_do_tag_id: 'Pemecah Masalah',
   });
 
   const showToast = (
@@ -120,6 +139,7 @@ export default function AboutManagementPage() {
     const eventDetail = {
       section: 'about',
       updatedAt: Date.now(),
+      data: updatedPayload,
       payload: updatedPayload,
     };
 
@@ -132,14 +152,44 @@ export default function AboutManagementPage() {
     }
 
     try {
+      localStorage.setItem(ABOUT_STORAGE_KEY, JSON.stringify(updatedPayload));
+      localStorage.setItem(
+        ABOUT_BILINGUAL_STORAGE_KEY,
+        JSON.stringify({
+          en: {
+            badge_text: updatedPayload.badge_text,
+            bio_paragraph_1: updatedPayload.bio_paragraph_1,
+            bio_paragraph_2: updatedPayload.bio_paragraph_2,
+            edu_major: updatedPayload.edu_major,
+            focus_items: updatedPayload.focus_items,
+            focus_tag: updatedPayload.focus_tag,
+            interests_tags: updatedPayload.interests_tags,
+            interests_tag: updatedPayload.interests_tag,
+            what_i_do_items: updatedPayload.what_i_do_items,
+            what_i_do_tag: updatedPayload.what_i_do_tag,
+          },
+          id: {
+            badge_text: updatedPayload.badge_text_id,
+            bio_paragraph_1: updatedPayload.bio_paragraph_1_id,
+            bio_paragraph_2: updatedPayload.bio_paragraph_2_id,
+            edu_major: updatedPayload.edu_major_id,
+            focus_items: updatedPayload.focus_items_id,
+            focus_tag: updatedPayload.focus_tag_id,
+            interests_tags: updatedPayload.interests_tags_id,
+            interests_tag: updatedPayload.interests_tag_id,
+            what_i_do_items: updatedPayload.what_i_do_items_id,
+            what_i_do_tag: updatedPayload.what_i_do_tag_id,
+          },
+        })
+      );
       localStorage.setItem(ABOUT_SYNC_CHANNEL, JSON.stringify(eventDetail));
     } catch {
       // Abaikan jika localStorage diblokir
     }
 
-    window.dispatchEvent(new CustomEvent(ABOUT_SYNC_CHANNEL, { detail: eventDetail }));
-    setLivePulse(true);
-    setTimeout(() => setLivePulse(false), 1800);
+    window.dispatchEvent(
+      new CustomEvent(ABOUT_SYNC_CHANNEL, { detail: eventDetail })
+    );
   };
 
   useEffect(() => {
@@ -151,6 +201,65 @@ export default function AboutManagementPage() {
 
     async function loadAboutData() {
       try {
+        const cachedRaw = localStorage.getItem(ABOUT_STORAGE_KEY);
+        if (cachedRaw && isMounted) {
+          const cached = JSON.parse(cachedRaw);
+          if (cached && typeof cached === 'object') {
+            setForm((prev) => ({
+              ...prev,
+              badge_text: cached.badge_text ?? prev.badge_text,
+              badge_text_id: cached.badge_text_id ?? prev.badge_text_id,
+              name: cached.name ?? prev.name,
+              bio_paragraph_1: cached.bio_paragraph_1 ?? prev.bio_paragraph_1,
+              bio_paragraph_1_id:
+                cached.bio_paragraph_1_id ?? prev.bio_paragraph_1_id,
+              bio_paragraph_2: cached.bio_paragraph_2 ?? prev.bio_paragraph_2,
+              bio_paragraph_2_id:
+                cached.bio_paragraph_2_id ?? prev.bio_paragraph_2_id,
+              cv_url: cached.cv_url ?? prev.cv_url,
+              contact_btn_link: cached.contact_btn_link ?? prev.contact_btn_link,
+              edu_major: cached.edu_major ?? prev.edu_major,
+              edu_major_id: cached.edu_major_id ?? prev.edu_major_id,
+              edu_institution: cached.edu_institution ?? prev.edu_institution,
+              edu_period: cached.edu_period ?? prev.edu_period,
+              focus_items: formatMultilineValue(
+                cached.focus_items,
+                prev.focus_items
+              ),
+              focus_items_id: formatMultilineValue(
+                cached.focus_items_id,
+                prev.focus_items_id
+              ),
+              focus_tag: cached.focus_tag ?? prev.focus_tag,
+              focus_tag_id: cached.focus_tag_id ?? prev.focus_tag_id,
+              interests_tags: formatCommaTagsValue(
+                cached.interests_tags,
+                prev.interests_tags
+              ),
+              interests_tags_id: formatCommaTagsValue(
+                cached.interests_tags_id,
+                prev.interests_tags_id
+              ),
+              interests_tag: cached.interests_tag ?? prev.interests_tag,
+              interests_tag_id: cached.interests_tag_id ?? prev.interests_tag_id,
+              what_i_do_items: formatMultilineValue(
+                cached.what_i_do_items,
+                prev.what_i_do_items
+              ),
+              what_i_do_items_id: formatMultilineValue(
+                cached.what_i_do_items_id,
+                prev.what_i_do_items_id
+              ),
+              what_i_do_tag: cached.what_i_do_tag ?? prev.what_i_do_tag,
+              what_i_do_tag_id: cached.what_i_do_tag_id ?? prev.what_i_do_tag_id,
+            }));
+          }
+        }
+      } catch {
+        // Abaikan jika cache lokal tidak tersedia
+      }
+
+      try {
         const response = await fetch('/api/about', { cache: 'no-store' });
         const json = await response.json();
 
@@ -158,32 +267,54 @@ export default function AboutManagementPage() {
 
         if (json.success && json.data) {
           const data = json.data;
-          setForm({
-            badge_text: data.badge_text ?? 'ABOUT ME',
-            name: data.name ?? 'Ibe Laia',
-            bio_paragraph_1: data.bio_paragraph_1 ?? '',
-            bio_paragraph_2: data.bio_paragraph_2 ?? '',
-            cv_url: data.cv_url ?? '/resume.pdf',
-            contact_btn_link: data.contact_btn_link ?? '/contact',
-            edu_major: data.edu_major ?? 'Informatics',
-            edu_institution: data.edu_institution ?? 'UPN "Veteran" Jawa Timur',
-            edu_period: data.edu_period ?? '2024 — Present',
+          setForm((prev) => ({
+            ...prev,
+            badge_text: data.badge_text ?? prev.badge_text,
+            badge_text_id: data.badge_text_id ?? prev.badge_text_id,
+            name: data.name ?? prev.name,
+            bio_paragraph_1: data.bio_paragraph_1 ?? prev.bio_paragraph_1,
+            bio_paragraph_1_id:
+              data.bio_paragraph_1_id ?? prev.bio_paragraph_1_id,
+            bio_paragraph_2: data.bio_paragraph_2 ?? prev.bio_paragraph_2,
+            bio_paragraph_2_id:
+              data.bio_paragraph_2_id ?? prev.bio_paragraph_2_id,
+            cv_url: data.cv_url ?? prev.cv_url,
+            contact_btn_link: data.contact_btn_link ?? prev.contact_btn_link,
+            edu_major: data.edu_major ?? prev.edu_major,
+            edu_major_id: data.edu_major_id ?? prev.edu_major_id,
+            edu_institution: data.edu_institution ?? prev.edu_institution,
+            edu_period: data.edu_period ?? prev.edu_period,
             focus_items: formatMultilineValue(
               data.focus_items,
-              'Web Architecture\nScalable APIs\nUI/UX Systems'
+              prev.focus_items
             ),
-            focus_tag: data.focus_tag ?? 'Production Ready',
+            focus_items_id: formatMultilineValue(
+              data.focus_items_id,
+              prev.focus_items_id
+            ),
+            focus_tag: data.focus_tag ?? prev.focus_tag,
+            focus_tag_id: data.focus_tag_id ?? prev.focus_tag_id,
             interests_tags: formatCommaTagsValue(
               data.interests_tags,
-              'Full-Stack, System Design, Web3'
+              prev.interests_tags
             ),
-            interests_tag: data.interests_tag ?? 'Exploration Track',
+            interests_tags_id: formatCommaTagsValue(
+              data.interests_tags_id,
+              prev.interests_tags_id
+            ),
+            interests_tag: data.interests_tag ?? prev.interests_tag,
+            interests_tag_id: data.interests_tag_id ?? prev.interests_tag_id,
             what_i_do_items: formatMultilineValue(
               data.what_i_do_items,
-              'Full-Stack Systems\nInterface Design\nWorkflow Automation'
+              prev.what_i_do_items
             ),
-            what_i_do_tag: data.what_i_do_tag ?? 'Problem Solver',
-          });
+            what_i_do_items_id: formatMultilineValue(
+              data.what_i_do_items_id,
+              prev.what_i_do_items_id
+            ),
+            what_i_do_tag: data.what_i_do_tag ?? prev.what_i_do_tag,
+            what_i_do_tag_id: data.what_i_do_tag_id ?? prev.what_i_do_tag_id,
+          }));
         }
       } catch (err) {
         if (isMounted) {
@@ -235,29 +366,48 @@ export default function AboutManagementPage() {
 
     const payload = {
       badge_text: form.badge_text.trim() || 'ABOUT ME',
+      badge_text_id: form.badge_text_id.trim() || 'TENTANG SAYA',
       name: form.name.trim() || 'Ibe Laia',
       bio_paragraph_1: form.bio_paragraph_1,
+      bio_paragraph_1_id: form.bio_paragraph_1_id,
       bio_paragraph_2: form.bio_paragraph_2,
+      bio_paragraph_2_id: form.bio_paragraph_2_id,
       cv_url: form.cv_url.trim() || '/resume.pdf',
       contact_btn_link: form.contact_btn_link.trim() || '/contact',
       edu_major: form.edu_major.trim() || 'Informatics',
+      edu_major_id: form.edu_major_id.trim() || 'Informatika',
       edu_institution: form.edu_institution.trim() || 'UPN "Veteran" Jawa Timur',
       edu_period: form.edu_period.trim() || '2024 — Present',
       focus_items: form.focus_items
         .split('\n')
         .map((i) => i.trim())
         .filter(Boolean),
+      focus_items_id: form.focus_items_id
+        .split('\n')
+        .map((i) => i.trim())
+        .filter(Boolean),
       focus_tag: form.focus_tag.trim() || 'Production Ready',
+      focus_tag_id: form.focus_tag_id.trim() || 'Siap Produksi',
       interests_tags: form.interests_tags
         .split(',')
         .map((i) => i.trim())
         .filter(Boolean),
+      interests_tags_id: form.interests_tags_id
+        .split(',')
+        .map((i) => i.trim())
+        .filter(Boolean),
       interests_tag: form.interests_tag.trim() || 'Exploration Track',
+      interests_tag_id: form.interests_tag_id.trim() || 'Jalur Eksplorasi',
       what_i_do_items: form.what_i_do_items
         .split('\n')
         .map((i) => i.trim())
         .filter(Boolean),
+      what_i_do_items_id: form.what_i_do_items_id
+        .split('\n')
+        .map((i) => i.trim())
+        .filter(Boolean),
       what_i_do_tag: form.what_i_do_tag.trim() || 'Problem Solver',
+      what_i_do_tag_id: form.what_i_do_tag_id.trim() || 'Pemecah Masalah',
     };
 
     try {
@@ -271,11 +421,11 @@ export default function AboutManagementPage() {
       const json = await response.json();
 
       if (response.ok && json.success) {
-        const mergedData = json.data ?? payload;
+        const mergedData = { ...payload, ...(json.data ?? {}) };
         broadcastAboutUpdate(mergedData);
         router.refresh();
         showToast(
-          'Data halaman About berhasil disimpan dan disinkronkan secara real-time!'
+          'Data halaman About berhasil disimpan dan disinkronkan!'
         );
       } else {
         showToast(
@@ -293,6 +443,8 @@ export default function AboutManagementPage() {
   const handleLogout = async () => {
     router.replace('/login');
   };
+
+  const isId = editLang === 'id';
 
   return (
     <div className="min-h-screen bg-[#07090e] text-[#94a3b8] flex flex-col lg:flex-row antialiased">
@@ -479,34 +631,51 @@ export default function AboutManagementPage() {
       <main className="flex-1 px-4 sm:px-8 py-6 max-w-6xl w-full mx-auto space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
           <div>
-            <div className="flex items-center gap-2.5">
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-                About Management
-              </h1>
-              <span
-                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono border transition-colors ${
-                  livePulse
-                    ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300'
-                    : 'bg-white/5 border-white/10 text-slate-400'
-                }`}
-              >
-                <Radio size={11} className="text-emerald-400" />
-                <span>LIVE SYNC</span>
-              </span>
-            </div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+              About Management
+            </h1>
             <p className="text-xs text-slate-400 mt-1">
               Kelola bio profil, riwayat pendidikan, fokus teknologi, minat,
-              serta tautan CV secara dinamis dan real-time.
+              serta tautan CV secara dinamis.
             </p>
           </div>
-          <Link
-            href="/about"
-            target="_blank"
-            className="px-3.5 py-2 rounded-xl bg-[#0b0e17] border border-white/10 hover:border-white/20 text-xs font-mono text-slate-300 hover:text-white flex items-center gap-2 transition-colors self-start sm:self-auto"
-          >
-            <Eye size={13} className="text-cyan-400" />
-            <span>Lihat Halaman Publik</span>
-          </Link>
+
+          <div className="flex items-center gap-2.5 self-start sm:self-auto">
+            <div className="inline-flex items-center rounded-xl bg-[#0b0e17] border border-white/10 p-1 text-[10px] font-mono">
+              <Languages size={12} className="text-cyan-400 mx-1.5" />
+              <button
+                type="button"
+                onClick={() => setEditLang('en')}
+                className={`px-2 py-1 rounded-lg transition-colors cursor-pointer ${
+                  !isId
+                    ? 'bg-cyan-500/20 text-cyan-300 font-bold'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                EN
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditLang('id')}
+                className={`px-2 py-1 rounded-lg transition-colors cursor-pointer ${
+                  isId
+                    ? 'bg-cyan-500/20 text-cyan-300 font-bold'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                ID
+              </button>
+            </div>
+
+            <Link
+              href="/about"
+              target="_blank"
+              className="px-3.5 py-2 rounded-xl bg-[#0b0e17] border border-white/10 hover:border-white/20 text-xs font-mono text-slate-300 hover:text-white flex items-center gap-2 transition-colors"
+            >
+              <Eye size={13} className="text-cyan-400" />
+              <span>Lihat Halaman Publik</span>
+            </Link>
+          </div>
         </div>
 
         {loading ? (
@@ -522,20 +691,24 @@ export default function AboutManagementPage() {
                 <div className="flex items-center gap-2 pb-3 border-b border-white/5">
                   <User size={16} className="text-cyan-400" />
                   <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">
-                    1. Kartu Utama Profil & Bio
+                    1. Kartu Utama Profil & Bio ({isId ? 'ID' : 'EN'})
                   </span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                      Badge Teks
+                      Badge Teks ({isId ? 'Indonesia' : 'English'})
                     </label>
                     <input
                       type="text"
-                      value={form.badge_text}
+                      value={isId ? form.badge_text_id : form.badge_text}
                       onChange={(e) =>
-                        setForm({ ...form, badge_text: e.target.value })
+                        setForm((prev) =>
+                          isId
+                            ? { ...prev, badge_text_id: e.target.value }
+                            : { ...prev, badge_text: e.target.value }
+                        )
                       }
                       className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs font-mono focus:border-cyan-400"
                     />
@@ -557,13 +730,19 @@ export default function AboutManagementPage() {
 
                 <div>
                   <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                    Paragraf Bio 1
+                    Paragraf Bio 1 ({isId ? 'Indonesia' : 'English'})
                   </label>
                   <textarea
                     rows={4}
-                    value={form.bio_paragraph_1}
+                    value={
+                      isId ? form.bio_paragraph_1_id : form.bio_paragraph_1
+                    }
                     onChange={(e) =>
-                      setForm({ ...form, bio_paragraph_1: e.target.value })
+                      setForm((prev) =>
+                        isId
+                          ? { ...prev, bio_paragraph_1_id: e.target.value }
+                          : { ...prev, bio_paragraph_1: e.target.value }
+                      )
                     }
                     className="w-full px-3 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs leading-relaxed focus:border-cyan-400"
                   />
@@ -571,13 +750,19 @@ export default function AboutManagementPage() {
 
                 <div>
                   <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                    Paragraf Bio 2
+                    Paragraf Bio 2 ({isId ? 'Indonesia' : 'English'})
                   </label>
                   <textarea
                     rows={3}
-                    value={form.bio_paragraph_2}
+                    value={
+                      isId ? form.bio_paragraph_2_id : form.bio_paragraph_2
+                    }
                     onChange={(e) =>
-                      setForm({ ...form, bio_paragraph_2: e.target.value })
+                      setForm((prev) =>
+                        isId
+                          ? { ...prev, bio_paragraph_2_id: e.target.value }
+                          : { ...prev, bio_paragraph_2: e.target.value }
+                      )
                     }
                     className="w-full px-3 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs leading-relaxed focus:border-cyan-400"
                   />
@@ -637,13 +822,17 @@ export default function AboutManagementPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-[10px] font-mono text-slate-500 mb-1">
-                        Jurusan
+                        Jurusan ({isId ? 'Indonesia' : 'English'})
                       </label>
                       <input
                         type="text"
-                        value={form.edu_major}
+                        value={isId ? form.edu_major_id : form.edu_major}
                         onChange={(e) =>
-                          setForm({ ...form, edu_major: e.target.value })
+                          setForm((prev) =>
+                            isId
+                              ? { ...prev, edu_major_id: e.target.value }
+                              : { ...prev, edu_major: e.target.value }
+                          )
                         }
                         className="w-full px-3 py-1.5 rounded-lg bg-[#07090e] border border-white/10 text-white text-xs focus:border-cyan-400"
                       />
@@ -687,26 +876,35 @@ export default function AboutManagementPage() {
                   </div>
                   <div>
                     <label className="block text-[10px] font-mono text-slate-500 mb-1">
-                      Poin Fokus (Satu baris per poin)
+                      Poin Fokus ({isId ? 'Indonesia' : 'English'} - Satu baris
+                      per poin)
                     </label>
                     <textarea
                       rows={3}
-                      value={form.focus_items}
+                      value={isId ? form.focus_items_id : form.focus_items}
                       onChange={(e) =>
-                        setForm({ ...form, focus_items: e.target.value })
+                        setForm((prev) =>
+                          isId
+                            ? { ...prev, focus_items_id: e.target.value }
+                            : { ...prev, focus_items: e.target.value }
+                        )
                       }
                       className="w-full px-3 py-2 rounded-lg bg-[#07090e] border border-white/10 text-white text-xs font-mono leading-relaxed focus:border-cyan-400"
                     />
                   </div>
                   <div>
                     <label className="block text-[10px] font-mono text-slate-500 mb-1">
-                      Label Tag Bawah
+                      Label Tag Bawah ({isId ? 'Indonesia' : 'English'})
                     </label>
                     <input
                       type="text"
-                      value={form.focus_tag}
+                      value={isId ? form.focus_tag_id : form.focus_tag}
                       onChange={(e) =>
-                        setForm({ ...form, focus_tag: e.target.value })
+                        setForm((prev) =>
+                          isId
+                            ? { ...prev, focus_tag_id: e.target.value }
+                            : { ...prev, focus_tag: e.target.value }
+                        )
                       }
                       className="w-full px-3 py-1.5 rounded-lg bg-[#07090e] border border-white/10 text-slate-400 font-mono text-xs focus:border-cyan-400"
                     />
@@ -723,26 +921,35 @@ export default function AboutManagementPage() {
                   </div>
                   <div>
                     <label className="block text-[10px] font-mono text-slate-500 mb-1">
-                      Badge Minat (Pisahkan dengan koma)
+                      Badge Minat ({isId ? 'Indonesia' : 'English'} - Pisahkan
+                      dengan koma)
                     </label>
                     <input
                       type="text"
-                      value={form.interests_tags}
+                      value={isId ? form.interests_tags_id : form.interests_tags}
                       onChange={(e) =>
-                        setForm({ ...form, interests_tags: e.target.value })
+                        setForm((prev) =>
+                          isId
+                            ? { ...prev, interests_tags_id: e.target.value }
+                            : { ...prev, interests_tags: e.target.value }
+                        )
                       }
                       className="w-full px-3 py-2 rounded-lg bg-[#07090e] border border-white/10 text-white text-xs font-mono focus:border-cyan-400"
                     />
                   </div>
                   <div>
                     <label className="block text-[10px] font-mono text-slate-500 mb-1">
-                      Label Tag Bawah
+                      Label Tag Bawah ({isId ? 'Indonesia' : 'English'})
                     </label>
                     <input
                       type="text"
-                      value={form.interests_tag}
+                      value={isId ? form.interests_tag_id : form.interests_tag}
                       onChange={(e) =>
-                        setForm({ ...form, interests_tag: e.target.value })
+                        setForm((prev) =>
+                          isId
+                            ? { ...prev, interests_tag_id: e.target.value }
+                            : { ...prev, interests_tag: e.target.value }
+                        )
                       }
                       className="w-full px-3 py-1.5 rounded-lg bg-[#07090e] border border-white/10 text-slate-400 font-mono text-xs focus:border-cyan-400"
                     />
@@ -759,26 +966,37 @@ export default function AboutManagementPage() {
                   </div>
                   <div>
                     <label className="block text-[10px] font-mono text-slate-500 mb-1">
-                      Layanan Utama (Satu baris per poin)
+                      Layanan Utama ({isId ? 'Indonesia' : 'English'} - Satu
+                      baris per poin)
                     </label>
                     <textarea
                       rows={3}
-                      value={form.what_i_do_items}
+                      value={
+                        isId ? form.what_i_do_items_id : form.what_i_do_items
+                      }
                       onChange={(e) =>
-                        setForm({ ...form, what_i_do_items: e.target.value })
+                        setForm((prev) =>
+                          isId
+                            ? { ...prev, what_i_do_items_id: e.target.value }
+                            : { ...prev, what_i_do_items: e.target.value }
+                        )
                       }
                       className="w-full px-3 py-2 rounded-lg bg-[#07090e] border border-white/10 text-white text-xs font-mono leading-relaxed focus:border-cyan-400"
                     />
                   </div>
                   <div>
                     <label className="block text-[10px] font-mono text-slate-500 mb-1">
-                      Label Tag Bawah
+                      Label Tag Bawah ({isId ? 'Indonesia' : 'English'})
                     </label>
                     <input
                       type="text"
-                      value={form.what_i_do_tag}
+                      value={isId ? form.what_i_do_tag_id : form.what_i_do_tag}
                       onChange={(e) =>
-                        setForm({ ...form, what_i_do_tag: e.target.value })
+                        setForm((prev) =>
+                          isId
+                            ? { ...prev, what_i_do_tag_id: e.target.value }
+                            : { ...prev, what_i_do_tag: e.target.value }
+                        )
                       }
                       className="w-full px-3 py-1.5 rounded-lg bg-[#07090e] border border-white/10 text-slate-400 font-mono text-xs focus:border-cyan-400"
                     />

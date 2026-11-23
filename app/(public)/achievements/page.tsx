@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import {
   ArrowLeft,
@@ -43,6 +43,8 @@ interface AchievementItem {
   verifyLabel?: LocalizedText;
 }
 
+const ACHIEVEMENTS_SYNC_CHANNEL = 'portfolio-sync-achievements';
+
 const DEFAULT_ACHIEVEMENT_IMAGE =
   'https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=800&q=80';
 
@@ -62,6 +64,13 @@ function parseHighlightsSafely(raw: any): string[] {
   if (typeof raw === 'string') {
     const trimmed = raw.trim();
     if (!trimmed) return [];
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+      return trimmed
+        .slice(1, -1)
+        .split(',')
+        .map((s) => s.replace(/^"|"$/g, '').trim())
+        .filter(Boolean);
+    }
     try {
       const parsed = JSON.parse(trimmed);
       if (Array.isArray(parsed)) {
@@ -86,13 +95,12 @@ function resolveCategoryAndStyle(item: any): {
   badgeColor: string;
 } {
   const rawCat = String(item.category || '').toUpperCase().trim();
-  const badgeLower = String(item.badge || item.issuer || '').toLowerCase();
+  const badgeLower = String(
+    item.badge || item.badge_id || item.issuer || ''
+  ).toLowerCase();
 
   let category: AchievementCategory = 'COMPETITION';
-  if (
-    rawCat.includes('HACKATHON') ||
-    badgeLower.includes('hackathon')
-  ) {
+  if (rawCat.includes('HACKATHON') || badgeLower.includes('hackathon')) {
     category = 'HACKATHON';
   } else if (
     rawCat.includes('ACADEMIC') ||
@@ -111,7 +119,8 @@ function resolveCategoryAndStyle(item: any): {
     category = 'AWARDS';
   } else if (
     rawCat.includes('COMPETITION') ||
-    rawCat.includes('KOMPETISI')
+    rawCat.includes('KOMPETISI') ||
+    badgeLower.includes('kompetisi')
   ) {
     category = 'COMPETITION';
   }
@@ -141,9 +150,13 @@ export default function AchievementsPage() {
 
   const [header, setHeader] = useState({
     badge_text: 'HONORS & RECOGNITION',
+    badge_text_id: 'PENGHARGAAN & PENCAPAIAN',
     title: 'Honors & Milestones',
+    title_id: 'Penghargaan & Pencapaian',
     subtitle:
       'A timeline of competitive awards, hackathon recognitions, and academic milestones achieved throughout my software engineering journey.',
+    subtitle_id:
+      'Linimasa penghargaan kompetisi, capaian hackathon, dan tonggak akademik sepanjang perjalanan rekayasa perangkat lunak saya.',
   });
 
   const [achievementsData, setAchievementsData] = useState<AchievementItem[]>([]);
@@ -151,43 +164,66 @@ export default function AchievementsPage() {
 
   const isIndo = language === 'ID';
 
-  useEffect(() => {
-    let isMounted = true;
+  const fetchNeonAchievements = useCallback(async (isMounted?: { current: boolean }) => {
+    try {
+      const response = await fetch('/api/achievements', { cache: 'no-store' });
+      const json = await response.json();
 
-    async function fetchNeonAchievements() {
-      try {
-        const response = await fetch('/api/achievements', { cache: 'no-store' });
-        const json = await response.json();
+      if (isMounted && !isMounted.current) return;
 
-        if (!isMounted) return;
+      if (json.success) {
+        if (json.header) {
+          setHeader({
+            badge_text: json.header.badge_text || 'HONORS & RECOGNITION',
+            badge_text_id:
+              json.header.badge_text_id ||
+              json.header.badge_text ||
+              'PENGHARGAAN & PENCAPAIAN',
+            title: json.header.title || 'Honors & Milestones',
+            title_id:
+              json.header.title_id ||
+              json.header.title ||
+              'Penghargaan & Pencapaian',
+            subtitle:
+              json.header.subtitle ||
+              'A timeline of competitive awards, hackathon recognitions, and academic milestones achieved throughout my software engineering journey.',
+            subtitle_id:
+              json.header.subtitle_id ||
+              json.header.subtitle ||
+              'Linimasa penghargaan kompetisi, capaian hackathon, dan tonggak akademik sepanjang perjalanan rekayasa perangkat lunak saya.',
+          });
+        }
 
-        if (json.success) {
-          if (json.header) {
-            setHeader({
-              badge_text: json.header.badge_text || 'HONORS & RECOGNITION',
-              title: json.header.title || 'Honors & Milestones',
-              subtitle:
-                json.header.subtitle ||
-                'A timeline of competitive awards, hackathon recognitions, and academic milestones achieved throughout my software engineering journey.',
-            });
-          }
-
-          if (Array.isArray(json.data) && json.data.length > 0) {
-            const mapped: AchievementItem[] = json.data.map((item: any, idx: number) => {
+        if (Array.isArray(json.data) && json.data.length > 0) {
+          const mapped: AchievementItem[] = json.data.map(
+            (item: any, idx: number) => {
               const { category, badgeColor } = resolveCategoryAndStyle(item);
-              const highlightsArr = parseHighlightsSafely(item.highlights).map((h) => ({
-                en: h,
-                id: h,
-              }));
+              const enHighlights = parseHighlightsSafely(item.highlights);
+              const idHighlights = parseHighlightsSafely(item.highlights_id);
+              const maxLen = Math.max(enHighlights.length, idHighlights.length);
+              const highlightsArr: LocalizedText[] = Array.from(
+                { length: maxLen },
+                (_, i) => ({
+                  en: enHighlights[i] || idHighlights[i] || '',
+                  id: idHighlights[i] || enHighlights[i] || '',
+                })
+              ).filter((h) => h.en || h.id);
 
               const badgeText = item.badge || item.issuer || 'Achievement';
-              const badgeIdText = item.badge_id || item.badge || item.issuer || 'Pencapaian';
+              const badgeIdText =
+                item.badge_id || item.badge || item.issuer || 'Pencapaian';
               const titleText = item.title || `Achievement #${idx + 1}`;
               const titleIdText = item.title_id || titleText;
               const descText = item.description || item.desc || '';
-              const descIdText = item.description_id || item.desc_id || descText;
-              const dateText = item.date || '2026';
-              const dateIdText = item.date_id || dateText;
+              const descIdText =
+                item.description_id || item.desc_id || descText;
+              const dateText = item.date_str || item.date || '2026';
+              const dateIdText =
+                item.date_str_id || item.date_id || dateText;
+              const locationText =
+                isIndo && item.location_id
+                  ? item.location_id
+                  : item.location || 'Indonesia';
               const captionText =
                 item.image_caption ||
                 item.caption ||
@@ -202,9 +238,10 @@ export default function AchievementsPage() {
                 category,
                 badge: { en: badgeText, id: badgeIdText },
                 badgeColor,
-                organizer: item.issuer || item.organizer || 'Surabaya, Jawa Timur',
+                organizer:
+                  item.issuer || item.organizer || 'Surabaya, Jawa Timur',
                 date: { en: dateText, id: dateIdText },
-                location: item.location || 'Indonesia',
+                location: locationText,
                 title: { en: titleText, id: titleIdText },
                 desc: { en: descText, id: descIdText },
                 highlights: highlightsArr,
@@ -220,33 +257,72 @@ export default function AchievementsPage() {
                 verifyUrl: item.credential_url || item.verify_url || '',
                 verifyLabel: {
                   en: item.verify_label || 'Verify Credential',
-                  id: item.verify_label_id || item.verify_label || 'Verifikasi Sertifikat',
+                  id:
+                    item.verify_label_id ||
+                    item.verify_label ||
+                    'Verifikasi Sertifikat',
                 },
               };
-            });
+            }
+          );
 
-            setAchievementsData(mapped);
-          } else {
-            setAchievementsData([]);
-          }
-        }
-      } catch (err) {
-        if (isMounted) {
-          console.warn('Gagal memuat achievements dari Neon API:', err);
-        }
-      } finally {
-        if (isMounted) {
-          setLoading(false);
+          setAchievementsData(mapped);
+        } else {
+          setAchievementsData([]);
         }
       }
+    } catch (err) {
+      if (!isMounted || isMounted.current) {
+        console.warn('Gagal memuat achievements dari Neon API:', err);
+      }
+    } finally {
+      if (!isMounted || isMounted.current) {
+        setLoading(false);
+      }
+    }
+  }, [isIndo]);
+
+  useEffect(() => {
+    const isMounted = { current: true };
+    let channel: BroadcastChannel | null = null;
+
+    fetchNeonAchievements(isMounted);
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      channel = new BroadcastChannel(ACHIEVEMENTS_SYNC_CHANNEL);
+      channel.onmessage = () => {
+        if (isMounted.current) {
+          fetchNeonAchievements(isMounted);
+        }
+      };
     }
 
-    fetchNeonAchievements();
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === ACHIEVEMENTS_SYNC_CHANNEL && isMounted.current) {
+        fetchNeonAchievements(isMounted);
+      }
+    };
+
+    const handleCustomSync = () => {
+      if (isMounted.current) {
+        fetchNeonAchievements(isMounted);
+      }
+    };
+
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener(ACHIEVEMENTS_SYNC_CHANNEL, handleCustomSync);
+    window.addEventListener('focus', handleCustomSync);
 
     return () => {
-      isMounted = false;
+      isMounted.current = false;
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener(ACHIEVEMENTS_SYNC_CHANNEL, handleCustomSync);
+      window.removeEventListener('focus', handleCustomSync);
+      if (channel) {
+        channel.close();
+      }
     };
-  }, []);
+  }, [fetchNeonAchievements]);
 
   const filterTabs: { key: 'ALL' | AchievementCategory; label: string }[] = [
     { key: 'ALL', label: t('All Milestones', 'Semua Milestone') },
@@ -259,6 +335,16 @@ export default function AchievementsPage() {
   const filteredItems = achievementsData.filter(
     (item) => filter === 'ALL' || item.category === filter
   );
+
+  const activeHeaderBadge = isIndo
+    ? header.badge_text_id || header.badge_text
+    : header.badge_text;
+  const activeHeaderTitle = isIndo
+    ? header.title_id || header.title
+    : header.title;
+  const activeHeaderSubtitle = isIndo
+    ? header.subtitle_id || header.subtitle
+    : header.subtitle;
 
   return (
     <main className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-6">
@@ -280,13 +366,13 @@ export default function AchievementsPage() {
       <div className="pb-5 mb-4 border-b border-[var(--card-border)]">
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent/10 border border-accent/20 text-[11px] font-mono text-accent mb-2">
           <Sparkles size={13} />
-          <span>{header.badge_text}</span>
+          <span>{activeHeaderBadge}</span>
         </div>
         <h1 className="text-2xl sm:text-3xl font-extrabold text-[var(--text-main)] tracking-tight">
-          {header.title}
+          {activeHeaderTitle}
         </h1>
         <p className="text-xs sm:text-sm text-[var(--text-muted)] mt-1 max-w-xl">
-          {header.subtitle}
+          {activeHeaderSubtitle}
         </p>
       </div>
 
@@ -311,22 +397,36 @@ export default function AchievementsPage() {
       {/* Timeline List Container */}
       {loading ? (
         <div className="py-20 text-center text-xs font-mono text-accent">
-          Memuat achievements dari Neon API...
+          {t(
+            'Loading achievements from Neon API...',
+            'Memuat achievements dari Neon API...'
+          )}
         </div>
       ) : filteredItems.length === 0 ? (
         <div className="py-20 text-center text-xs font-mono text-[var(--text-muted)] border border-dashed border-[var(--card-border)] rounded-2xl">
-          Belum ada achievement tercatat di database Neon.
+          {t(
+            'No achievements recorded in Neon database yet.',
+            'Belum ada achievement tercatat di database Neon.'
+          )}
         </div>
       ) : (
         <div className="relative pl-6 sm:pl-8 border-l border-[var(--card-border)] space-y-8">
           {filteredItems.map((item) => {
-            const activeTitle = isIndo ? item.title.id : item.title.en;
-            const activeDesc = isIndo ? item.desc.id : item.desc.en;
-            const activeBadge = isIndo ? item.badge.id : item.badge.en;
-            const activeDate = isIndo ? item.date.id : item.date.en;
+            const activeTitle = isIndo
+              ? item.title.id || item.title.en
+              : item.title.en || item.title.id;
+            const activeDesc = isIndo
+              ? item.desc.id || item.desc.en
+              : item.desc.en || item.desc.id;
+            const activeBadge = isIndo
+              ? item.badge.id || item.badge.en
+              : item.badge.en || item.badge.id;
+            const activeDate = isIndo
+              ? item.date.id || item.date.en
+              : item.date.en || item.date.id;
             const activeCaption = isIndo
-              ? item.imageCaption.id
-              : item.imageCaption.en;
+              ? item.imageCaption.id || item.imageCaption.en
+              : item.imageCaption.en || item.imageCaption.id;
             const activeImageSrc = failedImages[item.id]
               ? DEFAULT_ACHIEVEMENT_IMAGE
               : item.image || DEFAULT_ACHIEVEMENT_IMAGE;
@@ -397,7 +497,7 @@ export default function AchievementsPage() {
                                 size={14}
                                 className="text-accent shrink-0 mt-0.5"
                               />
-                              <span>{isIndo ? h.id : h.en}</span>
+                              <span>{isIndo ? h.id || h.en : h.en || h.id}</span>
                             </div>
                           ))}
                         </div>
@@ -415,8 +515,8 @@ export default function AchievementsPage() {
                             <span>
                               {item.verifyLabel
                                 ? isIndo
-                                  ? item.verifyLabel.id
-                                  : item.verifyLabel.en
+                                  ? item.verifyLabel.id || item.verifyLabel.en
+                                  : item.verifyLabel.en || item.verifyLabel.id
                                 : t('Verify Credential', 'Verifikasi Sertifikat')}
                             </span>
                             <ExternalLink size={12} />

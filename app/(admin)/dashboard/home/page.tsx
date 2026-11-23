@@ -23,18 +23,21 @@ import {
   Loader2,
   Eye,
   Upload,
-  Radio,
+  Languages,
 } from 'lucide-react';
 
 const HOME_SYNC_CHANNEL = 'portfolio-sync-home';
 const ADMIN_SYNC_CHANNEL = 'portfolio-admin-sync';
+const LANG_SYNC_CHANNEL = 'portfolio-lang-sync';
 const HOME_STORAGE_KEY = 'portfolio_home_settings';
+const HOME_BILINGUAL_STORAGE_KEY = 'portfolio_home_bilingual';
 const PROFILE_PHOTO_STORAGE_KEY = 'portfolio_profile_photo_url';
 
-function toSafeNumber(val: string, fallback = 0): number {
-  const parsed = Number(val);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
+const DEFAULT_PROFILE_PHOTO =
+  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80';
+
+const DEFAULT_COVER_PHOTO =
+  'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=1200&q=80';
 
 async function parseJsonSafely(response: Response): Promise<any | null> {
   const contentType = response.headers.get('content-type') || '';
@@ -48,12 +51,64 @@ async function parseJsonSafely(response: Response): Promise<any | null> {
   }
 }
 
+function compressImageFile(
+  file: File,
+  maxWidth: number,
+  quality = 0.8
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Gagal membaca file gambar'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Gagal memuat gambar'));
+      img.onload = () => {
+        const scale = img.width > maxWidth ? maxWidth / img.width : 1;
+        const targetWidth = Math.max(1, Math.round(img.width * scale));
+        const targetHeight = Math.max(1, Math.round(img.height * scale));
+
+        const canvas = document.createElement('canvas');
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(typeof reader.result === 'string' ? reader.result : '');
+          return;
+        }
+        ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      if (typeof reader.result === 'string') {
+        img.src = reader.result;
+      } else {
+        reject(new Error('Format gambar tidak valid'));
+      }
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function safeSetLocalStorage(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Jika kuota localStorage penuh, bersihkan cache lama lalu coba lagi
+    try {
+      localStorage.removeItem(HOME_BILINGUAL_STORAGE_KEY);
+      localStorage.removeItem(HOME_SYNC_CHANNEL);
+      localStorage.setItem(key, value);
+    } catch {
+      // Abaikan jika tetap gagal
+    }
+  }
+}
+
 export default function HomeManagementPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
-  const [livePulse, setLivePulse] = useState(false);
+  const [editLang, setEditLang] = useState<'en' | 'id'>('en');
 
   const profileInputRef = useRef<HTMLInputElement>(null);
   const coverInputRef = useRef<HTMLInputElement>(null);
@@ -61,22 +116,23 @@ export default function HomeManagementPage() {
   const adminChannelRef = useRef<BroadcastChannel | null>(null);
 
   const [formData, setFormData] = useState({
-    subtitle: 'Building the future of digital products',
-    title: 'Ibe Laia , S.Kom',
+    subtitle: '',
+    subtitle_id: '',
+    title: 'Ibe Laia',
     highlight_text: 'Full-Stack Developer',
+    highlight_text_id: 'Software Developer',
     description:
-      'I build modern, secure, and scalable web applications with clean code and exceptional user experience.',
-    hero_cover_url:
-      'https://images.unsplash.com/photo-1550745165-9bc0b252726f?auto=format&fit=crop&w=1200&q=80',
-    profile_photo_url:
-      'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
+      'I build modern, responsive, and scalable web applications with clean code, reliable databases, and thoughtful user experiences.',
+    description_id:
+      'Saya membangun aplikasi web modern, responsif, dan skalabel dengan kode yang bersih, basis data yang andal, serta pengalaman pengguna yang optimal.',
+    hero_cover_url: DEFAULT_COVER_PHOTO,
+    profile_photo_url: DEFAULT_PROFILE_PHOTO,
     primary_btn_text: 'Explore My Work',
+    primary_btn_text_id: 'Jelajahi Karya Saya',
     primary_btn_link: '/projects',
     secondary_btn_text: 'Contact Me',
+    secondary_btn_text_id: 'Hubungi Saya',
     secondary_btn_link: '/contact',
-    projects_completed: 4,
-    happy_clients: 6,
-    years_experience: 8,
   });
 
   const broadcastHomeUpdate = (updatedData: Record<string, any>) => {
@@ -97,25 +153,42 @@ export default function HomeManagementPage() {
       // Abaikan jika BroadcastChannel tidak tersedia
     }
 
-    try {
-      localStorage.setItem(HOME_STORAGE_KEY, JSON.stringify(updatedData));
-      localStorage.setItem(HOME_SYNC_CHANNEL, JSON.stringify(eventDetail));
-      if (updatedData.profile_photo_url) {
-        localStorage.setItem(
-          PROFILE_PHOTO_STORAGE_KEY,
-          updatedData.profile_photo_url
-        );
-      }
-    } catch {
-      // Abaikan jika localStorage diblokir
+    safeSetLocalStorage(HOME_STORAGE_KEY, JSON.stringify(updatedData));
+    safeSetLocalStorage(
+      HOME_BILINGUAL_STORAGE_KEY,
+      JSON.stringify({
+        en: {
+          subtitle: updatedData.subtitle ?? '',
+          title: updatedData.title,
+          highlight_text: updatedData.highlight_text,
+          description: updatedData.description,
+          primary_btn_text: updatedData.primary_btn_text,
+          secondary_btn_text: updatedData.secondary_btn_text,
+        },
+        id: {
+          subtitle: updatedData.subtitle_id ?? '',
+          title: updatedData.title,
+          highlight_text: updatedData.highlight_text_id,
+          description: updatedData.description_id,
+          primary_btn_text: updatedData.primary_btn_text_id,
+          secondary_btn_text: updatedData.secondary_btn_text_id,
+        },
+      })
+    );
+    if (updatedData.profile_photo_url) {
+      safeSetLocalStorage(
+        PROFILE_PHOTO_STORAGE_KEY,
+        updatedData.profile_photo_url
+      );
     }
 
     window.dispatchEvent(
       new CustomEvent(HOME_SYNC_CHANNEL, { detail: eventDetail })
     );
+    window.dispatchEvent(
+      new CustomEvent(LANG_SYNC_CHANNEL, { detail: eventDetail })
+    );
     window.dispatchEvent(new Event('storage'));
-    setLivePulse(true);
-    setTimeout(() => setLivePulse(false), 1800);
   };
 
   useEffect(() => {
@@ -127,89 +200,130 @@ export default function HomeManagementPage() {
     }
 
     async function loadSettings() {
+      let localPhoto: string | null = null;
+      let cachedHome: Record<string, any> = {};
+
       try {
-        try {
-          const cachedRaw = localStorage.getItem(HOME_STORAGE_KEY);
-          const cachedPhoto = localStorage.getItem(PROFILE_PHOTO_STORAGE_KEY);
-          if (cachedRaw && isMounted) {
-            const cached = JSON.parse(cachedRaw);
-            setFormData((prev) => ({
-              ...prev,
-              ...cached,
-              profile_photo_url:
-                cachedPhoto ||
-                cached.profile_photo_url ||
-                prev.profile_photo_url,
-            }));
-          }
-        } catch {
-          // Abaikan error parse cache lokal
-        }
+        const cachedRaw = localStorage.getItem(HOME_STORAGE_KEY);
+        localPhoto = localStorage.getItem(PROFILE_PHOTO_STORAGE_KEY);
+        const cachedBilingualRaw = localStorage.getItem(
+          HOME_BILINGUAL_STORAGE_KEY
+        );
 
-        const endpoints = ['/api/home', '/api/portfolio'];
-        let loadedRecord: Record<string, any> | null = null;
-        let portfolioProjectsCount: number | null = null;
-        let portfolioAchievementsCount: number | null = null;
+        if (cachedRaw && isMounted) {
+          cachedHome = JSON.parse(cachedRaw) || {};
+          const cachedBilingual = cachedBilingualRaw
+            ? JSON.parse(cachedBilingualRaw)
+            : null;
 
-        for (const endpoint of endpoints) {
-          const response = await fetch(endpoint, { cache: 'no-store' });
-          if (!response.ok) continue;
+          const resolvedLocalPhoto =
+            localPhoto ||
+            cachedHome.profile_photo_url ||
+            cachedHome.avatar_url ||
+            DEFAULT_PROFILE_PHOTO;
 
-          const json = await parseJsonSafely(response);
-          if (!json || json.success === false) continue;
-
-          if (endpoint === '/api/portfolio') {
-            if (Array.isArray(json.projects)) {
-              portfolioProjectsCount = json.projects.length;
-            }
-            if (Array.isArray(json.achievements)) {
-              portfolioAchievementsCount = json.achievements.length;
-            }
-          }
-
-          const candidate =
-            endpoint === '/api/portfolio'
-              ? json.home || json.data?.home || json.data
-              : json.data || json.home;
-
-          if (candidate && typeof candidate === 'object' && !loadedRecord) {
-            loadedRecord = candidate;
-          }
-        }
-
-        if (!isMounted) return;
-
-        if (loadedRecord || portfolioProjectsCount !== null || portfolioAchievementsCount !== null) {
           setFormData((prev) => ({
             ...prev,
-            subtitle: loadedRecord?.subtitle || prev.subtitle,
-            title: loadedRecord?.title || prev.title,
-            highlight_text: loadedRecord?.highlight_text || prev.highlight_text,
-            description: loadedRecord?.description || prev.description,
-            hero_cover_url: loadedRecord?.hero_cover_url || prev.hero_cover_url,
-            profile_photo_url:
-              loadedRecord?.profile_photo_url ||
-              loadedRecord?.avatar_url ||
-              prev.profile_photo_url,
-            primary_btn_text:
-              loadedRecord?.primary_btn_text || prev.primary_btn_text,
-            primary_btn_link:
-              loadedRecord?.primary_btn_link || prev.primary_btn_link,
-            secondary_btn_text:
-              loadedRecord?.secondary_btn_text || prev.secondary_btn_text,
-            secondary_btn_link:
-              loadedRecord?.secondary_btn_link || prev.secondary_btn_link,
-            projects_completed:
-              portfolioProjectsCount ??
-              loadedRecord?.projects_completed ??
-              prev.projects_completed,
-            happy_clients:
-              portfolioAchievementsCount ??
-              loadedRecord?.happy_clients ??
-              prev.happy_clients,
-            years_experience:
-              loadedRecord?.years_experience ?? prev.years_experience,
+            ...cachedHome,
+            subtitle:
+              typeof cachedHome.subtitle === 'string'
+                ? cachedHome.subtitle
+                : prev.subtitle,
+            subtitle_id:
+              typeof cachedHome.subtitle_id === 'string'
+                ? cachedHome.subtitle_id
+                : typeof cachedBilingual?.id?.subtitle === 'string'
+                  ? cachedBilingual.id.subtitle
+                  : prev.subtitle_id,
+            highlight_text_id:
+              cachedHome.highlight_text_id ||
+              cachedBilingual?.id?.highlight_text ||
+              prev.highlight_text_id,
+            description_id:
+              cachedHome.description_id ||
+              cachedBilingual?.id?.description ||
+              prev.description_id,
+            primary_btn_text_id:
+              cachedHome.primary_btn_text_id ||
+              cachedBilingual?.id?.primary_btn_text ||
+              prev.primary_btn_text_id,
+            secondary_btn_text_id:
+              cachedHome.secondary_btn_text_id ||
+              cachedBilingual?.id?.secondary_btn_text ||
+              prev.secondary_btn_text_id,
+            hero_cover_url:
+              cachedHome.hero_cover_url || prev.hero_cover_url,
+            profile_photo_url: resolvedLocalPhoto,
           }));
+        } else if (localPhoto && isMounted) {
+          setFormData((prev) => ({
+            ...prev,
+            profile_photo_url: localPhoto as string,
+          }));
+        }
+      } catch {
+        // Abaikan error parse cache lokal
+      }
+
+      try {
+        const response = await fetch('/api/portfolio', { cache: 'no-store' });
+        if (response.ok && isMounted) {
+          const json = await parseJsonSafely(response);
+          if (json && json.success !== false) {
+            const loadedRecord = json.home || json.data?.home || json.data;
+            if (loadedRecord && typeof loadedRecord === 'object') {
+              const apiPhoto =
+                loadedRecord?.profile_photo_url || loadedRecord?.avatar_url;
+              const hasLocalOverride = Boolean(
+                localPhoto ||
+                  cachedHome.profile_photo_url ||
+                  cachedHome.avatar_url
+              );
+              const finalPhoto = hasLocalOverride
+                ? localPhoto ||
+                  cachedHome.profile_photo_url ||
+                  cachedHome.avatar_url ||
+                  apiPhoto ||
+                  DEFAULT_PROFILE_PHOTO
+                : apiPhoto || DEFAULT_PROFILE_PHOTO;
+
+              setFormData((prev) => ({
+                ...prev,
+                subtitle:
+                  typeof loadedRecord?.subtitle === 'string'
+                    ? loadedRecord.subtitle
+                    : prev.subtitle,
+                subtitle_id:
+                  typeof loadedRecord?.subtitle_id === 'string'
+                    ? loadedRecord.subtitle_id
+                    : prev.subtitle_id,
+                title: loadedRecord?.title || prev.title,
+                highlight_text:
+                  loadedRecord?.highlight_text || prev.highlight_text,
+                highlight_text_id:
+                  loadedRecord?.highlight_text_id || prev.highlight_text_id,
+                description: loadedRecord?.description || prev.description,
+                description_id:
+                  loadedRecord?.description_id || prev.description_id,
+                hero_cover_url:
+                  loadedRecord?.hero_cover_url || prev.hero_cover_url,
+                profile_photo_url: finalPhoto,
+                primary_btn_text:
+                  loadedRecord?.primary_btn_text || prev.primary_btn_text,
+                primary_btn_text_id:
+                  loadedRecord?.primary_btn_text_id || prev.primary_btn_text_id,
+                primary_btn_link:
+                  loadedRecord?.primary_btn_link || prev.primary_btn_link,
+                secondary_btn_text:
+                  loadedRecord?.secondary_btn_text || prev.secondary_btn_text,
+                secondary_btn_text_id:
+                  loadedRecord?.secondary_btn_text_id ||
+                  prev.secondary_btn_text_id,
+                secondary_btn_link:
+                  loadedRecord?.secondary_btn_link || prev.secondary_btn_link,
+              }));
+            }
+          }
         }
       } catch (err) {
         if (isMounted) {
@@ -237,7 +351,7 @@ export default function HomeManagementPage() {
     };
   }, []);
 
-  const handleFileUpload = (
+  const handleFileUpload = async (
     e: React.ChangeEvent<HTMLInputElement>,
     field: 'profile_photo_url' | 'hero_cover_url'
   ) => {
@@ -249,26 +363,22 @@ export default function HomeManagementPage() {
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        const nextUrl = reader.result;
-        setFormData((prev) => {
-          const updated = { ...prev, [field]: nextUrl };
-          try {
-            localStorage.setItem(HOME_STORAGE_KEY, JSON.stringify(updated));
-            if (field === 'profile_photo_url') {
-              localStorage.setItem(PROFILE_PHOTO_STORAGE_KEY, nextUrl);
-            }
-          } catch {
-            // Abaikan error penyimpanan lokal
-          }
-          broadcastHomeUpdate(updated);
-          return updated;
-        });
-      }
-    };
-    reader.readAsDataURL(file);
+    try {
+      const maxWidth = field === 'profile_photo_url' ? 600 : 1200;
+      const compressedUrl = await compressImageFile(file, maxWidth, 0.82);
+
+      setFormData((prev) => {
+        const updated = { ...prev, [field]: compressedUrl };
+        safeSetLocalStorage(HOME_STORAGE_KEY, JSON.stringify(updated));
+        if (field === 'profile_photo_url') {
+          safeSetLocalStorage(PROFILE_PHOTO_STORAGE_KEY, compressedUrl);
+        }
+        broadcastHomeUpdate(updated);
+        return updated;
+      });
+    } catch {
+      alert('Gagal memproses gambar. Silakan coba file JPG/PNG/WEBP lain.');
+    }
   };
 
   const handleSave = async () => {
@@ -277,43 +387,45 @@ export default function HomeManagementPage() {
     const payload = {
       ...formData,
       avatar_url: formData.profile_photo_url,
-      projects_completed: toSafeNumber(String(formData.projects_completed), 0),
-      happy_clients: toSafeNumber(String(formData.happy_clients), 0),
-      years_experience: toSafeNumber(String(formData.years_experience), 0),
     };
 
     try {
-      let savedViaApi = false;
       let mergedData: Record<string, any> = payload;
 
-      for (const endpoint of ['/api/portfolio', '/api/home']) {
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          cache: 'no-store',
-          body: JSON.stringify(
-            endpoint === '/api/portfolio' ? { home: payload } : payload
-          ),
-        });
+      const response = await fetch('/api/portfolio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        body: JSON.stringify({ home: payload }),
+      });
 
-        const json = await parseJsonSafely(response);
-        if (response.ok && json && json.success !== false) {
-          savedViaApi = true;
-          mergedData = json.data || json.home || payload;
-          break;
-        }
+      const json = await parseJsonSafely(response);
+      if (response.ok && json && json.success !== false) {
+        const apiHome =
+          json.home && typeof json.home === 'object'
+            ? json.home
+            : json.data && typeof json.data === 'object'
+              ? json.data
+              : {};
+
+        mergedData = {
+          ...payload,
+          ...apiHome,
+          profile_photo_url:
+            apiHome.profile_photo_url ||
+            apiHome.avatar_url ||
+            payload.profile_photo_url,
+          avatar_url:
+            apiHome.avatar_url ||
+            apiHome.profile_photo_url ||
+            payload.profile_photo_url,
+        };
       }
 
       broadcastHomeUpdate(mergedData);
       setTimeout(() => router.refresh(), 50);
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 3000);
-
-      if (!savedViaApi) {
-        console.info(
-          'Foto profil & pengaturan beranda disinkronkan secara lokal lintas tab.'
-        );
-      }
     } catch (err: any) {
       broadcastHomeUpdate(payload);
       setSavedSuccess(true);
@@ -327,6 +439,8 @@ export default function HomeManagementPage() {
   const handleLogout = async () => {
     router.replace('/login');
   };
+
+  const isId = editLang === 'id';
 
   return (
     <div className="min-h-screen bg-[#07090e] text-[#94a3b8] flex flex-col lg:flex-row antialiased">
@@ -488,24 +602,12 @@ export default function HomeManagementPage() {
       <main className="flex-1 px-4 sm:px-8 py-6 max-w-5xl w-full mx-auto space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
           <div>
-            <div className="flex items-center gap-2.5">
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-                Home Management
-              </h1>
-              <span
-                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono border transition-colors ${
-                  livePulse
-                    ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300'
-                    : 'bg-white/5 border-white/10 text-slate-400'
-                }`}
-              >
-                <Radio size={11} className="text-emerald-400" />
-                <span>LIVE SYNC</span>
-              </span>
-            </div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+              Home Management
+            </h1>
             <p className="text-xs text-slate-400 mt-1">
               Manage and customize the content displayed on your portfolio home
-              page via Neon secara dinamis dan real-time.
+              page.
             </p>
           </div>
           <Link
@@ -522,33 +624,62 @@ export default function HomeManagementPage() {
         {loading ? (
           <div className="py-24 text-center text-xs font-mono text-slate-500 flex items-center justify-center gap-2">
             <Loader2 size={18} className="animate-spin text-cyan-400" />
-            <span>Memuat konfigurasi beranda dari Neon API...</span>
+            <span>Memuat konfigurasi beranda...</span>
           </div>
         ) : (
           <div className="space-y-6">
             <div className="bg-[#0b0e17] border border-white/5 rounded-2xl p-5 sm:p-7 space-y-6">
-              <div className="flex items-center justify-between pb-3 border-b border-white/5">
+              <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-white/5">
                 <div>
                   <h2 className="text-sm font-bold text-white">Hero Section</h2>
                   <p className="text-[11px] text-slate-500">
                     Customize your hero section content and appearance.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFormData((prev) => ({
-                      ...prev,
-                      subtitle: 'Building the future of digital products',
-                      title: 'Ibe Laia , S.Kom',
-                      highlight_text: 'Full-Stack Developer',
-                    }));
-                  }}
-                  className="text-[11px] font-mono text-slate-500 hover:text-slate-300 flex items-center gap-1 transition-colors cursor-pointer"
-                >
-                  <RotateCcw size={11} />
-                  <span>Reset</span>
-                </button>
+                <div className="flex items-center gap-3">
+                  <div className="inline-flex items-center rounded-xl bg-[#07090e] border border-white/10 p-1 text-[10px] font-mono">
+                    <Languages size={12} className="text-cyan-400 mx-1.5" />
+                    <button
+                      type="button"
+                      onClick={() => setEditLang('en')}
+                      className={`px-2 py-1 rounded-lg transition-colors cursor-pointer ${
+                        !isId
+                          ? 'bg-cyan-500/20 text-cyan-300 font-bold'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      EN
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditLang('id')}
+                      className={`px-2 py-1 rounded-lg transition-colors cursor-pointer ${
+                        isId
+                          ? 'bg-cyan-500/20 text-cyan-300 font-bold'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      ID
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormData((prev) => ({
+                        ...prev,
+                        subtitle: '',
+                        subtitle_id: '',
+                        title: 'Ibe Laia',
+                        highlight_text: 'Full-Stack Developer',
+                        highlight_text_id: 'Software Developer',
+                      }));
+                    }}
+                    className="text-[11px] font-mono text-slate-500 hover:text-slate-300 flex items-center gap-1 transition-colors cursor-pointer"
+                  >
+                    <RotateCcw size={11} />
+                    <span>Reset</span>
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-5">
@@ -611,13 +742,17 @@ export default function HomeManagementPage() {
               <div className="space-y-4 pt-2">
                 <div>
                   <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                    Subtitle
+                    Subtitle ({isId ? 'Bahasa Indonesia' : 'English'})
                   </label>
                   <input
                     type="text"
-                    value={formData.subtitle}
+                    value={isId ? formData.subtitle_id : formData.subtitle}
                     onChange={(e) =>
-                      setFormData({ ...formData, subtitle: e.target.value })
+                      setFormData((prev) =>
+                        isId
+                          ? { ...prev, subtitle_id: e.target.value }
+                          : { ...prev, subtitle: e.target.value }
+                      )
                     }
                     className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-xs text-white focus:outline-none focus:border-cyan-400 font-mono"
                   />
@@ -640,16 +775,22 @@ export default function HomeManagementPage() {
 
                   <div>
                     <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                      Highlight Text (Role)
+                      Highlight Text (Role) (
+                      {isId ? 'Bahasa Indonesia' : 'English'})
                     </label>
                     <input
                       type="text"
-                      value={formData.highlight_text}
+                      value={
+                        isId
+                          ? formData.highlight_text_id
+                          : formData.highlight_text
+                      }
                       onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          highlight_text: e.target.value,
-                        })
+                        setFormData((prev) =>
+                          isId
+                            ? { ...prev, highlight_text_id: e.target.value }
+                            : { ...prev, highlight_text: e.target.value }
+                        )
                       }
                       className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-xs text-white focus:outline-none focus:border-cyan-400 font-mono"
                     />
@@ -658,13 +799,19 @@ export default function HomeManagementPage() {
 
                 <div>
                   <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                    Description
+                    Description ({isId ? 'Bahasa Indonesia' : 'English'})
                   </label>
                   <textarea
                     rows={3}
-                    value={formData.description}
+                    value={
+                      isId ? formData.description_id : formData.description
+                    }
                     onChange={(e) =>
-                      setFormData({ ...formData, description: e.target.value })
+                      setFormData((prev) =>
+                        isId
+                          ? { ...prev, description_id: e.target.value }
+                          : { ...prev, description: e.target.value }
+                      )
                     }
                     className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-xs text-white focus:outline-none focus:border-cyan-400 leading-relaxed"
                   />
@@ -679,16 +826,22 @@ export default function HomeManagementPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-[10px] font-mono text-slate-500 mb-1">
-                      Primary Button Text
+                      Primary Button Text (
+                      {isId ? 'Bahasa Indonesia' : 'English'})
                     </label>
                     <input
                       type="text"
-                      value={formData.primary_btn_text}
+                      value={
+                        isId
+                          ? formData.primary_btn_text_id
+                          : formData.primary_btn_text
+                      }
                       onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          primary_btn_text: e.target.value,
-                        })
+                        setFormData((prev) =>
+                          isId
+                            ? { ...prev, primary_btn_text_id: e.target.value }
+                            : { ...prev, primary_btn_text: e.target.value }
+                        )
                       }
                       className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-xs text-white focus:outline-none focus:border-cyan-400"
                     />
@@ -714,16 +867,22 @@ export default function HomeManagementPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-[10px] font-mono text-slate-500 mb-1">
-                      Secondary Button Text
+                      Secondary Button Text (
+                      {isId ? 'Bahasa Indonesia' : 'English'})
                     </label>
                     <input
                       type="text"
-                      value={formData.secondary_btn_text}
+                      value={
+                        isId
+                          ? formData.secondary_btn_text_id
+                          : formData.secondary_btn_text
+                      }
                       onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          secondary_btn_text: e.target.value,
-                        })
+                        setFormData((prev) =>
+                          isId
+                            ? { ...prev, secondary_btn_text_id: e.target.value }
+                            : { ...prev, secondary_btn_text: e.target.value }
+                        )
                       }
                       className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-xs text-white focus:outline-none focus:border-cyan-400"
                     />
@@ -742,62 +901,6 @@ export default function HomeManagementPage() {
                         })
                       }
                       className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-xs text-slate-300 font-mono focus:outline-none focus:border-cyan-400"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="pt-4 border-t border-white/5 space-y-3">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-bold block">
-                  Key Statistics
-                </span>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-[10px] font-mono text-slate-500 mb-1">
-                      Projects Completed
-                    </label>
-                    <input
-                      type="number"
-                      value={formData.projects_completed}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          projects_completed: toSafeNumber(e.target.value, 0),
-                        })
-                      }
-                      className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-xs text-white focus:outline-none focus:border-cyan-400 font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-mono text-slate-500 mb-1">
-                      Achievements
-                    </label>
-                    <input
-                      type="number"
-                      value={formData.happy_clients}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          happy_clients: toSafeNumber(e.target.value, 0),
-                        })
-                      }
-                      className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-xs text-white focus:outline-none focus:border-cyan-400 font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-mono text-slate-500 mb-1">
-                      Years Experience
-                    </label>
-                    <input
-                      type="number"
-                      value={formData.years_experience}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          years_experience: toSafeNumber(e.target.value, 0),
-                        })
-                      }
-                      className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-xs text-white focus:outline-none focus:border-cyan-400 font-mono"
                     />
                   </div>
                 </div>

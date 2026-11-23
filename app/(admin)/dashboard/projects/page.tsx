@@ -28,7 +28,7 @@ import {
   FileText,
   Sparkles,
   Wand2,
-  Radio,
+  ArrowLeft,
 } from 'lucide-react';
 
 interface SubProjectItem {
@@ -72,6 +72,7 @@ const IT_CATEGORIES = [
 ];
 
 const PROJECTS_SYNC_CHANNEL = 'portfolio-sync-projects';
+const PROJECTS_COUNT_KEY = 'portfolio_projects_count';
 
 function ProjectsManagementContent() {
   const router = useRouter();
@@ -83,16 +84,26 @@ function ProjectsManagementContent() {
   const syncChannelRef = useRef<BroadcastChannel | null>(null);
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
 
-  const [totalCount, setTotalCount] = useState(0);
-  const [, setLoading] = useState(true);
+  const [totalCount, setTotalCount] = useState<number>(() => {
+    if (typeof window === 'undefined') return 0;
+    try {
+      const saved = localStorage.getItem(PROJECTS_COUNT_KEY);
+      const parsed = saved ? Number(saved) : 0;
+      return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+    } catch {
+      return 0;
+    }
+  });
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [livePulse, setLivePulse] = useState(false);
   const [toast, setToast] = useState<{
     message: string;
     type: 'success' | 'error';
   } | null>(null);
 
-  const [activeView, setActiveView] = useState<'hub' | 'form'>('hub');
+  const [activeView, setActiveView] = useState<'hub' | 'form'>(
+    editIdParam ? 'form' : 'hub'
+  );
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const [form, setForm] = useState({
@@ -126,13 +137,22 @@ function ProjectsManagementContent() {
   };
 
   const broadcastProjectsUpdate = useCallback(
-    (action: string, detailData?: any) => {
+    (action: string, detailData?: any, nextCount?: number) => {
       const eventDetail = {
         section: 'projects',
         action,
+        count: typeof nextCount === 'number' ? nextCount : undefined,
         updatedAt: Date.now(),
         data: detailData,
       };
+
+      try {
+        if (typeof nextCount === 'number') {
+          localStorage.setItem(PROJECTS_COUNT_KEY, String(nextCount));
+        }
+      } catch {
+        // Abaikan jika localStorage diblokir
+      }
 
       try {
         if (syncChannelRef.current) {
@@ -154,8 +174,6 @@ function ProjectsManagementContent() {
       window.dispatchEvent(
         new CustomEvent(PROJECTS_SYNC_CHANNEL, { detail: eventDetail })
       );
-      setLivePulse(true);
-      setTimeout(() => setLivePulse(false), 1800);
     },
     []
   );
@@ -178,7 +196,13 @@ function ProjectsManagementContent() {
         if (isMountedRef && !isMountedRef.current) return;
 
         if (json?.success && Array.isArray(json.data)) {
-          setTotalCount(json.data.length);
+          const count = json.data.length;
+          setTotalCount(count);
+          try {
+            localStorage.setItem(PROJECTS_COUNT_KEY, String(count));
+          } catch {
+            // Abaikan jika localStorage diblokir
+          }
 
           if (editId) {
             const found = json.data.find(
@@ -214,12 +238,21 @@ function ProjectsManagementContent() {
                 modular_blocks: isModular ? rawItems : [],
               });
               setActiveView('form');
+            } else {
+              setActiveView('hub');
             }
+          } else {
+            setActiveView('hub');
           }
+        } else if (editId) {
+          setActiveView('hub');
         }
       } catch (err) {
         if (!isMountedRef || isMountedRef.current) {
           console.warn('Gagal memuat data projects:', err);
+          if (editId) {
+            setActiveView('hub');
+          }
         }
       } finally {
         if (!isMountedRef || isMountedRef.current) {
@@ -323,6 +356,14 @@ function ProjectsManagementContent() {
     setActiveView('form');
   };
 
+  const handleBackToHub = () => {
+    setEditingId(null);
+    setActiveView('hub');
+    if (editIdParam) {
+      router.replace('/dashboard/projects');
+    }
+  };
+
   const handleAddBlock = (type: ModularBlock['type']) => {
     const titles: Record<ModularBlock['type'], string> = {
       narasi_foto: 'Narasi & Ilustrasi Foto',
@@ -418,15 +459,18 @@ function ProjectsManagementContent() {
       }
 
       if (response.ok && json?.success) {
+        const nextCount = editingId ? totalCount : totalCount + 1;
+        setTotalCount(nextCount);
         broadcastProjectsUpdate(
           editingId ? 'update' : 'create',
-          json.data ?? payload
+          json.data ?? payload,
+          nextCount
         );
         setTimeout(() => router.refresh(), 50);
         showToast(
           editingId
-            ? 'Proyek berhasil diperbarui ke Neon & disinkronkan secara real-time!'
-            : 'Proyek baru berhasil disimpan ke Neon & disinkronkan secara real-time!'
+            ? 'Proyek berhasil diperbarui ke Neon & disinkronkan!'
+            : 'Proyek baru berhasil disimpan ke Neon & disinkronkan!'
         );
         router.push('/dashboard/projects/list');
       } else {
@@ -631,52 +675,49 @@ function ProjectsManagementContent() {
 
       {/* MAIN CONTENT */}
       <main className="flex-1 px-4 sm:px-8 py-6 max-w-6xl w-full mx-auto space-y-8">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
-          <div>
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-[11px] font-mono text-cyan-400 mb-2">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-white/5">
+          <div className="space-y-1">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-[11px] font-mono text-cyan-400 mb-1">
               <Sparkles size={12} />
               <span>CUSTOM PROJECTS BUILDER</span>
-              <span
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] border transition-colors ${
-                  livePulse
-                    ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300'
-                    : 'bg-white/5 border-white/10 text-slate-400'
-                }`}
-              >
-                <Radio size={10} className="text-emerald-400" />
-                <span>LIVE SYNC</span>
-              </span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
               Projects Management Hub
             </h1>
-            <p className="text-xs text-slate-400 mt-1">
+            <p className="text-xs text-slate-400 max-w-2xl">
               Pusat kontrol untuk merancang, menyusun blok modular, dan
-              mengelola portofolio proyek via Neon secara dinamis dan real-time.
+              mengelola portofolio proyek via Neon secara dinamis.
             </p>
           </div>
-          <div className="flex items-center gap-3">
+
+          <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+            {activeView === 'form' && (
+              <button
+                type="button"
+                onClick={handleBackToHub}
+                className="px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-slate-200 hover:text-white inline-flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap"
+              >
+                <ArrowLeft size={13} />
+                <span>Kembali ke Hub</span>
+              </button>
+            )}
             <Link
               href="/projects"
               target="_blank"
-              className="px-3.5 py-2 rounded-xl bg-[#0b0e17] border border-white/10 hover:border-white/20 text-xs font-mono text-slate-300 hover:text-white flex items-center gap-2 transition-colors"
+              className="px-3.5 py-2 rounded-xl bg-[#0b0e17] border border-white/10 hover:border-cyan-500/40 text-xs font-mono text-slate-300 hover:text-white inline-flex items-center gap-2 transition-colors whitespace-nowrap"
             >
               <Eye size={13} className="text-cyan-400" />
               <span>Lihat Halaman Publik</span>
             </Link>
-            {activeView === 'form' && (
-              <button
-                type="button"
-                onClick={() => setActiveView('hub')}
-                className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-300 transition-all cursor-pointer"
-              >
-                ← Kembali ke Hub
-              </button>
-            )}
           </div>
         </div>
 
-        {activeView === 'hub' && (
+        {loading && editIdParam ? (
+          <div className="py-24 text-center text-xs font-mono text-slate-400 flex items-center justify-center gap-2 bg-[#0b0e17] border border-white/5 rounded-3xl">
+            <Loader2 size={18} className="animate-spin text-cyan-400" />
+            <span>Memuat detail proyek...</span>
+          </div>
+        ) : activeView === 'hub' ? (
           <div className="space-y-8 animate-in fade-in duration-300">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div
@@ -736,11 +777,9 @@ function ProjectsManagementContent() {
               </div>
             </div>
           </div>
-        )}
-
-        {activeView === 'form' && (
+        ) : (
           <div className="bg-[#0b0e17] border border-white/10 rounded-3xl p-6 sm:p-8 shadow-2xl animate-in fade-in duration-300 space-y-8">
-            <div className="flex items-center justify-between pb-5 border-b border-white/10">
+            <div className="flex items-center justify-between gap-4 pb-5 border-b border-white/10">
               <div>
                 <h2 className="text-lg font-bold text-white">
                   {editingId
@@ -754,8 +793,8 @@ function ProjectsManagementContent() {
               </div>
               <button
                 type="button"
-                onClick={() => setActiveView('hub')}
-                className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-xs text-slate-300 transition-colors cursor-pointer"
+                onClick={handleBackToHub}
+                className="px-3.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-slate-300 hover:text-white transition-colors cursor-pointer shrink-0"
               >
                 Batal
               </button>
@@ -1296,7 +1335,7 @@ function ProjectsManagementContent() {
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
                 <button
                   type="button"
-                  onClick={() => setActiveView('hub')}
+                  onClick={handleBackToHub}
                   className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 font-semibold cursor-pointer transition-colors"
                 >
                   Batal

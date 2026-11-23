@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import {
   Mail,
@@ -20,18 +20,28 @@ import {
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 
+export const dynamic = 'force-dynamic';
+
+const CONTACT_SYNC_CHANNEL = 'portfolio-sync-contact';
+
 const DEFAULT_TERMINAL_IMAGE =
   'https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=1000&q=80';
 
 const INITIAL_CONTACT_INFO = {
   badge_text: 'GET IN TOUCH',
+  badge_text_id: 'HUBUNGI SAYA',
   title: "Let's Build Something Meaningful.",
+  title_id: 'Mari Membangun Sesuatu yang Bermakna.',
   subtitle:
     "I'm always open to discussing web engineering projects, partnership opportunities, or technical inquiries. Have an idea, project, or role in mind? Let's talk.",
+  subtitle_id:
+    'Saya selalu terbuka untuk berdiskusi mengenai proyek rekayasa web, peluang kemitraan, maupun pertanyaan teknis. Punya ide atau proyek? Mari ngobrol.',
   email: 'hello@ibelaia.dev',
   phone: '+62 812 3456 7890',
   location: 'Surabaya, Indonesia',
-  response_time: '< 24 Jam Kerja',
+  location_id: 'Surabaya, Indonesia',
+  response_time: '< 24 Business Hours',
+  response_time_id: '< 24 Jam Kerja',
   terminal_image: DEFAULT_TERMINAL_IMAGE,
   github_url: 'https://github.com/ibelaia',
   linkedin_url: 'https://linkedin.com',
@@ -46,8 +56,38 @@ const INITIAL_FORM_DATA = {
   message: '',
 };
 
+function isIndonesianLocale(lang: unknown): boolean {
+  if (!lang) return false;
+  const normalized = String(lang).trim().toLowerCase();
+  return (
+    normalized === 'id' ||
+    normalized === 'ind' ||
+    normalized === 'indonesia' ||
+    normalized.startsWith('id-') ||
+    normalized.startsWith('id_')
+  );
+}
+
 export default function ContactPage() {
-  const { t } = useApp();
+  const appContext = useApp() as any;
+  const t =
+    typeof appContext?.t === 'function'
+      ? appContext.t
+      : (en: string, id: string) =>
+          isIndonesianLocale(appContext?.lang) ? id : en;
+
+  const isId = useMemo(() => {
+    const rawLang =
+      appContext?.lang ??
+      appContext?.locale ??
+      appContext?.language ??
+      (typeof t('EN_CHECK', 'ID_CHECK') === 'string' &&
+      t('EN_CHECK', 'ID_CHECK') === 'ID_CHECK'
+        ? 'id'
+        : 'en');
+    return isIndonesianLocale(rawLang);
+  }, [appContext, t]);
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -57,61 +97,177 @@ export default function ContactPage() {
   const [contactInfo, setContactInfo] = useState(INITIAL_CONTACT_INFO);
   const [formData, setFormData] = useState(INITIAL_FORM_DATA);
 
+  const fetchNeonContactData = useCallback(async (showSpinner = false) => {
+    if (showSpinner) setLoading(true);
+    try {
+      const [contactRes, settingsRes] = await Promise.allSettled([
+        fetch(`/api/contact?t=${Date.now()}`, { cache: 'no-store' }),
+        fetch(`/api/settings?t=${Date.now()}`, { cache: 'no-store' }),
+      ]);
+
+      let contactJson: any = null;
+      if (contactRes.status === 'fulfilled') {
+        const rawText = await contactRes.value.text();
+        try {
+          contactJson = rawText ? JSON.parse(rawText) : null;
+        } catch {
+          contactJson = null;
+        }
+      }
+
+      let settingsData: any = null;
+      if (settingsRes.status === 'fulfilled') {
+        const rawSettingsText = await settingsRes.value.text();
+        try {
+          const settingsJson = rawSettingsText
+            ? JSON.parse(rawSettingsText)
+            : null;
+          if (settingsJson?.success && settingsJson?.data) {
+            settingsData = settingsJson.data;
+          }
+        } catch {
+          settingsData = null;
+        }
+      }
+
+      const content = contactJson?.content || null;
+
+      setTerminalImageFailed(false);
+      setContactInfo((prev) => ({
+        badge_text:
+          content?.badge_text ||
+          settingsData?.contact_badge ||
+          prev.badge_text,
+        badge_text_id:
+          content?.badge_text_id ||
+          settingsData?.contact_badge_id ||
+          prev.badge_text_id,
+        title:
+          content?.title || settingsData?.contact_title || prev.title,
+        title_id:
+          content?.title_id ||
+          settingsData?.contact_title_id ||
+          prev.title_id,
+        subtitle:
+          content?.subtitle ||
+          settingsData?.contact_subtitle ||
+          settingsData?.site_tagline ||
+          prev.subtitle,
+        subtitle_id:
+          content?.subtitle_id ||
+          settingsData?.contact_subtitle_id ||
+          prev.subtitle_id,
+        email:
+          content?.email ||
+          settingsData?.contact_email ||
+          settingsData?.email ||
+          prev.email,
+        phone:
+          content?.phone ||
+          settingsData?.contact_phone ||
+          settingsData?.phone ||
+          prev.phone,
+        location:
+          content?.location || settingsData?.location || prev.location,
+        location_id:
+          content?.location_id ||
+          settingsData?.location_id ||
+          content?.location ||
+          prev.location_id,
+        response_time:
+          content?.response_time ||
+          settingsData?.response_time ||
+          prev.response_time,
+        response_time_id:
+          content?.response_time_id ||
+          settingsData?.response_time_id ||
+          prev.response_time_id,
+        terminal_image:
+          content?.terminal_image ||
+          settingsData?.contact_image_url ||
+          prev.terminal_image ||
+          DEFAULT_TERMINAL_IMAGE,
+        github_url: settingsData?.github_url || prev.github_url,
+        linkedin_url: settingsData?.linkedin_url || prev.linkedin_url,
+        instagram_url: settingsData?.instagram_url || prev.instagram_url,
+        telegram_url: settingsData?.telegram_url || prev.telegram_url,
+      }));
+    } catch (err) {
+      console.warn('Gagal memuat contact content dari Neon API:', err);
+    } finally {
+      if (showSpinner) {
+        setLoading(false);
+      }
+    }
+  }, []);
+
   useEffect(() => {
     let isMounted = true;
 
-    async function fetchNeonContactData() {
-      try {
-        const response = await fetch('/api/settings', { cache: 'no-store' });
-        const json = await response.json();
+    fetchNeonContactData(true).finally(() => {
+      if (isMounted) setLoading(false);
+    });
 
-        if (!isMounted) return;
+    const handleSyncEvent = () => {
+      if (!isMounted) return;
+      fetchNeonContactData(false);
+    };
 
-        if (json.success && json.data) {
-          const data = json.data;
-          setTerminalImageFailed(false);
-          setContactInfo({
-            badge_text: data.contact_badge || INITIAL_CONTACT_INFO.badge_text,
-            title: data.contact_title || INITIAL_CONTACT_INFO.title,
-            subtitle:
-              data.contact_subtitle ||
-              data.site_tagline ||
-              INITIAL_CONTACT_INFO.subtitle,
-            email:
-              data.contact_email || data.email || INITIAL_CONTACT_INFO.email,
-            phone:
-              data.contact_phone || data.phone || INITIAL_CONTACT_INFO.phone,
-            location: data.location || INITIAL_CONTACT_INFO.location,
-            response_time:
-              data.response_time || INITIAL_CONTACT_INFO.response_time,
-            terminal_image:
-              data.contact_image_url || DEFAULT_TERMINAL_IMAGE,
-            github_url: data.github_url || INITIAL_CONTACT_INFO.github_url,
-            linkedin_url:
-              data.linkedin_url || INITIAL_CONTACT_INFO.linkedin_url,
-            instagram_url:
-              data.instagram_url || INITIAL_CONTACT_INFO.instagram_url,
-            telegram_url:
-              data.telegram_url || INITIAL_CONTACT_INFO.telegram_url,
-          });
-        }
-      } catch (err) {
-        if (isMounted) {
-          console.warn('Gagal memuat contact content dari Neon API:', err);
-        }
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
-      }
+    let channel: BroadcastChannel | null = null;
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      channel = new BroadcastChannel(CONTACT_SYNC_CHANNEL);
+      channel.onmessage = handleSyncEvent;
     }
 
-    fetchNeonContactData();
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === CONTACT_SYNC_CHANNEL) {
+        handleSyncEvent();
+      }
+    };
+
+    window.addEventListener(CONTACT_SYNC_CHANNEL, handleSyncEvent);
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('focus', handleSyncEvent);
 
     return () => {
       isMounted = false;
+      if (channel) {
+        channel.close();
+      }
+      window.removeEventListener(CONTACT_SYNC_CHANNEL, handleSyncEvent);
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('focus', handleSyncEvent);
     };
-  }, []);
+  }, [fetchNeonContactData]);
+
+  const broadcastNewMessageToInbox = (newMsgData: any) => {
+    const eventDetail = {
+      section: 'contact',
+      action: 'new_message',
+      updatedAt: Date.now(),
+      data: newMsgData,
+    };
+
+    try {
+      if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+        const ch = new BroadcastChannel(CONTACT_SYNC_CHANNEL);
+        ch.postMessage(eventDetail);
+        ch.close();
+      }
+    } catch {
+      // Abaikan jika BroadcastChannel tidak tersedia
+    }
+
+    try {
+      localStorage.setItem(CONTACT_SYNC_CHANNEL, JSON.stringify(eventDetail));
+    } catch {
+      // Abaikan jika localStorage diblokir
+    }
+
+    window.dispatchEvent(
+      new CustomEvent(CONTACT_SYNC_CHANNEL, { detail: eventDetail })
+    );
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -122,16 +278,24 @@ export default function ContactPage() {
       const response = await fetch('/api/contact', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
         body: JSON.stringify(formData),
       });
-      const json = await response.json();
+      const rawText = await response.text();
+      let json: any = null;
+      try {
+        json = rawText ? JSON.parse(rawText) : null;
+      } catch {
+        json = null;
+      }
 
-      if (response.ok && json.success) {
+      if (response.ok && json?.success) {
+        broadcastNewMessageToInbox(json.data ?? formData);
         setSubmitted(true);
         setFormData(INITIAL_FORM_DATA);
       } else {
         throw new Error(
-          json.error || 'Terjadi kesalahan saat mengirim pesan.'
+          json?.error || 'Terjadi kesalahan saat mengirim pesan.'
         );
       }
     } catch (err: any) {
@@ -147,11 +311,39 @@ export default function ContactPage() {
       <main className="w-full min-h-[60vh] flex flex-col items-center justify-center gap-3">
         <Loader2 size={24} className="animate-spin text-accent" />
         <span className="text-xs font-mono text-[var(--text-muted)]">
-          Memuat halaman kontak dari Neon API...
+          {t(
+            'Loading contact page from Neon API...',
+            'Memuat halaman kontak dari Neon API...'
+          )}
         </span>
       </main>
     );
   }
+
+  const displayBadge =
+    isId && contactInfo.badge_text_id?.trim()
+      ? contactInfo.badge_text_id.trim()
+      : contactInfo.badge_text;
+
+  const displayTitle =
+    isId && contactInfo.title_id?.trim()
+      ? contactInfo.title_id.trim()
+      : contactInfo.title;
+
+  const displaySubtitle =
+    isId && contactInfo.subtitle_id?.trim()
+      ? contactInfo.subtitle_id.trim()
+      : contactInfo.subtitle;
+
+  const displayLocation =
+    isId && contactInfo.location_id?.trim()
+      ? contactInfo.location_id.trim()
+      : contactInfo.location;
+
+  const displayResponseTime =
+    isId && contactInfo.response_time_id?.trim()
+      ? contactInfo.response_time_id.trim()
+      : contactInfo.response_time;
 
   const activeTerminalImage = terminalImageFailed
     ? DEFAULT_TERMINAL_IMAGE
@@ -201,15 +393,15 @@ export default function ContactPage() {
         <div className="lg:col-span-6">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent/10 border border-accent/20 text-[11px] font-mono text-accent mb-3">
             <Sparkles size={12} />
-            <span>{contactInfo.badge_text}</span>
+            <span>{displayBadge}</span>
           </div>
 
           <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-[var(--text-main)] tracking-tight leading-tight mb-4">
-            {contactInfo.title}
+            {displayTitle}
           </h1>
 
           <p className="text-xs sm:text-sm text-[var(--text-muted)] leading-relaxed mb-6 max-w-lg">
-            {contactInfo.subtitle}
+            {displaySubtitle}
           </p>
 
           <div className="flex flex-wrap items-center gap-3">
@@ -435,10 +627,10 @@ export default function ContactPage() {
               </div>
               <div>
                 <span className="text-[10px] font-mono uppercase text-[var(--text-muted)] block leading-tight">
-                  Location
+                  {t('Location', 'Lokasi')}
                 </span>
                 <span className="text-[11px] sm:text-xs font-semibold text-[var(--text-main)] mt-0.5 block truncate">
-                  {contactInfo.location}
+                  {displayLocation}
                 </span>
               </div>
             </div>
@@ -450,10 +642,10 @@ export default function ContactPage() {
               </div>
               <div>
                 <span className="text-[10px] font-mono uppercase text-[var(--text-muted)] block leading-tight">
-                  Response
+                  {t('Response', 'Respon')}
                 </span>
                 <span className="text-[11px] sm:text-xs font-semibold text-[var(--text-main)] mt-0.5 block truncate">
-                  {contactInfo.response_time}
+                  {displayResponseTime}
                 </span>
               </div>
             </div>

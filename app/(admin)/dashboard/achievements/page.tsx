@@ -25,17 +25,23 @@ import {
   Trash2,
   Edit3,
   Eye,
-  Radio,
+  Languages,
 } from 'lucide-react';
 
 interface AchievementItem {
   id: string;
   badge: string;
+  badge_id?: string;
   title: string;
+  title_id?: string;
   description: string;
+  description_id?: string;
   highlights: string[];
+  highlights_id?: string[];
   date_str: string;
+  date_str_id?: string;
   location: string;
+  location_id?: string;
   image_url: string;
   credential_url: string;
 }
@@ -65,24 +71,54 @@ function parseHighlightsString(raw: any): string {
   return '';
 }
 
+function parseHighlightsArray(raw: any): string[] {
+  if (Array.isArray(raw)) {
+    return raw.map((h: any) => String(h ?? '').trim()).filter(Boolean);
+  }
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+      return trimmed
+        .slice(1, -1)
+        .split(',')
+        .map((h) => h.replace(/^"|"$/g, '').trim())
+        .filter(Boolean);
+    }
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parseHighlightsArray(parsed);
+      }
+    } catch {
+      // Lanjut split koma
+    }
+    return trimmed
+      .split(',')
+      .map((h: string) => h.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
 function normalizeAchievementItem(item: any, index = 0): AchievementItem {
-  const highlights = Array.isArray(item?.highlights)
-    ? item.highlights.map((h: any) => String(h ?? '').trim()).filter(Boolean)
-    : typeof item?.highlights === 'string'
-      ? item.highlights
-          .split(',')
-          .map((h: string) => h.trim())
-          .filter(Boolean)
-      : [];
+  const highlights = parseHighlightsArray(item?.highlights);
+  const highlightsId = parseHighlightsArray(item?.highlights_id);
 
   return {
     id: item?.id ? String(item.id) : `ach-${Date.now()}-${index}`,
     badge: item?.badge || 'Competitions',
+    badge_id: item?.badge_id || '',
     title: item?.title || 'Untitled Achievement',
+    title_id: item?.title_id || '',
     description: item?.description || '',
+    description_id: item?.description_id || '',
     highlights,
+    highlights_id: highlightsId,
     date_str: item?.date_str || 'December 2024',
+    date_str_id: item?.date_str_id || '',
     location: item?.location || 'Surabaya, Indonesia',
+    location_id: item?.location_id || '',
     image_url: item?.image_url || '/placeholder.svg',
     credential_url: item?.credential_url || '',
   };
@@ -95,7 +131,7 @@ export default function AchievementsManagementPage() {
   const [loading, setLoading] = useState(true);
   const [savingHeader, setSavingHeader] = useState(false);
   const [savingItem, setSavingItem] = useState(false);
-  const [livePulse, setLivePulse] = useState(false);
+  const [headerLang, setHeaderLang] = useState<'EN' | 'ID'>('EN');
   const [toast, setToast] = useState<{
     message: string;
     type: 'success' | 'error';
@@ -103,9 +139,13 @@ export default function AchievementsManagementPage() {
 
   const [headerForm, setHeaderForm] = useState({
     badge_text: 'HONORS & RECOGNITION',
+    badge_text_id: 'PENGHARGAAN & PENCAPAIAN',
     title: 'Honors & Milestones',
+    title_id: 'Penghargaan & Pencapaian',
     subtitle:
       'A timeline of competitive awards, hackathon recognitions, and academic milestones achieved throughout my software engineering journey.',
+    subtitle_id:
+      'Linimasa penghargaan kompetisi, capaian hackathon, dan tonggak akademik sepanjang perjalanan rekayasa perangkat lunak saya.',
   });
 
   const [achievements, setAchievements] = useState<AchievementItem[]>([]);
@@ -114,11 +154,17 @@ export default function AchievementsManagementPage() {
 
   const [modalForm, setModalForm] = useState({
     badge: 'Competitions',
+    badge_id: 'Kompetisi',
     title: '',
+    title_id: '',
     description: '',
+    description_id: '',
     highlightsStr: 'Lighthouse 98/100, Clean Architecture',
+    highlightsStr_id: 'Performa Lighthouse 98/100, Arsitektur Bersih',
     date_str: 'December 2024',
+    date_str_id: 'Desember 2024',
     location: 'Surabaya, Jawa Timur',
+    location_id: 'Surabaya, Jawa Timur',
     image_url: '/placeholder.svg',
     credential_url: '',
   });
@@ -160,8 +206,6 @@ export default function AchievementsManagementPage() {
     window.dispatchEvent(
       new CustomEvent(ACHIEVEMENTS_SYNC_CHANNEL, { detail: eventDetail })
     );
-    setLivePulse(true);
-    setTimeout(() => setLivePulse(false), 1800);
   };
 
   useEffect(() => {
@@ -184,10 +228,16 @@ export default function AchievementsManagementPage() {
           if (json.header) {
             setHeaderForm({
               badge_text: json.header.badge_text || 'HONORS & RECOGNITION',
+              badge_text_id:
+                json.header.badge_text_id || 'PENGHARGAAN & PENCAPAIAN',
               title: json.header.title || 'Honors & Milestones',
+              title_id: json.header.title_id || 'Penghargaan & Pencapaian',
               subtitle:
                 json.header.subtitle ||
                 'A timeline of competitive awards, hackathon recognitions, and academic milestones achieved throughout my software engineering journey.',
+              subtitle_id:
+                json.header.subtitle_id ||
+                'Linimasa penghargaan kompetisi, capaian hackathon, dan tonggak akademik sepanjang perjalanan rekayasa perangkat lunak saya.',
             });
           }
           if (Array.isArray(json.data)) {
@@ -225,23 +275,27 @@ export default function AchievementsManagementPage() {
     setSavingHeader(true);
 
     try {
-      const response = await fetch('/api/achievements/header', {
+      const response = await fetch('/api/achievements', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         cache: 'no-store',
-        body: JSON.stringify(headerForm),
+        body: JSON.stringify({ target: 'header', ...headerForm }),
       });
-      const json = await response.json();
+      const rawText = await response.text();
+      let json: any = null;
+      try {
+        json = rawText ? JSON.parse(rawText) : null;
+      } catch {
+        json = null;
+      }
 
-      if (response.ok && json.success) {
+      if (response.ok && json?.success) {
         broadcastAchievementsUpdate('header', json.data ?? headerForm);
         router.refresh();
-        showToast(
-          'Header Achievements berhasil disimpan dan disinkronkan secara real-time!'
-        );
+        showToast('Header Achievements berhasil disimpan dan disinkronkan!');
       } else {
         showToast(
-          `Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`,
+          `Gagal menyimpan: ${json?.error || `HTTP ${response.status}`}`,
           'error'
         );
       }
@@ -257,11 +311,17 @@ export default function AchievementsManagementPage() {
     setSelectedFile(null);
     setModalForm({
       badge: 'Competitions',
+      badge_id: 'Kompetisi',
       title: '',
+      title_id: '',
       description: '',
+      description_id: '',
       highlightsStr: 'Lighthouse 98/100 performance, Clean Architecture',
+      highlightsStr_id: 'Performa Lighthouse 98/100, Arsitektur Bersih',
       date_str: 'December 2024',
+      date_str_id: 'Desember 2024',
       location: 'Surabaya, Indonesia',
+      location_id: 'Surabaya, Indonesia',
       image_url: '/placeholder.svg',
       credential_url: '',
     });
@@ -273,11 +333,17 @@ export default function AchievementsManagementPage() {
     setSelectedFile(null);
     setModalForm({
       badge: item.badge,
+      badge_id: item.badge_id || '',
       title: item.title,
+      title_id: item.title_id || '',
       description: item.description,
+      description_id: item.description_id || '',
       highlightsStr: parseHighlightsString(item.highlights),
+      highlightsStr_id: parseHighlightsString(item.highlights_id),
       date_str: item.date_str,
+      date_str_id: item.date_str_id || '',
       location: item.location,
+      location_id: item.location_id || '',
       image_url: item.image_url,
       credential_url: item.credential_url || '',
     });
@@ -301,19 +367,23 @@ export default function AchievementsManagementPage() {
         });
       }
 
-      const highlightsArray = modalForm.highlightsStr
-        .split(',')
-        .map((h) => h.trim())
-        .filter(Boolean);
+      const highlightsArray = parseHighlightsArray(modalForm.highlightsStr);
+      const highlightsArrayId = parseHighlightsArray(modalForm.highlightsStr_id);
 
       const payload = {
         id: editingId,
         badge: modalForm.badge.trim() || 'Competitions',
+        badge_id: modalForm.badge_id.trim(),
         title: modalForm.title.trim(),
+        title_id: modalForm.title_id.trim(),
         description: modalForm.description.trim(),
+        description_id: modalForm.description_id.trim(),
         highlights: highlightsArray,
+        highlights_id: highlightsArrayId,
         date_str: modalForm.date_str.trim(),
+        date_str_id: modalForm.date_str_id.trim(),
         location: modalForm.location.trim(),
+        location_id: modalForm.location_id.trim(),
         image_url: finalImageUrl || '/placeholder.svg',
         credential_url: modalForm.credential_url.trim(),
       };
@@ -337,11 +407,11 @@ export default function AchievementsManagementPage() {
             prev.map((a) => (a.id === editingId ? normalizedSaved : a))
           );
           broadcastAchievementsUpdate('update', normalizedSaved);
-          showToast('Achievement berhasil diperbarui secara real-time!');
+          showToast('Achievement berhasil diperbarui & disinkronkan!');
         } else {
           setAchievements((prev) => [normalizedSaved, ...prev]);
           broadcastAchievementsUpdate('create', normalizedSaved);
-          showToast('Achievement baru berhasil ditambahkan secara real-time!');
+          showToast('Achievement baru berhasil ditambahkan & disinkronkan!');
         }
         router.refresh();
         setIsModalOpen(false);
@@ -376,7 +446,7 @@ export default function AchievementsManagementPage() {
         setAchievements((prev) => prev.filter((a) => a.id !== id));
         broadcastAchievementsUpdate('delete', { id });
         router.refresh();
-        showToast('Achievement berhasil dihapus secara real-time!');
+        showToast('Achievement berhasil dihapus & disinkronkan!');
       } else {
         showToast(
           `Gagal menghapus: ${json.error || 'Terjadi kesalahan'}`,
@@ -558,24 +628,12 @@ export default function AchievementsManagementPage() {
       <main className="flex-1 px-4 sm:px-8 py-6 max-w-6xl w-full mx-auto space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
           <div>
-            <div className="flex items-center gap-2.5">
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-                Achievements Management
-              </h1>
-              <span
-                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono border transition-colors ${
-                  livePulse
-                    ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300'
-                    : 'bg-white/5 border-white/10 text-slate-400'
-                }`}
-              >
-                <Radio size={11} className="text-emerald-400" />
-                <span>LIVE SYNC</span>
-              </span>
-            </div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+              Achievements Management
+            </h1>
             <p className="text-xs text-slate-400 mt-1">
               Kelola header penghargaan, milestone, dan pencapaian kompetisi via
-              Neon PostgreSQL secara dinamis dan real-time.
+              Neon PostgreSQL secara dinamis.
             </p>
           </div>
           <Link
@@ -599,56 +657,150 @@ export default function AchievementsManagementPage() {
               onSubmit={handleSaveHeader}
               className="bg-[#0b0e17] border border-white/5 rounded-2xl p-6 space-y-4 shadow-xl"
             >
-              <div className="flex items-center gap-2 pb-3 border-b border-white/5">
-                <Award size={16} className="text-purple-400" />
-                <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">
-                  1. Pengaturan Header Achievements
-                </span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                    Badge Teks Atas
-                  </label>
-                  <input
-                    type="text"
-                    value={headerForm.badge_text}
-                    onChange={(e) =>
-                      setHeaderForm({
-                        ...headerForm,
-                        badge_text: e.target.value,
-                      })
-                    }
-                    className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs font-mono focus:border-cyan-400"
-                  />
+              <div className="flex items-center justify-between gap-3 pb-3 border-b border-white/5 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <Award size={16} className="text-purple-400" />
+                  <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">
+                    1. Pengaturan Header Achievements
+                  </span>
                 </div>
-                <div>
-                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                    Judul Utama
-                  </label>
-                  <input
-                    type="text"
-                    value={headerForm.title}
-                    onChange={(e) =>
-                      setHeaderForm({ ...headerForm, title: e.target.value })
-                    }
-                    className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs font-bold focus:border-cyan-400"
-                  />
+
+                {/* Translate Toggle Bahasa Inggris & Bahasa Indonesia */}
+                <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-[#07090e] border border-white/10 text-[11px] font-mono">
+                  <Languages size={13} className="text-cyan-400 ml-1.5 mr-1" />
+                  <button
+                    type="button"
+                    onClick={() => setHeaderLang('EN')}
+                    className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                      headerLang === 'EN'
+                        ? 'bg-cyan-500 text-slate-950 font-bold'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    English
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setHeaderLang('ID')}
+                    className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                      headerLang === 'ID'
+                        ? 'bg-cyan-500 text-slate-950 font-bold'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Indonesia
+                  </button>
                 </div>
               </div>
-              <div>
-                <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                  Subjudul / Deskripsi
-                </label>
-                <textarea
-                  rows={2}
-                  value={headerForm.subtitle}
-                  onChange={(e) =>
-                    setHeaderForm({ ...headerForm, subtitle: e.target.value })
-                  }
-                  className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs focus:border-cyan-400"
-                />
-              </div>
+
+              {headerLang === 'EN' ? (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                        Badge Teks Atas (English)
+                      </label>
+                      <input
+                        type="text"
+                        value={headerForm.badge_text}
+                        onChange={(e) =>
+                          setHeaderForm({
+                            ...headerForm,
+                            badge_text: e.target.value,
+                          })
+                        }
+                        className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs font-mono focus:border-cyan-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                        Judul Utama (English)
+                      </label>
+                      <input
+                        type="text"
+                        value={headerForm.title}
+                        onChange={(e) =>
+                          setHeaderForm({
+                            ...headerForm,
+                            title: e.target.value,
+                          })
+                        }
+                        className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs font-bold focus:border-cyan-400"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                      Subjudul / Deskripsi (English)
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={headerForm.subtitle}
+                      onChange={(e) =>
+                        setHeaderForm({
+                          ...headerForm,
+                          subtitle: e.target.value,
+                        })
+                      }
+                      className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs focus:border-cyan-400"
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                        Badge Teks Atas (Indonesia)
+                      </label>
+                      <input
+                        type="text"
+                        value={headerForm.badge_text_id}
+                        onChange={(e) =>
+                          setHeaderForm({
+                            ...headerForm,
+                            badge_text_id: e.target.value,
+                          })
+                        }
+                        className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs font-mono focus:border-cyan-400"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                        Judul Utama (Indonesia)
+                      </label>
+                      <input
+                        type="text"
+                        value={headerForm.title_id}
+                        onChange={(e) =>
+                          setHeaderForm({
+                            ...headerForm,
+                            title_id: e.target.value,
+                          })
+                        }
+                        className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs font-bold focus:border-cyan-400"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                      Subjudul / Deskripsi (Indonesia)
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={headerForm.subtitle_id}
+                      onChange={(e) =>
+                        setHeaderForm({
+                          ...headerForm,
+                          subtitle_id: e.target.value,
+                        })
+                      }
+                      className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs focus:border-cyan-400"
+                    />
+                  </div>
+                </>
+              )}
+
               <div className="flex justify-end pt-2">
                 <button
                   type="submit"
@@ -693,10 +845,15 @@ export default function AchievementsManagementPage() {
                       className="bg-[#07090e] border border-white/10 rounded-xl p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 group hover:border-purple-500/30 transition-all"
                     >
                       <div className="space-y-2 flex-1">
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 flex-wrap">
                           <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20 font-bold">
                             {item.badge}
                           </span>
+                          {item.badge_id && (
+                            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
+                              ID: {item.badge_id}
+                            </span>
+                          )}
                           <span className="text-xs font-mono text-slate-500">
                             {item.date_str} • {item.location}
                           </span>
@@ -704,6 +861,11 @@ export default function AchievementsManagementPage() {
                         <h3 className="text-sm font-bold text-white">
                           {item.title}
                         </h3>
+                        {item.title_id && (
+                          <p className="text-[11px] text-cyan-300/90 font-medium">
+                            ID: {item.title_id}
+                          </p>
+                        )}
                         <p className="text-xs text-slate-400 leading-relaxed">
                           {item.description}
                         </p>
@@ -737,15 +899,15 @@ export default function AchievementsManagementPage() {
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-[#0b0e17] border border-white/10 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95 duration-150 my-8">
+          <div className="bg-[#0b0e17] border border-white/10 rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl animate-in zoom-in-95 duration-150 my-8">
             <h2 className="text-base font-bold text-white border-b border-white/5 pb-3">
               {editingId ? 'Edit Achievement' : 'Tambah Achievement Baru'}
             </h2>
             <form onSubmit={handleSaveAchievement} className="space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                    Kategori / Badge
+                    Kategori / Badge (English)
                   </label>
                   <input
                     type="text"
@@ -759,7 +921,23 @@ export default function AchievementsManagementPage() {
                 </div>
                 <div>
                   <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                    Tanggal
+                    Kategori / Badge (Indonesia)
+                  </label>
+                  <input
+                    type="text"
+                    value={modalForm.badge_id}
+                    onChange={(e) =>
+                      setModalForm({ ...modalForm, badge_id: e.target.value })
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                    Tanggal (English)
                   </label>
                   <input
                     type="text"
@@ -771,64 +949,153 @@ export default function AchievementsManagementPage() {
                     className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400"
                   />
                 </div>
+                <div>
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                    Tanggal (Indonesia)
+                  </label>
+                  <input
+                    type="text"
+                    value={modalForm.date_str_id}
+                    onChange={(e) =>
+                      setModalForm({
+                        ...modalForm,
+                        date_str_id: e.target.value,
+                      })
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                  Judul Pencapaian
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={modalForm.title}
-                  onChange={(e) =>
-                    setModalForm({ ...modalForm, title: e.target.value })
-                  }
-                  className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white font-bold focus:border-cyan-400"
-                />
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                    Judul Pencapaian (English)
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={modalForm.title}
+                    onChange={(e) =>
+                      setModalForm({ ...modalForm, title: e.target.value })
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white font-bold focus:border-cyan-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                    Judul Pencapaian (Indonesia)
+                  </label>
+                  <input
+                    type="text"
+                    value={modalForm.title_id}
+                    onChange={(e) =>
+                      setModalForm({ ...modalForm, title_id: e.target.value })
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white font-bold focus:border-cyan-400"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                  Lokasi
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={modalForm.location}
-                  onChange={(e) =>
-                    setModalForm({ ...modalForm, location: e.target.value })
-                  }
-                  className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white focus:border-cyan-400"
-                />
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                    Lokasi (English)
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={modalForm.location}
+                    onChange={(e) =>
+                      setModalForm({ ...modalForm, location: e.target.value })
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white focus:border-cyan-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                    Lokasi (Indonesia)
+                  </label>
+                  <input
+                    type="text"
+                    value={modalForm.location_id}
+                    onChange={(e) =>
+                      setModalForm({
+                        ...modalForm,
+                        location_id: e.target.value,
+                      })
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white focus:border-cyan-400"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                  Deskripsi Singkat
-                </label>
-                <textarea
-                  rows={3}
-                  required
-                  value={modalForm.description}
-                  onChange={(e) =>
-                    setModalForm({ ...modalForm, description: e.target.value })
-                  }
-                  className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white leading-relaxed focus:border-cyan-400"
-                />
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                    Deskripsi Singkat (English)
+                  </label>
+                  <textarea
+                    rows={3}
+                    required
+                    value={modalForm.description}
+                    onChange={(e) =>
+                      setModalForm({ ...modalForm, description: e.target.value })
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white leading-relaxed focus:border-cyan-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                    Deskripsi Singkat (Indonesia)
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={modalForm.description_id}
+                    onChange={(e) =>
+                      setModalForm({
+                        ...modalForm,
+                        description_id: e.target.value,
+                      })
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white leading-relaxed focus:border-cyan-400"
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                  Highlights (Pisahkan koma)
-                </label>
-                <textarea
-                  rows={2}
-                  value={modalForm.highlightsStr}
-                  onChange={(e) =>
-                    setModalForm({
-                      ...modalForm,
-                      highlightsStr: e.target.value,
-                    })
-                  }
-                  className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400"
-                />
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                    Highlights (English, pisahkan koma)
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={modalForm.highlightsStr}
+                    onChange={(e) =>
+                      setModalForm({
+                        ...modalForm,
+                        highlightsStr: e.target.value,
+                      })
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                    Highlights (Indonesia, pisahkan koma)
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={modalForm.highlightsStr_id}
+                    onChange={(e) =>
+                      setModalForm({
+                        ...modalForm,
+                        highlightsStr_id: e.target.value,
+                      })
+                    }
+                    className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400"
+                  />
+                </div>
               </div>
 
               <div>

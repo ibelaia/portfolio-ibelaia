@@ -26,17 +26,25 @@ import {
   AlertCircle,
   Eye,
   MessageSquare,
-  Radio,
+  Languages,
+  BellRing,
+  RefreshCw,
+  Reply,
 } from 'lucide-react';
 
 interface ContactContent {
   badge_text: string;
+  badge_text_id: string;
   email: string;
   title: string;
+  title_id: string;
   subtitle: string;
+  subtitle_id: string;
   phone: string;
   location: string;
+  location_id: string;
   response_time: string;
+  response_time_id: string;
 }
 
 interface ContactMessage {
@@ -60,37 +68,59 @@ function formatMessageDate(rawDate: string): string {
   });
 }
 
+function buildMailtoHref(msg: ContactMessage): string {
+  const subject = encodeURIComponent(
+    msg.subject ? `Re: ${msg.subject}` : 'Balasan Pesan dari Portfolio'
+  );
+  return `mailto:${encodeURIComponent(msg.email)}?subject=${subject}`;
+}
+
 export default function AdminContactPage() {
   const router = useRouter();
   const syncChannelRef = useRef<BroadcastChannel | null>(null);
+  const knownMessageIdsRef = useRef<Set<string>>(new Set());
+  const isInitialLoadRef = useRef<boolean>(true);
+
+  const [contactLang, setContactLang] = useState<'EN' | 'ID'>('EN');
 
   const [contentForm, setContentForm] = useState<ContactContent>({
     badge_text: 'GET IN TOUCH',
+    badge_text_id: 'HUBUNGI SAYA',
     email: 'hello@ibelaia.dev',
     title: "Let's Build Something Meaningful.",
+    title_id: 'Mari Membangun Sesuatu yang Bermakna.',
     subtitle:
       "I'm always open to discussing web engineering projects, partnership opportunities, or technical inquiries. Have an idea, project, or role in mind? Let's talk.",
+    subtitle_id:
+      'Saya selalu terbuka untuk berdiskusi mengenai proyek rekayasa web, peluang kemitraan, maupun pertanyaan teknis. Punya ide atau proyek? Mari ngobrol.',
     phone: '+62 812 3015 6692',
     location: 'Surabaya, Indonesia',
-    response_time: '< 24 Jam Kerja',
+    location_id: 'Surabaya, Indonesia',
+    response_time: '< 24 Business Hours',
+    response_time_id: '< 24 Jam Kerja',
   });
 
   const [messages, setMessages] = useState<ContactMessage[]>([]);
+  const [unreadIds, setUnreadIds] = useState<string[]>([]);
+  const [incomingAlert, setIncomingAlert] = useState<ContactMessage | null>(
+    null
+  );
+  const [inboxError, setInboxError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshingInbox, setRefreshingInbox] = useState(false);
   const [savingContent, setSavingContent] = useState(false);
-  const [livePulse, setLivePulse] = useState(false);
   const [toast, setToast] = useState<{
     message: string;
     type: 'success' | 'error';
   } | null>(null);
 
-  const showToast = (
-    message: string,
-    type: 'success' | 'error' = 'success'
-  ) => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3500);
-  };
+  const showToast = useCallback(
+    (message: string, type: 'success' | 'error' = 'success') => {
+      setToast({ message, type });
+      setTimeout(() => setToast(null), 4000);
+    },
+    []
+  );
 
   const broadcastContactUpdate = useCallback(
     (action: string, detailData?: any) => {
@@ -121,76 +151,192 @@ export default function AdminContactPage() {
       window.dispatchEvent(
         new CustomEvent(CONTACT_SYNC_CHANNEL, { detail: eventDetail })
       );
-      setLivePulse(true);
-      setTimeout(() => setLivePulse(false), 1800);
     },
     []
   );
 
-  const loadData = useCallback(async (isMountedRef?: { current: boolean }) => {
-    try {
-      const response = await fetch('/api/contact', { cache: 'no-store' });
-      const json = await response.json();
-
-      if (isMountedRef && !isMountedRef.current) return;
-
-      if (json.success) {
-        if (json.content) {
-          setContentForm({
-            badge_text: json.content.badge_text || '',
-            email: json.content.email || '',
-            title: json.content.title || '',
-            subtitle: json.content.subtitle || '',
-            phone: json.content.phone || '',
-            location: json.content.location || '',
-            response_time: json.content.response_time || '',
-          });
+  const loadData = useCallback(
+    async (
+      isMountedRef?: { current: boolean },
+      notifyNew = false,
+      manualRefresh = false
+    ) => {
+      if (manualRefresh) setRefreshingInbox(true);
+      try {
+        const response = await fetch(`/api/contact?t=${Date.now()}`, {
+          cache: 'no-store',
+        });
+        const rawText = await response.text();
+        let json: any = null;
+        try {
+          json = rawText ? JSON.parse(rawText) : null;
+        } catch {
+          json = null;
         }
-        if (Array.isArray(json.messages)) {
-          setMessages(json.messages);
+
+        if (isMountedRef && !isMountedRef.current) return;
+
+        if (json?.success) {
+          setInboxError(null);
+
+          if (json.content) {
+            setContentForm((prev) => ({
+              badge_text: json.content.badge_text ?? prev.badge_text,
+              badge_text_id: json.content.badge_text_id ?? prev.badge_text_id,
+              email: json.content.email ?? prev.email,
+              title: json.content.title ?? prev.title,
+              title_id: json.content.title_id ?? prev.title_id,
+              subtitle: json.content.subtitle ?? prev.subtitle,
+              subtitle_id: json.content.subtitle_id ?? prev.subtitle_id,
+              phone: json.content.phone ?? prev.phone,
+              location: json.content.location ?? prev.location,
+              location_id: json.content.location_id ?? prev.location_id,
+              response_time: json.content.response_time ?? prev.response_time,
+              response_time_id:
+                json.content.response_time_id ?? prev.response_time_id,
+            }));
+          }
+
+          if (Array.isArray(json.messages)) {
+            const normalizedList: ContactMessage[] = json.messages.map(
+              (m: any, idx: number) => ({
+                id:
+                  m?.id !== undefined && m?.id !== null
+                    ? String(m.id)
+                    : `msg-${idx}`,
+                name: m?.name || m?.nama || 'Pengunjung',
+                email: m?.email || '',
+                subject: m?.subject || m?.subjek || '',
+                message: m?.message || m?.pesan || '',
+                created_at: m?.created_at || new Date().toISOString(),
+              })
+            );
+
+            if (isInitialLoadRef.current) {
+              knownMessageIdsRef.current = new Set(
+                normalizedList.map((m) => m.id)
+              );
+              isInitialLoadRef.current = false;
+            } else {
+              const brandNewMessages = normalizedList.filter(
+                (m) => !knownMessageIdsRef.current.has(m.id)
+              );
+
+              if (brandNewMessages.length > 0) {
+                brandNewMessages.forEach((m) =>
+                  knownMessageIdsRef.current.add(m.id)
+                );
+                setUnreadIds((prev) =>
+                  Array.from(
+                    new Set([...brandNewMessages.map((m) => m.id), ...prev])
+                  )
+                );
+
+                const latest = brandNewMessages[0];
+                setIncomingAlert(latest);
+                if (notifyNew) {
+                  showToast(
+                    `Pesan baru dari ${latest.name} (${latest.email}) masuk ke Inbox!`,
+                    'success'
+                  );
+                }
+              }
+            }
+
+            setMessages(normalizedList);
+          }
+        } else if (json?.error) {
+          setInboxError(json.error);
+        }
+      } catch (err: any) {
+        if (!isMountedRef || isMountedRef.current) {
+          console.warn('Gagal memuat data contact:', err);
+          setInboxError(err?.message || 'Gagal memuat pesan masuk.');
+        }
+      } finally {
+        if (!isMountedRef || isMountedRef.current) {
+          setLoading(false);
+          if (manualRefresh) setRefreshingInbox(false);
         }
       }
-    } catch (err) {
-      if (!isMountedRef || isMountedRef.current) {
-        console.warn('Gagal memuat data contact:', err);
-      }
-    } finally {
-      if (!isMountedRef || isMountedRef.current) {
-        setLoading(false);
-      }
-    }
-  }, []);
+    },
+    [showToast]
+  );
 
   useEffect(() => {
     const isMountedRef = { current: true };
 
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
       syncChannelRef.current = new BroadcastChannel(CONTACT_SYNC_CHANNEL);
-      syncChannelRef.current.onmessage = () => {
-        if (isMountedRef.current) {
-          loadData(isMountedRef);
-        }
+      syncChannelRef.current.onmessage = (event) => {
+        if (!isMountedRef.current) return;
+        const shouldNotify = event?.data?.action === 'new_message';
+        loadData(isMountedRef, shouldNotify, false);
       };
     }
 
     const handleStorageSync = (e: StorageEvent) => {
       if (e.key === CONTACT_SYNC_CHANNEL && isMountedRef.current) {
-        loadData(isMountedRef);
+        let shouldNotify = false;
+        try {
+          const parsed = e.newValue ? JSON.parse(e.newValue) : null;
+          shouldNotify = parsed?.action === 'new_message';
+        } catch {
+          shouldNotify = false;
+        }
+        loadData(isMountedRef, shouldNotify, false);
+      }
+    };
+
+    const handleCustomSync = (event: Event) => {
+      if (!isMountedRef.current) return;
+      const customEvent = event as CustomEvent;
+      const shouldNotify = customEvent?.detail?.action === 'new_message';
+      loadData(isMountedRef, shouldNotify, false);
+    };
+
+    const handleFocusSync = () => {
+      if (isMountedRef.current) {
+        loadData(isMountedRef, true, false);
       }
     };
 
     window.addEventListener('storage', handleStorageSync);
-    loadData(isMountedRef);
+    window.addEventListener(CONTACT_SYNC_CHANNEL, handleCustomSync);
+    window.addEventListener('focus', handleFocusSync);
+
+    loadData(isMountedRef, false, false);
+
+    const intervalId = window.setInterval(() => {
+      if (isMountedRef.current && document.visibilityState === 'visible') {
+        loadData(isMountedRef, true, false);
+      }
+    }, 5000);
 
     return () => {
       isMountedRef.current = false;
+      window.clearInterval(intervalId);
       window.removeEventListener('storage', handleStorageSync);
+      window.removeEventListener(CONTACT_SYNC_CHANNEL, handleCustomSync);
+      window.removeEventListener('focus', handleFocusSync);
       if (syncChannelRef.current) {
         syncChannelRef.current.close();
         syncChannelRef.current = null;
       }
     };
   }, [loadData]);
+
+  const handleMarkAsRead = (id: string) => {
+    setUnreadIds((prev) => prev.filter((itemId) => itemId !== id));
+    if (incomingAlert?.id === id) {
+      setIncomingAlert(null);
+    }
+  };
+
+  const handleMarkAllAsRead = () => {
+    setUnreadIds([]);
+    setIncomingAlert(null);
+  };
 
   const handleSaveContent = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -201,19 +347,26 @@ export default function AdminContactPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         cache: 'no-store',
-        body: JSON.stringify(contentForm),
+        body: JSON.stringify({
+          target: 'content',
+          ...contentForm,
+        }),
       });
-      const json = await response.json();
+      const rawText = await response.text();
+      let json: any = null;
+      try {
+        json = rawText ? JSON.parse(rawText) : null;
+      } catch {
+        json = null;
+      }
 
-      if (response.ok && json.success) {
+      if (response.ok && json?.success) {
         broadcastContactUpdate('content', json.content ?? contentForm);
         router.refresh();
-        showToast(
-          'Informasi kontak berhasil disimpan dan disinkronkan secara real-time!'
-        );
+        showToast('Informasi kontak berhasil disimpan dan disinkronkan!');
       } else {
         showToast(
-          `Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`,
+          `Gagal menyimpan: ${json?.error || `HTTP ${response.status}`}`,
           'error'
         );
       }
@@ -235,16 +388,27 @@ export default function AdminContactPage() {
           cache: 'no-store',
         }
       );
-      const json = await response.json();
+      const rawText = await response.text();
+      let json: any = null;
+      try {
+        json = rawText ? JSON.parse(rawText) : null;
+      } catch {
+        json = null;
+      }
 
-      if (response.ok && json.success) {
+      if (response.ok && json?.success) {
+        knownMessageIdsRef.current.delete(id);
+        setUnreadIds((prev) => prev.filter((itemId) => itemId !== id));
+        if (incomingAlert?.id === id) {
+          setIncomingAlert(null);
+        }
         setMessages((prev) => prev.filter((msg) => msg.id !== id));
         broadcastContactUpdate('delete_message', { id });
         router.refresh();
-        showToast('Pesan berhasil dihapus secara real-time!');
+        showToast('Pesan berhasil dihapus dan disinkronkan!');
       } else {
         showToast(
-          `Gagal menghapus pesan: ${json.error || 'Terjadi kesalahan'}`,
+          `Gagal menghapus pesan: ${json?.error || `HTTP ${response.status}`}`,
           'error'
         );
       }
@@ -353,11 +517,11 @@ export default function AdminContactPage() {
                     <Mail size={15} className="text-[#c084fc]" />
                     <span>Contact</span>
                   </div>
-                  {messages.length > 0 && (
-                    <span className="px-1.5 py-0.5 rounded-md bg-cyan-400 text-slate-950 font-black text-[10px]">
-                      {messages.length}
-                    </span>
-                  )}
+                  <span className="px-1.5 py-0.5 rounded-md bg-cyan-400 text-slate-950 font-black text-[10px]">
+                    {unreadIds.length > 0
+                      ? `${unreadIds.length} Baru`
+                      : messages.length}
+                  </span>
                 </Link>
               </div>
             </div>
@@ -430,24 +594,12 @@ export default function AdminContactPage() {
       <main className="flex-1 px-4 sm:px-8 py-6 max-w-5xl w-full mx-auto space-y-8">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
           <div>
-            <div className="flex items-center gap-2.5">
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-                Contact Management & Inbox
-              </h1>
-              <span
-                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono border transition-colors ${
-                  livePulse
-                    ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300'
-                    : 'bg-white/5 border-white/10 text-slate-400'
-                }`}
-              >
-                <Radio size={11} className="text-emerald-400" />
-                <span>LIVE SYNC</span>
-              </span>
-            </div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+              Contact Management & Inbox
+            </h1>
             <p className="text-xs text-slate-400 mt-1">
               Kelola informasi kontak, email, dan baca pesan masuk dari
-              pengunjung via Neon secara dinamis dan real-time.
+              pengunjung via Neon secara dinamis.
             </p>
           </div>
           <Link
@@ -459,6 +611,36 @@ export default function AdminContactPage() {
             <span>Lihat Halaman Publik</span>
           </Link>
         </div>
+
+        {/* Banner Notifikasi Pesan Masuk Baru */}
+        {incomingAlert && (
+          <div className="p-4 rounded-2xl bg-cyan-500/10 border border-cyan-400/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl bg-cyan-400/20 border border-cyan-400/30 text-cyan-300 flex items-center justify-center shrink-0 mt-0.5">
+                <BellRing size={16} />
+              </div>
+              <div className="space-y-0.5 text-xs">
+                <p className="font-bold text-white">
+                  Pesan Masuk Baru dari {incomingAlert.name}
+                </p>
+                <p className="text-cyan-200/90 font-mono text-[11px]">
+                  {incomingAlert.email} •{' '}
+                  {incomingAlert.subject || 'Tanpa Subjek'}
+                </p>
+                <p className="text-slate-300 line-clamp-2 pt-0.5">
+                  {incomingAlert.message}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleMarkAsRead(incomingAlert.id)}
+              className="px-3 py-1.5 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-slate-950 font-bold text-[11px] shrink-0 cursor-pointer transition-colors"
+            >
+              Tutup Notifikasi
+            </button>
+          </div>
+        )}
 
         {loading ? (
           <div className="py-24 text-center text-xs font-mono text-slate-500 flex items-center justify-center gap-2">
@@ -472,123 +654,286 @@ export default function AdminContactPage() {
               onSubmit={handleSaveContent}
               className="bg-[#0b0e17] border border-white/5 rounded-2xl p-6 space-y-5 shadow-xl"
             >
-              <div className="flex items-center gap-2 pb-3 border-b border-white/5">
-                <Mail size={16} className="text-purple-400" />
-                <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">
-                  1. Informasi Halaman Contact
-                </span>
+              <div className="flex items-center justify-between gap-3 pb-3 border-b border-white/5 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <Mail size={16} className="text-purple-400" />
+                  <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">
+                    1. Informasi Halaman Contact
+                  </span>
+                </div>
+
+                {/* Translate Toggle Bahasa Inggris & Bahasa Indonesia */}
+                <div className="inline-flex items-center gap-1 p-1 rounded-xl bg-[#07090e] border border-white/10 text-[11px] font-mono">
+                  <Languages size={13} className="text-cyan-400 ml-1.5 mr-1" />
+                  <button
+                    type="button"
+                    onClick={() => setContactLang('EN')}
+                    className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                      contactLang === 'EN'
+                        ? 'bg-cyan-500 text-slate-950 font-bold'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    English
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setContactLang('ID')}
+                    className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                      contactLang === 'ID'
+                        ? 'bg-cyan-500 text-slate-950 font-bold'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Indonesia
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-                <div className="space-y-1.5">
-                  <label className="block text-[11px] font-mono text-slate-400">
-                    Badge Teks Atas
-                  </label>
-                  <input
-                    type="text"
-                    value={contentForm.badge_text}
-                    onChange={(e) =>
-                      setContentForm({
-                        ...contentForm,
-                        badge_text: e.target.value,
-                      })
-                    }
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400 outline-none"
-                  />
-                </div>
+                {contactLang === 'EN' ? (
+                  <>
+                    <div className="space-y-1.5">
+                      <label className="block text-[11px] font-mono text-slate-400">
+                        Badge Teks Atas (English)
+                      </label>
+                      <input
+                        type="text"
+                        value={contentForm.badge_text}
+                        onChange={(e) =>
+                          setContentForm({
+                            ...contentForm,
+                            badge_text: e.target.value,
+                          })
+                        }
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400 outline-none"
+                      />
+                    </div>
 
-                <div className="space-y-1.5">
-                  <label className="block text-[11px] font-mono text-slate-400">
-                    Email Kontak
-                  </label>
-                  <input
-                    type="email"
-                    value={contentForm.email}
-                    onChange={(e) =>
-                      setContentForm({ ...contentForm, email: e.target.value })
-                    }
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400 outline-none"
-                  />
-                </div>
+                    <div className="space-y-1.5">
+                      <label className="block text-[11px] font-mono text-slate-400">
+                        Email Kontak
+                      </label>
+                      <input
+                        type="email"
+                        value={contentForm.email}
+                        onChange={(e) =>
+                          setContentForm({
+                            ...contentForm,
+                            email: e.target.value,
+                          })
+                        }
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400 outline-none"
+                      />
+                    </div>
 
-                <div className="sm:col-span-2 space-y-1.5">
-                  <label className="block text-[11px] font-mono text-slate-400">
-                    Judul Utama
-                  </label>
-                  <input
-                    type="text"
-                    value={contentForm.title}
-                    onChange={(e) =>
-                      setContentForm({ ...contentForm, title: e.target.value })
-                    }
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400 outline-none"
-                  />
-                </div>
+                    <div className="sm:col-span-2 space-y-1.5">
+                      <label className="block text-[11px] font-mono text-slate-400">
+                        Judul Utama (English)
+                      </label>
+                      <input
+                        type="text"
+                        value={contentForm.title}
+                        onChange={(e) =>
+                          setContentForm({
+                            ...contentForm,
+                            title: e.target.value,
+                          })
+                        }
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400 outline-none"
+                      />
+                    </div>
 
-                <div className="sm:col-span-2 space-y-1.5">
-                  <label className="block text-[11px] font-mono text-slate-400">
-                    Subjudul / Deskripsi
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={contentForm.subtitle}
-                    onChange={(e) =>
-                      setContentForm({
-                        ...contentForm,
-                        subtitle: e.target.value,
-                      })
-                    }
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400 outline-none resize-none"
-                  />
-                </div>
+                    <div className="sm:col-span-2 space-y-1.5">
+                      <label className="block text-[11px] font-mono text-slate-400">
+                        Subjudul / Deskripsi (English)
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={contentForm.subtitle}
+                        onChange={(e) =>
+                          setContentForm({
+                            ...contentForm,
+                            subtitle: e.target.value,
+                          })
+                        }
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400 outline-none resize-none"
+                      />
+                    </div>
 
-                <div className="space-y-1.5">
-                  <label className="block text-[11px] font-mono text-slate-400">
-                    Nomor Telepon / WhatsApp
-                  </label>
-                  <input
-                    type="text"
-                    value={contentForm.phone}
-                    onChange={(e) =>
-                      setContentForm({ ...contentForm, phone: e.target.value })
-                    }
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400 outline-none"
-                  />
-                </div>
+                    <div className="space-y-1.5">
+                      <label className="block text-[11px] font-mono text-slate-400">
+                        Nomor Telepon / WhatsApp
+                      </label>
+                      <input
+                        type="text"
+                        value={contentForm.phone}
+                        onChange={(e) =>
+                          setContentForm({
+                            ...contentForm,
+                            phone: e.target.value,
+                          })
+                        }
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400 outline-none"
+                      />
+                    </div>
 
-                <div className="space-y-1.5">
-                  <label className="block text-[11px] font-mono text-slate-400">
-                    Lokasi
-                  </label>
-                  <input
-                    type="text"
-                    value={contentForm.location}
-                    onChange={(e) =>
-                      setContentForm({
-                        ...contentForm,
-                        location: e.target.value,
-                      })
-                    }
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400 outline-none"
-                  />
-                </div>
+                    <div className="space-y-1.5">
+                      <label className="block text-[11px] font-mono text-slate-400">
+                        Lokasi (English)
+                      </label>
+                      <input
+                        type="text"
+                        value={contentForm.location}
+                        onChange={(e) =>
+                          setContentForm({
+                            ...contentForm,
+                            location: e.target.value,
+                          })
+                        }
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400 outline-none"
+                      />
+                    </div>
 
-                <div className="sm:col-span-2 space-y-1.5">
-                  <label className="block text-[11px] font-mono text-slate-400">
-                    Jam Respon
-                  </label>
-                  <input
-                    type="text"
-                    value={contentForm.response_time}
-                    onChange={(e) =>
-                      setContentForm({
-                        ...contentForm,
-                        response_time: e.target.value,
-                      })
-                    }
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400 outline-none"
-                  />
-                </div>
+                    <div className="sm:col-span-2 space-y-1.5">
+                      <label className="block text-[11px] font-mono text-slate-400">
+                        Jam Respon (English)
+                      </label>
+                      <input
+                        type="text"
+                        value={contentForm.response_time}
+                        onChange={(e) =>
+                          setContentForm({
+                            ...contentForm,
+                            response_time: e.target.value,
+                          })
+                        }
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400 outline-none"
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="space-y-1.5">
+                      <label className="block text-[11px] font-mono text-slate-400">
+                        Badge Teks Atas (Indonesia)
+                      </label>
+                      <input
+                        type="text"
+                        value={contentForm.badge_text_id}
+                        onChange={(e) =>
+                          setContentForm({
+                            ...contentForm,
+                            badge_text_id: e.target.value,
+                          })
+                        }
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400 outline-none"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="block text-[11px] font-mono text-slate-400">
+                        Email Kontak
+                      </label>
+                      <input
+                        type="email"
+                        value={contentForm.email}
+                        onChange={(e) =>
+                          setContentForm({
+                            ...contentForm,
+                            email: e.target.value,
+                          })
+                        }
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400 outline-none"
+                      />
+                    </div>
+
+                    <div className="sm:col-span-2 space-y-1.5">
+                      <label className="block text-[11px] font-mono text-slate-400">
+                        Judul Utama (Indonesia)
+                      </label>
+                      <input
+                        type="text"
+                        value={contentForm.title_id}
+                        onChange={(e) =>
+                          setContentForm({
+                            ...contentForm,
+                            title_id: e.target.value,
+                          })
+                        }
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400 outline-none"
+                      />
+                    </div>
+
+                    <div className="sm:col-span-2 space-y-1.5">
+                      <label className="block text-[11px] font-mono text-slate-400">
+                        Subjudul / Deskripsi (Indonesia)
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={contentForm.subtitle_id}
+                        onChange={(e) =>
+                          setContentForm({
+                            ...contentForm,
+                            subtitle_id: e.target.value,
+                          })
+                        }
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400 outline-none resize-none"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="block text-[11px] font-mono text-slate-400">
+                        Nomor Telepon / WhatsApp
+                      </label>
+                      <input
+                        type="text"
+                        value={contentForm.phone}
+                        onChange={(e) =>
+                          setContentForm({
+                            ...contentForm,
+                            phone: e.target.value,
+                          })
+                        }
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400 outline-none"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="block text-[11px] font-mono text-slate-400">
+                        Lokasi (Indonesia)
+                      </label>
+                      <input
+                        type="text"
+                        value={contentForm.location_id}
+                        onChange={(e) =>
+                          setContentForm({
+                            ...contentForm,
+                            location_id: e.target.value,
+                          })
+                        }
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400 outline-none"
+                      />
+                    </div>
+
+                    <div className="sm:col-span-2 space-y-1.5">
+                      <label className="block text-[11px] font-mono text-slate-400">
+                        Jam Respon (Indonesia)
+                      </label>
+                      <input
+                        type="text"
+                        value={contentForm.response_time_id}
+                        onChange={(e) =>
+                          setContentForm({
+                            ...contentForm,
+                            response_time_id: e.target.value,
+                          })
+                        }
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400 outline-none"
+                      />
+                    </div>
+                  </>
+                )}
               </div>
 
               <div className="flex justify-end pt-2">
@@ -610,17 +955,46 @@ export default function AdminContactPage() {
 
             {/* BAGIAN 2: DAFTAR PESAN MASUK DARI PENGUNJUNG (INBOX) */}
             <div className="bg-[#0b0e17] border border-white/5 rounded-2xl p-6 space-y-5 shadow-xl">
-              <div className="flex items-center justify-between pb-3 border-b border-white/5">
+              <div className="flex items-center justify-between gap-3 pb-3 border-b border-white/5 flex-wrap">
                 <div className="flex items-center gap-2">
                   <MessageSquare size={16} className="text-cyan-400" />
                   <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">
                     2. Pesan Masuk (Visitor Messages)
                   </span>
                 </div>
-                <span className="text-xs font-mono px-2.5 py-1 rounded-lg bg-white/5 text-slate-300 border border-white/10">
-                  {messages.length} Pesan
-                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={refreshingInbox}
+                    onClick={() => loadData({ current: true }, true, true)}
+                    className="text-[11px] font-mono px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 cursor-pointer transition-colors inline-flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <RefreshCw
+                      size={12}
+                      className={refreshingInbox ? 'animate-spin' : ''}
+                    />
+                    <span>Refresh</span>
+                  </button>
+                  {unreadIds.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleMarkAllAsRead}
+                      className="text-[11px] font-mono px-2.5 py-1 rounded-lg bg-cyan-500/15 text-cyan-300 hover:bg-cyan-500/25 border border-cyan-500/30 cursor-pointer transition-colors"
+                    >
+                      Tandai Semua Dibaca ({unreadIds.length})
+                    </button>
+                  )}
+                  <span className="text-xs font-mono px-2.5 py-1 rounded-lg bg-white/5 text-slate-300 border border-white/10">
+                    {messages.length} Pesan
+                  </span>
+                </div>
               </div>
+
+              {inboxError && (
+                <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-xs font-mono text-red-300">
+                  {inboxError}
+                </div>
+              )}
 
               {messages.length === 0 ? (
                 <div className="py-12 text-center space-y-2">
@@ -631,49 +1005,75 @@ export default function AdminContactPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {messages.map((msg) => (
-                    <div
-                      key={msg.id}
-                      className="p-4 rounded-xl bg-[#07090e] border border-white/10 space-y-2.5 hover:border-white/20 transition-all"
-                    >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                        <div>
-                          <p className="text-sm font-bold text-white">
-                            {msg.name}
-                          </p>
-                          <a
-                            href={`mailto:${msg.email}`}
-                            className="text-xs font-mono text-cyan-400 hover:underline"
-                          >
-                            {msg.email}
-                          </a>
+                  {messages.map((msg) => {
+                    const isUnread = unreadIds.includes(msg.id);
+                    return (
+                      <div
+                        key={msg.id}
+                        onClick={() => isUnread && handleMarkAsRead(msg.id)}
+                        className={`p-4 rounded-xl bg-[#07090e] border space-y-2.5 transition-all ${
+                          isUnread
+                            ? 'border-cyan-400/40 ring-1 ring-cyan-400/20'
+                            : 'border-white/10 hover:border-white/20'
+                        }`}
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-sm font-bold text-white">
+                              {msg.name}
+                            </p>
+                            {isUnread && (
+                              <span className="px-2 py-0.5 rounded-md bg-cyan-400 text-slate-950 font-black text-[10px] uppercase">
+                                Baru
+                              </span>
+                            )}
+                            <a
+                              href={buildMailtoHref(msg)}
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-xs font-mono text-cyan-400 hover:underline"
+                            >
+                              {msg.email}
+                            </a>
+                          </div>
+                          <div className="flex items-center gap-2.5">
+                            <span className="text-[10px] font-mono text-slate-500">
+                              {formatMessageDate(msg.created_at)}
+                            </span>
+                            <a
+                              href={buildMailtoHref(msg)}
+                              onClick={(e) => e.stopPropagation()}
+                              className="px-2.5 py-1 rounded-lg bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 border border-cyan-500/25 text-[11px] font-mono inline-flex items-center gap-1 transition-colors"
+                              title="Balas via Email"
+                            >
+                              <Reply size={12} />
+                              <span>Balas</span>
+                            </a>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteMessage(msg.id);
+                              }}
+                              className="p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors cursor-pointer"
+                              title="Hapus Pesan"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-[10px] font-mono text-slate-500">
-                            {formatMessageDate(msg.created_at)}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteMessage(msg.id)}
-                            className="p-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors cursor-pointer"
-                            title="Hapus Pesan"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      </div>
 
-                      <div className="pt-2 border-t border-white/5">
-                        <p className="text-xs text-slate-400">
-                          <strong className="text-slate-300">Subjek:</strong>{' '}
-                          {msg.subject || 'Tanpa Subjek'}
-                        </p>
-                        <div className="mt-1.5 p-3 rounded-lg bg-[#0b0e17] text-xs text-slate-200 font-sans whitespace-pre-wrap leading-relaxed">
-                          {msg.message}
+                        <div className="pt-2 border-t border-white/5">
+                          <p className="text-xs text-slate-400">
+                            <strong className="text-slate-300">Subjek:</strong>{' '}
+                            {msg.subject || 'Tanpa Subjek'}
+                          </p>
+                          <div className="mt-1.5 p-3 rounded-lg bg-[#0b0e17] text-xs text-slate-200 font-sans whitespace-pre-wrap leading-relaxed">
+                            {msg.message}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

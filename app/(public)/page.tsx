@@ -12,11 +12,22 @@ import {
   Terminal,
 } from 'lucide-react';
 
+type LangCode = 'en' | 'id';
+
 interface HomeData {
   title: string;
   subtitle: string;
+  subtitle_id: string;
   highlight_text: string;
+  highlight_text_id: string;
   description: string;
+  description_id: string;
+  primary_btn_text: string;
+  primary_btn_text_id: string;
+  primary_btn_link: string;
+  secondary_btn_text: string;
+  secondary_btn_text_id: string;
+  secondary_btn_link: string;
   profile_photo_url: string;
   projects_completed: number;
   happy_clients: number;
@@ -29,19 +40,78 @@ interface HomeData {
 const DEFAULT_PROFILE_PHOTO =
   'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80';
 
+const HIDDEN_LEGACY_SUBTITLES = new Set([
+  'membangun produk digital modern dengan arsitektur bersih',
+  'building modern digital products with clean architecture',
+  'building the future of digital products',
+]);
+
+function sanitizeSubtitle(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  if (HIDDEN_LEGACY_SUBTITLES.has(trimmed.toLowerCase())) return '';
+  return trimmed;
+}
+
 const INITIAL_HOME_DATA: HomeData = {
-  title: 'Ibe Laia , S.Kom',
-  subtitle: 'Building the future of digital products',
+  title: 'Ibe Laia',
+  subtitle: '',
+  subtitle_id: '',
   highlight_text: 'Full-Stack Developer',
+  highlight_text_id: 'Software Developer',
   description:
-    'I build modern, secure, and scalable web applications with clean code and exceptional user experience.',
+    'I build modern, responsive, and scalable web applications with clean code, reliable databases, and thoughtful user experiences.',
+  description_id:
+    'Saya membangun aplikasi web modern, responsif, dan skalabel dengan kode yang bersih, basis data yang andal, serta pengalaman pengguna yang optimal.',
+  primary_btn_text: 'Explore My Work',
+  primary_btn_text_id: 'Jelajahi Karya Saya',
+  primary_btn_link: '/projects',
+  secondary_btn_text: 'Contact Me',
+  secondary_btn_text_id: 'Hubungi Saya',
+  secondary_btn_link: '/contact',
   profile_photo_url: DEFAULT_PROFILE_PHOTO,
-  projects_completed: 6,
-  happy_clients: 4,
+  projects_completed: 4,
+  happy_clients: 6,
   years_experience: 8,
   availability_status: 'Available for Hire',
   location: 'Surabaya, Indonesia',
-  site_tagline: 'Software Engineer & Full-Stack Developer',
+  site_tagline: '',
+};
+
+const UI_COPY: Record<
+  LangCode,
+  {
+    achievementsSuffix: string;
+    projectsLabel: string;
+    achievementsLabel: string;
+    cleanCodeTitle: string;
+    cleanCodeSub: string;
+    scalableTitle: string;
+    scalableSub: string;
+    availableForHire: string;
+  }
+> = {
+  en: {
+    achievementsSuffix: '& Achievements',
+    projectsLabel: 'Projects',
+    achievementsLabel: 'Achievements',
+    cleanCodeTitle: 'Clean Code',
+    cleanCodeSub: 'Architecture',
+    scalableTitle: 'Scalable',
+    scalableSub: 'Performance',
+    availableForHire: 'Available for Hire',
+  },
+  id: {
+    achievementsSuffix: '& Prestasi',
+    projectsLabel: 'Proyek',
+    achievementsLabel: 'Prestasi',
+    cleanCodeTitle: 'Kode Bersih',
+    cleanCodeSub: 'Arsitektur',
+    scalableTitle: 'Skalabel',
+    scalableSub: 'Performa',
+    availableForHire: 'Tersedia untuk Direkrut',
+  },
 };
 
 function toSafeNumber(value: any, fallback: number): number {
@@ -53,9 +123,59 @@ function toSafeNumber(value: any, fallback: number): number {
   return fallback;
 }
 
+function detectActiveLanguage(): LangCode {
+  if (typeof window === 'undefined') return 'en';
+
+  try {
+    const htmlLang = document.documentElement.lang?.toLowerCase().trim() || '';
+    if (htmlLang === 'id' || htmlLang.startsWith('id-')) return 'id';
+
+    const navLinks = Array.from(
+      document.querySelectorAll('header a, nav a, header button, nav button')
+    );
+    for (const el of navLinks) {
+      const txt = (el.textContent || '').trim();
+      if (
+        txt === 'Beranda' ||
+        txt === 'Tentang' ||
+        txt === 'Layanan' ||
+        txt === 'Proyek' ||
+        txt === 'Prestasi' ||
+        txt === 'Sertifikat'
+      ) {
+        return 'id';
+      }
+      if (
+        txt === 'Home' ||
+        txt === 'About' ||
+        txt === 'Services' ||
+        txt === 'Projects' ||
+        txt === 'Achievements' ||
+        txt === 'Certificates'
+      ) {
+        return 'en';
+      }
+    }
+
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i) || '';
+      if (/lang|locale|bahasa|i18n/i.test(key)) {
+        const val = (localStorage.getItem(key) || '').toLowerCase().trim();
+        if (val === 'id' || val === '"id"' || val.startsWith('id-')) return 'id';
+        if (val === 'en' || val === '"en"' || val.startsWith('en-')) return 'en';
+      }
+    }
+  } catch {
+    // Abaikan error akses DOM/storage
+  }
+
+  return 'en';
+}
+
 export default function HomePage() {
   const [data, setData] = useState<HomeData>(INITIAL_HOME_DATA);
   const [photoFailed, setPhotoFailed] = useState(false);
+  const [lang, setLang] = useState<LangCode>('en');
 
   const applyHomePayload = useCallback(
     (
@@ -65,6 +185,7 @@ export default function HomePage() {
     ) => {
       let localPhoto: string | null = null;
       let localHome: Record<string, any> = {};
+      let localBilingual: Record<string, any> = {};
       let cachedProjectsCount: number | null = null;
 
       try {
@@ -72,6 +193,27 @@ export default function HomePage() {
         const cachedHomeRaw = localStorage.getItem('portfolio_home_settings');
         if (cachedHomeRaw) {
           localHome = JSON.parse(cachedHomeRaw) || {};
+          const cleanedHome = {
+            ...localHome,
+            subtitle: sanitizeSubtitle(localHome.subtitle),
+            subtitle_id: sanitizeSubtitle(localHome.subtitle_id),
+          };
+          if (
+            cleanedHome.subtitle !== (localHome.subtitle ?? '') ||
+            cleanedHome.subtitle_id !== (localHome.subtitle_id ?? '')
+          ) {
+            localStorage.setItem(
+              'portfolio_home_settings',
+              JSON.stringify(cleanedHome)
+            );
+            localHome = cleanedHome;
+          }
+        }
+        const cachedBilingualRaw = localStorage.getItem(
+          'portfolio_home_bilingual'
+        );
+        if (cachedBilingualRaw) {
+          localBilingual = JSON.parse(cachedBilingualRaw) || {};
         }
         const cachedProj = localStorage.getItem('portfolio_projects_count');
         if (cachedProj !== null && !Number.isNaN(Number(cachedProj))) {
@@ -124,21 +266,67 @@ export default function HomePage() {
             generalRow.site_name ||
             prev.title,
           subtitle:
-            localHome.subtitle ||
-            homeRow.subtitle ||
-            generalRow.site_tagline ||
-            prev.subtitle,
+            typeof localHome.subtitle === 'string'
+              ? sanitizeSubtitle(localHome.subtitle)
+              : typeof localBilingual?.en?.subtitle === 'string'
+                ? sanitizeSubtitle(localBilingual.en.subtitle)
+                : sanitizeSubtitle(homeRow.subtitle),
+          subtitle_id:
+            typeof localHome.subtitle_id === 'string'
+              ? sanitizeSubtitle(localHome.subtitle_id)
+              : typeof localBilingual?.id?.subtitle === 'string'
+                ? sanitizeSubtitle(localBilingual.id.subtitle)
+                : sanitizeSubtitle(homeRow.subtitle_id),
           highlight_text:
             localHome.highlight_text ||
+            localBilingual?.en?.highlight_text ||
             homeRow.highlight_text ||
             homeRow.hero_highlight ||
             prev.highlight_text,
+          highlight_text_id:
+            localHome.highlight_text_id ||
+            localBilingual?.id?.highlight_text ||
+            homeRow.highlight_text_id ||
+            prev.highlight_text_id,
           description:
             localHome.description ||
+            localBilingual?.en?.description ||
             homeRow.description ||
             homeRow.hero_description ||
-            generalRow.site_tagline ||
             prev.description,
+          description_id:
+            localHome.description_id ||
+            localBilingual?.id?.description ||
+            homeRow.description_id ||
+            prev.description_id,
+          primary_btn_text:
+            localHome.primary_btn_text ||
+            localBilingual?.en?.primary_btn_text ||
+            homeRow.primary_btn_text ||
+            prev.primary_btn_text,
+          primary_btn_text_id:
+            localHome.primary_btn_text_id ||
+            localBilingual?.id?.primary_btn_text ||
+            homeRow.primary_btn_text_id ||
+            prev.primary_btn_text_id,
+          primary_btn_link:
+            localHome.primary_btn_link ||
+            homeRow.primary_btn_link ||
+            prev.primary_btn_link,
+          secondary_btn_text:
+            localHome.secondary_btn_text ||
+            localBilingual?.en?.secondary_btn_text ||
+            homeRow.secondary_btn_text ||
+            prev.secondary_btn_text,
+          secondary_btn_text_id:
+            localHome.secondary_btn_text_id ||
+            localBilingual?.id?.secondary_btn_text ||
+            homeRow.secondary_btn_text_id ||
+            prev.secondary_btn_text_id,
+          secondary_btn_link:
+            localHome.secondary_btn_link ||
+            homeRow.secondary_btn_link ||
+            prev.secondary_btn_link,
           profile_photo_url: nextPhoto,
           projects_completed: resolvedProjects,
           happy_clients: resolvedAchievements,
@@ -153,8 +341,7 @@ export default function HomePage() {
             homeRow.availability_status ||
             prev.availability_status,
           location: generalRow.location || homeRow.location || prev.location,
-          site_tagline:
-            generalRow.site_tagline || homeRow.site_tagline || prev.site_tagline,
+          site_tagline: sanitizeSubtitle(homeRow.site_tagline),
         };
       });
     },
@@ -163,6 +350,33 @@ export default function HomePage() {
 
   useEffect(() => {
     let isMounted = true;
+
+    const syncLanguageState = (candidateLang?: any) => {
+      if (!isMounted) return;
+      if (candidateLang === 'id' || candidateLang === 'en') {
+        setLang(candidateLang);
+      } else {
+        setLang(detectActiveLanguage());
+      }
+    };
+
+    syncLanguageState();
+
+    let domObserver: MutationObserver | null = null;
+    if (typeof window !== 'undefined' && 'MutationObserver' in window) {
+      domObserver = new MutationObserver(() => {
+        syncLanguageState();
+      });
+      domObserver.observe(document.body, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+      });
+      domObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['lang'],
+      });
+    }
 
     async function fetchNeonHomeData() {
       applyHomePayload();
@@ -223,6 +437,7 @@ export default function HomePage() {
     let homeChannel: BroadcastChannel | null = null;
     let dashboardChannel: BroadcastChannel | null = null;
     let projectsChannel: BroadcastChannel | null = null;
+    let langChannel: BroadcastChannel | null = null;
 
     const handleRealtimeUpdate = (event?: MessageEvent) => {
       if (!isMounted) return;
@@ -236,15 +451,15 @@ export default function HomePage() {
             ? incomingData.count
             : undefined;
 
+      if (payload?.lang === 'id' || payload?.lang === 'en') {
+        syncLanguageState(payload.lang);
+      } else if (incomingData?.lang === 'id' || incomingData?.lang === 'en') {
+        syncLanguageState(incomingData.lang);
+      }
+
       if (payload?.section === 'dashboard' || payload?.section === 'projects') {
         if (typeof explicitCount === 'number') {
-          applyHomePayload(
-            {},
-            {},
-            {
-              projects: explicitCount,
-            }
-          );
+          applyHomePayload({}, {}, { projects: explicitCount });
         } else {
           fetchNeonHomeData();
         }
@@ -276,10 +491,21 @@ export default function HomePage() {
 
       projectsChannel = new BroadcastChannel('portfolio-sync-projects');
       projectsChannel.onmessage = handleRealtimeUpdate;
+
+      langChannel = new BroadcastChannel('portfolio-lang-sync');
+      langChannel.onmessage = (event) => {
+        const nextLang = event?.data?.lang || event?.data;
+        if (nextLang === 'id' || nextLang === 'en') {
+          syncLanguageState(nextLang);
+        } else {
+          syncLanguageState();
+        }
+      };
     }
 
     const handleStorage = (event: StorageEvent) => {
       if (!isMounted) return;
+      syncLanguageState();
       if (
         !event.key ||
         event.key.startsWith('portfolio') ||
@@ -298,6 +524,12 @@ export default function HomePage() {
         typeof customEvent.detail?.count === 'number'
           ? customEvent.detail.count
           : undefined;
+      if (
+        customEvent.detail?.lang === 'id' ||
+        customEvent.detail?.lang === 'en'
+      ) {
+        syncLanguageState(customEvent.detail.lang);
+      }
       applyHomePayload(
         incomingData,
         {},
@@ -307,35 +539,79 @@ export default function HomePage() {
       );
     };
 
+    const handleCustomLangSync = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const nextLang = customEvent.detail?.lang || customEvent.detail;
+      if (nextLang === 'id' || nextLang === 'en') {
+        syncLanguageState(nextLang);
+      } else {
+        syncLanguageState();
+      }
+    };
+
+    const handleWindowClick = () => {
+      setTimeout(() => syncLanguageState(), 0);
+    };
+
     window.addEventListener('storage', handleStorage);
+    window.addEventListener('click', handleWindowClick);
     window.addEventListener('portfolio-sync-home', handleCustomHomeSync);
     window.addEventListener('portfolio-sync-dashboard', handleCustomHomeSync);
     window.addEventListener('portfolio-sync-projects', handleCustomHomeSync);
+    window.addEventListener('portfolio-lang-sync', handleCustomLangSync);
+    window.addEventListener('language-change', handleCustomLangSync);
 
     return () => {
       isMounted = false;
+      if (domObserver) domObserver.disconnect();
       window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('click', handleWindowClick);
       window.removeEventListener('portfolio-sync-home', handleCustomHomeSync);
-      window.removeEventListener('portfolio-sync-dashboard', handleCustomHomeSync);
-      window.removeEventListener('portfolio-sync-projects', handleCustomHomeSync);
-      if (adminChannel) {
-        adminChannel.close();
-      }
-      if (homeChannel) {
-        homeChannel.close();
-      }
-      if (dashboardChannel) {
-        dashboardChannel.close();
-      }
-      if (projectsChannel) {
-        projectsChannel.close();
-      }
+      window.removeEventListener(
+        'portfolio-sync-dashboard',
+        handleCustomHomeSync
+      );
+      window.removeEventListener(
+        'portfolio-sync-projects',
+        handleCustomHomeSync
+      );
+      window.removeEventListener('portfolio-lang-sync', handleCustomLangSync);
+      window.removeEventListener('language-change', handleCustomLangSync);
+      if (adminChannel) adminChannel.close();
+      if (homeChannel) homeChannel.close();
+      if (dashboardChannel) dashboardChannel.close();
+      if (projectsChannel) projectsChannel.close();
+      if (langChannel) langChannel.close();
     };
   }, [applyHomePayload]);
 
   const activePhotoSrc = photoFailed
     ? DEFAULT_PROFILE_PHOTO
     : data.profile_photo_url || DEFAULT_PROFILE_PHOTO;
+
+  const isId = lang === 'id';
+  const ui = UI_COPY[lang];
+  const displayBadge = sanitizeSubtitle(
+    isId
+      ? data.subtitle_id || data.subtitle || data.site_tagline
+      : data.subtitle || data.site_tagline
+  );
+  const displayHighlight = isId
+    ? data.highlight_text_id || data.highlight_text
+    : data.highlight_text;
+  const displayDescription = isId
+    ? data.description_id || data.description
+    : data.description;
+  const displayPrimaryBtn = isId
+    ? data.primary_btn_text_id || data.primary_btn_text
+    : data.primary_btn_text;
+  const displaySecondaryBtn = isId
+    ? data.secondary_btn_text_id || data.secondary_btn_text
+    : data.secondary_btn_text;
+  const displayAvailability =
+    isId && data.availability_status === 'Available for Hire'
+      ? ui.availableForHire
+      : data.availability_status;
 
   return (
     <main className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10 space-y-8">
@@ -363,9 +639,9 @@ export default function HomePage() {
               <div className="absolute -top-1 -right-2 sm:-top-2 sm:-right-4 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl bg-[var(--card-bg)] border border-[var(--card-border)] backdrop-blur-md shadow-xl flex items-center gap-1.5 text-[10px] sm:text-[11px] font-mono">
                 <Code2 size={12} className="text-purple-400" />
                 <div>
-                  <p className="font-bold leading-tight">Clean Code</p>
+                  <p className="font-bold leading-tight">{ui.cleanCodeTitle}</p>
                   <p className="text-[8px] sm:text-[9px] text-slate-500">
-                    Architecture
+                    {ui.cleanCodeSub}
                   </p>
                 </div>
               </div>
@@ -373,9 +649,9 @@ export default function HomePage() {
               <div className="absolute -bottom-1 -left-2 sm:-bottom-2 sm:-left-4 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl bg-[var(--card-bg)] border border-[var(--card-border)] backdrop-blur-md shadow-xl flex items-center gap-1.5 text-[10px] sm:text-[11px] font-mono">
                 <Terminal size={12} className="text-accent" />
                 <div>
-                  <p className="font-bold leading-tight">Scalable</p>
+                  <p className="font-bold leading-tight">{ui.scalableTitle}</p>
                   <p className="text-[8px] sm:text-[9px] text-slate-500">
-                    Performance
+                    {ui.scalableSub}
                   </p>
                 </div>
               </div>
@@ -384,22 +660,24 @@ export default function HomePage() {
 
           {/* 2. Bagian Teks & Konten */}
           <div className="order-2 lg:order-1 lg:col-span-7 space-y-4 sm:space-y-5 text-center lg:text-left">
-            <div className="inline-flex items-center justify-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono mx-auto lg:mx-0">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>{data.site_tagline}</span>
-            </div>
+            {displayBadge && (
+              <div className="inline-flex items-center justify-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono mx-auto lg:mx-0">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span>{displayBadge}</span>
+              </div>
+            )}
 
             <div className="space-y-1">
               <h1 className="text-2xl sm:text-4xl lg:text-5xl font-black tracking-tight leading-tight">
                 {data.title}
               </h1>
               <p className="text-base sm:text-xl lg:text-2xl font-bold text-accent font-mono tracking-wide">
-                {data.highlight_text} & Achievements
+                {displayHighlight} {ui.achievementsSuffix}
               </p>
             </div>
 
             <p className="text-xs sm:text-sm lg:text-base text-[var(--text-muted)] max-w-xl leading-relaxed mx-auto lg:mx-0">
-              {data.description}
+              {displayDescription}
             </p>
 
             {/* Statistik */}
@@ -411,7 +689,7 @@ export default function HomePage() {
                     {data.projects_completed}+
                   </span>
                   <span className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
-                    Projects
+                    {ui.projectsLabel}
                   </span>
                 </div>
               </div>
@@ -423,7 +701,7 @@ export default function HomePage() {
                     {data.happy_clients}+
                   </span>
                   <span className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
-                    Achievements
+                    {ui.achievementsLabel}
                   </span>
                 </div>
               </div>
@@ -431,17 +709,17 @@ export default function HomePage() {
 
             <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3 pt-2">
               <Link
-                href="/projects"
+                href={data.primary_btn_link || '/projects'}
                 className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-accent hover:opacity-90 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 cursor-pointer"
               >
-                <span>Explore My Work</span>
+                <span>{displayPrimaryBtn}</span>
                 <ArrowRight size={14} />
               </Link>
               <Link
-                href="/contact"
+                href={data.secondary_btn_link || '/contact'}
                 className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-[var(--card-border)] font-semibold text-xs flex items-center justify-center transition-all cursor-pointer"
               >
-                Contact Me ↗
+                {displaySecondaryBtn} ↗
               </Link>
             </div>
 
@@ -453,7 +731,7 @@ export default function HomePage() {
               <span className="hidden sm:inline">•</span>
               <span className="flex items-center gap-1.5">
                 <Briefcase size={12} className="text-[var(--text-muted)]" />{' '}
-                {data.availability_status}
+                {displayAvailability}
               </span>
             </div>
           </div>

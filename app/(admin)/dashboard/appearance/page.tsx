@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -27,10 +27,15 @@ import {
   Monitor,
   Moon,
   Sun,
-  Radio,
 } from 'lucide-react';
 
-const APPEARANCE_SYNC_CHANNEL = 'portfolio-sync-appearance';
+interface AppearanceForm {
+  theme_mode: 'dark' | 'light' | 'system';
+  accent_color: 'cyan' | 'purple' | 'emerald' | 'rose' | 'amber';
+  border_radius: 'rounded-xl' | 'rounded-2xl' | 'rounded-3xl';
+  font_family: 'font-sans' | 'font-mono';
+  glassmorphism: boolean;
+}
 
 function parseBooleanSafely(raw: any, fallback: boolean): boolean {
   if (typeof raw === 'boolean') return raw;
@@ -45,17 +50,15 @@ function parseBooleanSafely(raw: any, fallback: boolean): boolean {
 
 export default function AppearanceManagementPage() {
   const router = useRouter();
-  const syncChannelRef = useRef<BroadcastChannel | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [livePulse, setLivePulse] = useState(false);
   const [toast, setToast] = useState<{
     message: string;
     type: 'success' | 'error';
   } | null>(null);
 
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<AppearanceForm>({
     theme_mode: 'dark',
     accent_color: 'cyan',
     border_radius: 'rounded-2xl',
@@ -63,66 +66,53 @@ export default function AppearanceManagementPage() {
     glassmorphism: true,
   });
 
-  const showToast = (
-    message: string,
-    type: 'success' | 'error' = 'success'
-  ) => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3500);
-  };
-
-  const broadcastAppearanceUpdate = (updatedData: Record<string, any>) => {
-    const eventDetail = {
-      section: 'appearance',
-      updatedAt: Date.now(),
-      data: updatedData,
-    };
-
-    try {
-      if (syncChannelRef.current) {
-        syncChannelRef.current.postMessage(eventDetail);
-      }
-    } catch {
-      // Abaikan jika BroadcastChannel tidak tersedia
-    }
-
-    try {
-      localStorage.setItem(
-        APPEARANCE_SYNC_CHANNEL,
-        JSON.stringify(eventDetail)
-      );
-    } catch {
-      // Abaikan jika localStorage diblokir
-    }
-
-    window.dispatchEvent(
-      new CustomEvent(APPEARANCE_SYNC_CHANNEL, { detail: eventDetail })
-    );
-    setLivePulse(true);
-    setTimeout(() => setLivePulse(false), 1800);
-  };
+  const showToast = useCallback(
+    (message: string, type: 'success' | 'error' = 'success') => {
+      setToast({ message, type });
+      setTimeout(() => setToast(null), 3500);
+    },
+    []
+  );
 
   useEffect(() => {
     let isMounted = true;
 
-    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-      syncChannelRef.current = new BroadcastChannel(APPEARANCE_SYNC_CHANNEL);
-    }
-
     async function loadAppearance() {
       try {
-        const response = await fetch('/api/appearance', { cache: 'no-store' });
-        const json = await response.json();
+        const response = await fetch(`/api/appearance?t=${Date.now()}`, {
+          cache: 'no-store',
+        });
+        const rawText = await response.text();
+        let json: any = null;
+        try {
+          json = rawText ? JSON.parse(rawText) : null;
+        } catch {
+          json = null;
+        }
 
         if (!isMounted) return;
 
-        if (json.success && json.data) {
+        if (response.ok && json?.success && json?.data) {
           const data = json.data;
           setForm({
-            theme_mode: data.theme_mode || 'dark',
-            accent_color: data.accent_color || 'cyan',
-            border_radius: data.border_radius || 'rounded-2xl',
-            font_family: data.font_family || 'font-sans',
+            theme_mode:
+              data.theme_mode === 'light' || data.theme_mode === 'system'
+                ? data.theme_mode
+                : 'dark',
+            accent_color:
+              data.accent_color === 'purple' ||
+              data.accent_color === 'emerald' ||
+              data.accent_color === 'rose' ||
+              data.accent_color === 'amber'
+                ? data.accent_color
+                : 'cyan',
+            border_radius:
+              data.border_radius === 'rounded-xl' ||
+              data.border_radius === 'rounded-3xl'
+                ? data.border_radius
+                : 'rounded-2xl',
+            font_family:
+              data.font_family === 'font-mono' ? 'font-mono' : 'font-sans',
             glassmorphism: parseBooleanSafely(data.glassmorphism, true),
           });
         }
@@ -141,10 +131,6 @@ export default function AppearanceManagementPage() {
 
     return () => {
       isMounted = false;
-      if (syncChannelRef.current) {
-        syncChannelRef.current.close();
-        syncChannelRef.current = null;
-      }
     };
   }, []);
 
@@ -152,7 +138,7 @@ export default function AppearanceManagementPage() {
     e.preventDefault();
     setSaving(true);
 
-    const payload = {
+    const payload: AppearanceForm = {
       theme_mode: form.theme_mode,
       accent_color: form.accent_color,
       border_radius: form.border_radius,
@@ -167,18 +153,32 @@ export default function AppearanceManagementPage() {
         cache: 'no-store',
         body: JSON.stringify(payload),
       });
-      const json = await response.json();
+      const rawText = await response.text();
+      let json: any = null;
+      try {
+        json = rawText ? JSON.parse(rawText) : null;
+      } catch {
+        json = null;
+      }
 
-      if (response.ok && json.success) {
-        const mergedData = json.data ?? payload;
-        broadcastAppearanceUpdate(mergedData);
+      if (response.ok && json?.success) {
+        if (json.data) {
+          setForm({
+            theme_mode: json.data.theme_mode || payload.theme_mode,
+            accent_color: json.data.accent_color || payload.accent_color,
+            border_radius: json.data.border_radius || payload.border_radius,
+            font_family: json.data.font_family || payload.font_family,
+            glassmorphism: parseBooleanSafely(
+              json.data.glassmorphism,
+              payload.glassmorphism
+            ),
+          });
+        }
         router.refresh();
-        showToast(
-          'Pengaturan Appearance berhasil disimpan dan disinkronkan secara real-time!'
-        );
+        showToast('Pengaturan tampilan berhasil disimpan ke database.');
       } else {
         showToast(
-          `Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`,
+          `Gagal menyimpan: ${json?.error || `HTTP ${response.status}`}`,
           'error'
         );
       }
@@ -189,48 +189,37 @@ export default function AppearanceManagementPage() {
     }
   };
 
-  const handleLogout = async () => {
+  const handleLogout = () => {
     router.replace('/login');
   };
 
-  const accentColorsList = [
-    {
-      id: 'cyan',
-      name: 'Cyber Cyan',
-      bg: 'bg-cyan-400',
-      border: 'border-cyan-400',
-    },
-    {
-      id: 'purple',
-      name: 'Neon Purple',
-      bg: 'bg-purple-500',
-      border: 'border-purple-500',
-    },
-    {
-      id: 'emerald',
-      name: 'Emerald Green',
-      bg: 'bg-emerald-400',
-      border: 'border-emerald-400',
-    },
-    {
-      id: 'rose',
-      name: 'Rose Pink',
-      bg: 'bg-rose-500',
-      border: 'border-rose-500',
-    },
-    {
-      id: 'amber',
-      name: 'Amber Gold',
-      bg: 'bg-amber-400',
-      border: 'border-amber-400',
-    },
+  const themeModesList: Array<{
+    id: AppearanceForm['theme_mode'];
+    label: string;
+    icon: React.ComponentType<{ size?: number }>;
+  }> = [
+    { id: 'dark', label: 'Dark Mode', icon: Moon },
+    { id: 'light', label: 'Light Mode', icon: Sun },
+    { id: 'system', label: 'System', icon: Monitor },
+  ];
+
+  const accentColorsList: Array<{
+    id: AppearanceForm['accent_color'];
+    name: string;
+    bg: string;
+  }> = [
+    { id: 'cyan', name: 'Cyber Cyan', bg: 'bg-cyan-400' },
+    { id: 'purple', name: 'Neon Purple', bg: 'bg-purple-500' },
+    { id: 'emerald', name: 'Emerald Green', bg: 'bg-emerald-400' },
+    { id: 'rose', name: 'Rose Pink', bg: 'bg-rose-500' },
+    { id: 'amber', name: 'Amber Gold', bg: 'bg-amber-400' },
   ];
 
   return (
     <div className="min-h-screen bg-[#07090e] text-[#94a3b8] flex flex-col lg:flex-row antialiased">
       {toast && (
         <div
-          className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl backdrop-blur-md border shadow-2xl flex items-center gap-2.5 text-xs font-medium animate-in fade-in duration-200 ${
+          className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl backdrop-blur-md border shadow-2xl flex items-center gap-2.5 text-xs font-medium ${
             toast.type === 'success'
               ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
               : 'bg-red-500/15 border-red-500/30 text-red-300'
@@ -392,24 +381,12 @@ export default function AppearanceManagementPage() {
       <main className="flex-1 px-4 sm:px-8 py-6 max-w-5xl w-full mx-auto space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
           <div>
-            <div className="flex items-center gap-2.5">
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-                Appearance Settings
-              </h1>
-              <span
-                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono border transition-colors ${
-                  livePulse
-                    ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300'
-                    : 'bg-white/5 border-white/10 text-slate-400'
-                }`}
-              >
-                <Radio size={11} className="text-emerald-400" />
-                <span>LIVE SYNC</span>
-              </span>
-            </div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+              Appearance Settings
+            </h1>
             <p className="text-xs text-slate-400 mt-1">
               Kelola tema visual, warna aksen, dan gaya komponen antarmuka
-              portofolio publik via Neon secara dinamis dan real-time.
+              portofolio publik melalui Neon.
             </p>
           </div>
           <Link
@@ -425,7 +402,7 @@ export default function AppearanceManagementPage() {
         {loading ? (
           <div className="py-24 text-center text-xs font-mono text-slate-500 flex items-center justify-center gap-2">
             <Loader2 size={18} className="animate-spin text-cyan-400" />
-            <span>Memuat pengaturan tampilan dari Neon API...</span>
+            <span>Memuat pengaturan tampilan...</span>
           </div>
         ) : (
           <form onSubmit={handleSave} className="space-y-6">
@@ -440,25 +417,26 @@ export default function AppearanceManagementPage() {
                 </div>
 
                 <div className="grid grid-cols-3 gap-3">
-                  {[
-                    { id: 'dark', label: 'Dark Mode', icon: Moon },
-                    { id: 'light', label: 'Light Mode', icon: Sun },
-                    { id: 'system', label: 'System', icon: Monitor },
-                  ].map((mode) => (
-                    <button
-                      key={mode.id}
-                      type="button"
-                      onClick={() => setForm({ ...form, theme_mode: mode.id })}
-                      className={`p-4 rounded-xl border text-xs font-mono font-bold flex flex-col items-center justify-center gap-2 transition-all cursor-pointer ${
-                        form.theme_mode === mode.id
-                          ? 'bg-cyan-500/15 border-cyan-500/50 text-cyan-300 shadow-lg shadow-cyan-500/10'
-                          : 'bg-[#07090e] border-white/10 text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      <mode.icon size={18} />
-                      <span>{mode.label}</span>
-                    </button>
-                  ))}
+                  {themeModesList.map((mode) => {
+                    const IconComp = mode.icon;
+                    return (
+                      <button
+                        key={mode.id}
+                        type="button"
+                        onClick={() =>
+                          setForm({ ...form, theme_mode: mode.id })
+                        }
+                        className={`p-4 rounded-xl border text-xs font-mono font-bold flex flex-col items-center justify-center gap-2 transition-all cursor-pointer ${
+                          form.theme_mode === mode.id
+                            ? 'bg-cyan-500/15 border-cyan-500/50 text-cyan-300 shadow-lg shadow-cyan-500/10'
+                            : 'bg-[#07090e] border-white/10 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <IconComp size={18} />
+                        <span>{mode.label}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -521,7 +499,11 @@ export default function AppearanceManagementPage() {
                   <select
                     value={form.border_radius}
                     onChange={(e) =>
-                      setForm({ ...form, border_radius: e.target.value })
+                      setForm({
+                        ...form,
+                        border_radius: e.target
+                          .value as AppearanceForm['border_radius'],
+                      })
                     }
                     className="w-full px-3 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400"
                   >
@@ -540,7 +522,11 @@ export default function AppearanceManagementPage() {
                   <select
                     value={form.font_family}
                     onChange={(e) =>
-                      setForm({ ...form, font_family: e.target.value })
+                      setForm({
+                        ...form,
+                        font_family: e.target
+                          .value as AppearanceForm['font_family'],
+                      })
                     }
                     className="w-full px-3 py-2.5 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400"
                   >

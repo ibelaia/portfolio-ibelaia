@@ -25,21 +25,25 @@ import {
   Trash2,
   Edit3,
   Eye,
-  Radio,
+  Languages,
 } from 'lucide-react';
 
 interface ServiceItem {
   id: string;
   title: string;
+  title_id?: string;
   description: string;
+  description_id?: string;
   badge: string;
   tags: string[];
-  icon_name: string;
+  tags_id?: string[];
+  icon_name?: string;
 }
 
 const SERVICES_SYNC_CHANNEL = 'portfolio-sync-services';
 const DASHBOARD_SYNC_CHANNEL = 'portfolio-sync-dashboard';
 const ADMIN_SYNC_CHANNEL = 'portfolio-admin-sync';
+const SERVICES_STORAGE_KEY = 'portfolio_services_settings';
 
 export default function ServicesManagementPage() {
   const router = useRouter();
@@ -50,7 +54,7 @@ export default function ServicesManagementPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingCard, setSavingCard] = useState(false);
-  const [livePulse, setLivePulse] = useState(false);
+  const [editLang, setEditLang] = useState<'en' | 'id'>('en');
   const [toast, setToast] = useState<{
     message: string;
     type: 'success' | 'error';
@@ -58,8 +62,11 @@ export default function ServicesManagementPage() {
 
   const [headerForm, setHeaderForm] = useState({
     badge_text: 'MY SERVICES',
+    badge_text_id: 'LAYANAN SAYA',
     title: 'My Services',
+    title_id: 'Layanan Saya',
     subtitle: 'Things I can build, design, and contribute to.',
+    subtitle_id: 'Hal yang dapat saya bangun, rancang, dan kontribusikan.',
   });
 
   const [services, setServices] = useState<ServiceItem[]>([]);
@@ -68,9 +75,12 @@ export default function ServicesManagementPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [modalForm, setModalForm] = useState({
     title: '',
+    title_id: '',
     description: '',
+    description_id: '',
     badge: '01',
     tagsStr: 'HTML, CSS, JavaScript',
+    tagsIdStr: 'HTML, CSS, JavaScript',
     icon_name: 'Code2',
   });
 
@@ -79,8 +89,25 @@ export default function ServicesManagementPage() {
     type: 'success' | 'error' = 'success'
   ) => {
     setToast({ message, type });
-    setTimeout(() => setToast(null), 3500);
+    setTimeout(() => setToast(null), 4000);
   };
+
+  const persistServicesCache = useCallback(
+    (nextHeader: Record<string, any>, nextItems: ServiceItem[]) => {
+      try {
+        localStorage.setItem(
+          SERVICES_STORAGE_KEY,
+          JSON.stringify({
+            header: nextHeader,
+            data: nextItems,
+          })
+        );
+      } catch {
+        // Abaikan jika localStorage diblokir
+      }
+    },
+    []
+  );
 
   const broadcastServicesUpdate = useCallback(
     (action: string, detailData?: any, totalCount?: number) => {
@@ -130,8 +157,6 @@ export default function ServicesManagementPage() {
       window.dispatchEvent(
         new CustomEvent(ADMIN_SYNC_CHANNEL, { detail: eventDetail })
       );
-      setLivePulse(true);
-      setTimeout(() => setLivePulse(false), 1800);
     },
     []
   );
@@ -147,65 +172,116 @@ export default function ServicesManagementPage() {
 
     async function loadData() {
       try {
+        const cachedRaw = localStorage.getItem(SERVICES_STORAGE_KEY);
+        if (cachedRaw && isMounted) {
+          const cached = JSON.parse(cachedRaw);
+          if (cached?.header && typeof cached.header === 'object') {
+            setHeaderForm((prev) => ({
+              ...prev,
+              badge_text: cached.header.badge_text || prev.badge_text,
+              badge_text_id: cached.header.badge_text_id || prev.badge_text_id,
+              title: cached.header.title || prev.title,
+              title_id: cached.header.title_id || prev.title_id,
+              subtitle: cached.header.subtitle || prev.subtitle,
+              subtitle_id: cached.header.subtitle_id || prev.subtitle_id,
+            }));
+          }
+          if (Array.isArray(cached?.data) && cached.data.length > 0) {
+            setServices(cached.data);
+          }
+        }
+      } catch {
+        // Abaikan jika cache lokal tidak tersedia
+      }
+
+      try {
         const response = await fetch('/api/services', { cache: 'no-store' });
         const json = await response.json();
 
         if (!isMounted) return;
 
         if (json.success) {
+          let loadedHeader = { ...headerForm };
           if (json.header) {
-            setHeaderForm({
+            loadedHeader = {
               badge_text: json.header.badge_text || 'MY SERVICES',
+              badge_text_id: json.header.badge_text_id || 'LAYANAN SAYA',
               title: json.header.title || 'My Services',
+              title_id: json.header.title_id || 'Layanan Saya',
               subtitle:
                 json.header.subtitle ||
                 'Things I can build, design, and contribute to.',
-            });
+              subtitle_id:
+                json.header.subtitle_id ||
+                'Hal yang dapat saya bangun, rancang, dan kontribusikan.',
+            };
+            setHeaderForm(loadedHeader);
           }
+
+          let loadedList: ServiceItem[] = [];
           if (Array.isArray(json.data) && json.data.length > 0) {
-            setServices(json.data);
-            broadcastServicesUpdate('loaded', json.data, json.data.length);
+            loadedList = json.data;
+            setServices(loadedList);
+            persistServicesCache(loadedHeader, loadedList);
+            broadcastServicesUpdate('loaded', loadedList, loadedList.length);
           } else {
-            const defaultList: ServiceItem[] = [
+            loadedList = [
               {
                 id: '1',
                 title: 'WEB DEVELOPMENT',
+                title_id: 'PENGEMBANGAN WEB',
                 description:
                   'Building responsive websites and commerce experiences with modern web technologies.',
+                description_id:
+                  'Membangun situs web responsif dan pengalaman commerce dengan teknologi web modern.',
                 badge: '01',
                 tags: ['HTML', 'CSS', 'JavaScript', 'E-COMMERCE'],
+                tags_id: ['HTML', 'CSS', 'JavaScript', 'E-COMMERCE'],
                 icon_name: 'Code2',
               },
               {
                 id: '2',
                 title: 'UI/UX DESIGN',
+                title_id: 'DESAIN UI/UX',
                 description:
                   'Designing intuitive wireframes, mockups, and high-fidelity user interface prototypes.',
+                description_id:
+                  'Merancang wireframe intuitif, mockup, dan prototipe antarmuka beresolusi tinggi.',
                 badge: '02',
                 tags: ['FIGMA', 'WIREFRAME', 'PROTOTYPE'],
+                tags_id: ['FIGMA', 'WIREFRAME', 'PROTOTIPE'],
                 icon_name: 'Palette',
               },
               {
                 id: '3',
                 title: 'DATABASE & BACKEND',
+                title_id: 'DATABASE & BACKEND',
                 description:
                   'Developing scalable backend architectures, RESTful APIs, and optimized databases.',
+                description_id:
+                  'Mengembangkan arsitektur backend skalabel, RESTful API, dan database teroptimasi.',
                 badge: '03',
                 tags: ['MYSQL', 'DATABASE', 'API'],
+                tags_id: ['MYSQL', 'DATABASE', 'API'],
                 icon_name: 'Server',
               },
               {
                 id: '4',
                 title: 'WEB3 DEVELOPMENT',
+                title_id: 'PENGEMBANGAN WEB3',
                 description:
                   'Exploring smart contract interactions, dApps integration, and decentralized ecosystems.',
+                description_id:
+                  'Mengeksplorasi interaksi smart contract, integrasi dApps, dan ekosistem terdesentralisasi.',
                 badge: '04',
                 tags: ['SOLIDITY', 'WEB3', 'SMART CONTRACTS'],
+                tags_id: ['SOLIDITY', 'WEB3', 'SMART CONTRACTS'],
                 icon_name: 'Cpu',
               },
             ];
-            setServices(defaultList);
-            broadcastServicesUpdate('loaded', defaultList, defaultList.length);
+            setServices(loadedList);
+            persistServicesCache(loadedHeader, loadedList);
+            broadcastServicesUpdate('loaded', loadedList, loadedList.length);
           }
         }
       } catch (err) {
@@ -236,7 +312,8 @@ export default function ServicesManagementPage() {
         adminChannelRef.current = null;
       }
     };
-  }, [broadcastServicesUpdate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [broadcastServicesUpdate, persistServicesCache]);
 
   const handleSaveHeader = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -252,14 +329,12 @@ export default function ServicesManagementPage() {
       const json = await response.json();
 
       if (response.ok && json.success) {
-        broadcastServicesUpdate(
-          'header',
-          json.data ?? headerForm,
-          services.length
-        );
+        const mergedHeader = { ...headerForm, ...(json.data ?? {}) };
+        persistServicesCache(mergedHeader, services);
+        broadcastServicesUpdate('header', mergedHeader, services.length);
         setTimeout(() => router.refresh(), 50);
         showToast(
-          'Judul dan Deskripsi Services berhasil disimpan ke Neon & disinkronkan secara real-time!'
+          'Judul dan Deskripsi Services berhasil disimpan ke Neon & disinkronkan!'
         );
       } else {
         showToast(
@@ -278,9 +353,12 @@ export default function ServicesManagementPage() {
     setEditingId(null);
     setModalForm({
       title: '',
+      title_id: '',
       description: '',
+      description_id: '',
       badge: `0${services.length + 1}`,
       tagsStr: 'React, Next.js, Tailwind',
+      tagsIdStr: 'React, Next.js, Tailwind',
       icon_name: 'Code2',
     });
     setIsModalOpen(true);
@@ -290,9 +368,16 @@ export default function ServicesManagementPage() {
     setEditingId(service.id);
     setModalForm({
       title: service.title,
+      title_id: service.title_id || service.title,
       description: service.description,
+      description_id: service.description_id || service.description,
       badge: service.badge,
       tagsStr: Array.isArray(service.tags) ? service.tags.join(', ') : '',
+      tagsIdStr: Array.isArray(service.tags_id)
+        ? service.tags_id.join(', ')
+        : Array.isArray(service.tags)
+        ? service.tags.join(', ')
+        : '',
       icon_name: service.icon_name || 'Code2',
     });
     setIsModalOpen(true);
@@ -307,13 +392,33 @@ export default function ServicesManagementPage() {
       .map((t) => t.trim())
       .filter(Boolean);
 
-    const cardPayload = {
-      id: editingId,
+    const tagsIdArray = modalForm.tagsIdStr
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean);
+
+    const localItem: ServiceItem = {
+      id: editingId || String(Date.now()),
       title: modalForm.title,
+      title_id: modalForm.title_id || modalForm.title,
       description: modalForm.description,
+      description_id: modalForm.description_id || modalForm.description,
       badge: modalForm.badge,
       tags: tagsArray,
-      icon_name: modalForm.icon_name,
+      tags_id: tagsIdArray.length > 0 ? tagsIdArray : tagsArray,
+      icon_name: modalForm.icon_name || 'Code2',
+    };
+
+    const apiBody = {
+      ...(editingId ? { id: editingId } : {}),
+      title: localItem.title,
+      title_id: localItem.title_id,
+      description: localItem.description,
+      description_id: localItem.description_id,
+      badge: localItem.badge,
+      tags: localItem.tags,
+      tags_id: localItem.tags_id,
+      icon_name: localItem.icon_name,
     };
 
     try {
@@ -321,43 +426,44 @@ export default function ServicesManagementPage() {
         method: editingId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         cache: 'no-store',
-        body: JSON.stringify(cardPayload),
+        body: JSON.stringify(apiBody),
       });
       const json = await response.json();
 
       if (response.ok && json.success) {
+        const cleanServerData =
+          json.data && typeof json.data === 'object'
+            ? (() => {
+                const copy = { ...json.data };
+                delete copy.icon;
+                return copy;
+              })()
+            : {};
+
         if (editingId) {
-          setServices((prev) => {
-            const nextList = prev.map((s) =>
-              s.id === editingId ? { ...s, ...cardPayload } : s
-            );
-            broadcastServicesUpdate(
-              'update_card',
-              json.data ?? cardPayload,
-              nextList.length
-            );
-            return nextList;
-          });
-          showToast(
-            'Card Service berhasil diperbarui & disinkronkan secara real-time!'
-          );
-        } else {
-          const savedItem = json.data || {
-            ...cardPayload,
-            id: String(Date.now()),
+          const updatedItem: ServiceItem = {
+            ...localItem,
+            ...cleanServerData,
+            id: editingId,
           };
-          setServices((prev) => {
-            const nextList = [...prev, savedItem];
-            broadcastServicesUpdate(
-              'create_card',
-              savedItem,
-              nextList.length
-            );
-            return nextList;
-          });
-          showToast(
-            'Card Service baru berhasil ditambahkan & disinkronkan secara real-time!'
+          const nextList = services.map((s) =>
+            s.id === editingId ? { ...s, ...updatedItem } : s
           );
+          setServices(nextList);
+          persistServicesCache(headerForm, nextList);
+          broadcastServicesUpdate('update_card', updatedItem, nextList.length);
+          showToast('Card Service berhasil diperbarui & disinkronkan!');
+        } else {
+          const savedItem: ServiceItem = {
+            ...localItem,
+            ...cleanServerData,
+            id: cleanServerData?.id ? String(cleanServerData.id) : localItem.id,
+          };
+          const nextList = [...services, savedItem];
+          setServices(nextList);
+          persistServicesCache(headerForm, nextList);
+          broadcastServicesUpdate('create_card', savedItem, nextList.length);
+          showToast('Card Service baru berhasil ditambahkan & disinkronkan!');
         }
         setTimeout(() => router.refresh(), 50);
         setIsModalOpen(false);
@@ -385,13 +491,12 @@ export default function ServicesManagementPage() {
       const json = await response.json();
 
       if (response.ok && json.success) {
-        setServices((prev) => {
-          const nextList = prev.filter((s) => s.id !== id);
-          broadcastServicesUpdate('delete_card', { id }, nextList.length);
-          return nextList;
-        });
+        const nextList = services.filter((s) => s.id !== id);
+        setServices(nextList);
+        persistServicesCache(headerForm, nextList);
+        broadcastServicesUpdate('delete_card', { id }, nextList.length);
         setTimeout(() => router.refresh(), 50);
-        showToast('Card Service berhasil dihapus secara real-time!');
+        showToast('Card Service berhasil dihapus & disinkronkan!');
       } else {
         showToast(
           `Gagal menghapus: ${json.error || 'Terjadi kesalahan'}`,
@@ -407,8 +512,13 @@ export default function ServicesManagementPage() {
     router.replace('/login');
   };
 
+  const isId = editLang === 'id';
+
   return (
-    <div className="min-h-screen bg-[#07090e] text-[#94a3b8] flex flex-col lg:flex-row antialiased">
+    <div
+      suppressHydrationWarning
+      className="min-h-screen bg-[#07090e] text-[#94a3b8] flex flex-col lg:flex-row antialiased"
+    >
       {toast && (
         <div
           className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl backdrop-blur-md border shadow-2xl flex items-center gap-2.5 text-xs font-medium animate-in fade-in duration-200 ${
@@ -573,34 +683,54 @@ export default function ServicesManagementPage() {
       <main className="flex-1 px-4 sm:px-8 py-6 max-w-6xl w-full mx-auto space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
           <div>
-            <div className="flex items-center gap-2.5">
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-                Services Management
-              </h1>
-              <span
-                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono border transition-colors ${
-                  livePulse
-                    ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300'
-                    : 'bg-white/5 border-white/10 text-slate-400'
-                }`}
-              >
-                <Radio size={11} className="text-emerald-400" />
-                <span>LIVE SYNC</span>
-              </span>
-            </div>
+            <h1
+              suppressHydrationWarning
+              className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight"
+            >
+              Services Management
+            </h1>
             <p className="text-xs text-slate-400 mt-1">
               Kelola judul halaman, subjudul, dan kartu layanan (services cards)
-              via Neon secara dinamis dan real-time.
+              via Neon secara dinamis.
             </p>
           </div>
-          <Link
-            href="/services"
-            target="_blank"
-            className="px-3.5 py-2 rounded-xl bg-[#0b0e17] border border-white/10 hover:border-white/20 text-xs font-mono text-slate-300 hover:text-white flex items-center gap-2 transition-colors self-start sm:self-auto"
-          >
-            <Eye size={13} className="text-cyan-400" />
-            <span>Lihat Halaman Publik</span>
-          </Link>
+
+          <div className="flex items-center gap-2.5 self-start sm:self-auto">
+            <div className="inline-flex items-center rounded-xl bg-[#0b0e17] border border-white/10 p-1 text-[10px] font-mono">
+              <Languages size={12} className="text-cyan-400 mx-1.5" />
+              <button
+                type="button"
+                onClick={() => setEditLang('en')}
+                className={`px-2 py-1 rounded-lg transition-colors cursor-pointer ${
+                  !isId
+                    ? 'bg-cyan-500/20 text-cyan-300 font-bold'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                EN
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditLang('id')}
+                className={`px-2 py-1 rounded-lg transition-colors cursor-pointer ${
+                  isId
+                    ? 'bg-cyan-500/20 text-cyan-300 font-bold'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                ID
+              </button>
+            </div>
+
+            <Link
+              href="/services"
+              target="_blank"
+              className="px-3.5 py-2 rounded-xl bg-[#0b0e17] border border-white/10 hover:border-white/20 text-xs font-mono text-slate-300 hover:text-white flex items-center gap-2 transition-colors"
+            >
+              <Eye size={13} className="text-cyan-400" />
+              <span>Lihat Halaman Publik</span>
+            </Link>
+          </div>
         </div>
 
         {loading ? (
@@ -617,36 +747,43 @@ export default function ServicesManagementPage() {
               <div className="flex items-center gap-2 pb-3 border-b border-white/5">
                 <Wrench size={16} className="text-cyan-400" />
                 <span className="text-xs font-mono uppercase tracking-wider text-white font-bold">
-                  1. Pengaturan Judul & Header Halaman
+                  1. Pengaturan Judul & Header Halaman ({isId ? 'ID' : 'EN'})
                 </span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                    Badge Teks Atas
+                    Badge Teks Atas ({isId ? 'Indonesia' : 'English'})
                   </label>
                   <input
                     type="text"
-                    value={headerForm.badge_text}
+                    value={
+                      isId ? headerForm.badge_text_id : headerForm.badge_text
+                    }
                     onChange={(e) =>
-                      setHeaderForm({
-                        ...headerForm,
-                        badge_text: e.target.value,
-                      })
+                      setHeaderForm((prev) =>
+                        isId
+                          ? { ...prev, badge_text_id: e.target.value }
+                          : { ...prev, badge_text: e.target.value }
+                      )
                     }
                     className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs font-mono focus:border-cyan-400"
                   />
                 </div>
                 <div>
                   <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                    Judul Utama (Title)
+                    Judul Utama (Title - {isId ? 'Indonesia' : 'English'})
                   </label>
                   <input
                     type="text"
-                    value={headerForm.title}
+                    value={isId ? headerForm.title_id : headerForm.title}
                     onChange={(e) =>
-                      setHeaderForm({ ...headerForm, title: e.target.value })
+                      setHeaderForm((prev) =>
+                        isId
+                          ? { ...prev, title_id: e.target.value }
+                          : { ...prev, title: e.target.value }
+                      )
                     }
                     className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs font-bold focus:border-cyan-400"
                   />
@@ -655,13 +792,17 @@ export default function ServicesManagementPage() {
 
               <div>
                 <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                  Subjudul / Deskripsi Singkat
+                  Subjudul / Deskripsi Singkat ({isId ? 'Indonesia' : 'English'})
                 </label>
                 <input
                   type="text"
-                  value={headerForm.subtitle}
+                  value={isId ? headerForm.subtitle_id : headerForm.subtitle}
                   onChange={(e) =>
-                    setHeaderForm({ ...headerForm, subtitle: e.target.value })
+                    setHeaderForm((prev) =>
+                      isId
+                        ? { ...prev, subtitle_id: e.target.value }
+                        : { ...prev, subtitle: e.target.value }
+                    )
                   }
                   className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white text-xs focus:border-cyan-400"
                 />
@@ -698,57 +839,70 @@ export default function ServicesManagementPage() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-                {services.map((item) => (
-                  <div
-                    key={item.id}
-                    className="bg-[#07090e] border border-white/10 rounded-xl p-5 flex flex-col justify-between group hover:border-cyan-500/30 transition-all"
-                  >
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-bold">
-                          {item.badge}
-                        </span>
-                        <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEditModal(item)}
-                            className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white transition-colors cursor-pointer"
-                            title="Edit Card"
-                          >
-                            <Edit3 size={13} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteService(item.id)}
-                            className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-colors cursor-pointer"
-                            title="Hapus Card"
-                          >
-                            <Trash2 size={13} />
-                          </button>
+                {services.map((item) => {
+                  const displayCardTitle =
+                    isId && item.title_id ? item.title_id : item.title;
+                  const displayCardDesc =
+                    isId && item.description_id
+                      ? item.description_id
+                      : item.description;
+                  const displayCardTags =
+                    isId && Array.isArray(item.tags_id) && item.tags_id.length > 0
+                      ? item.tags_id
+                      : item.tags;
+
+                  return (
+                    <div
+                      key={item.id}
+                      className="bg-[#07090e] border border-white/10 rounded-xl p-5 flex flex-col justify-between group hover:border-cyan-500/30 transition-all"
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-bold">
+                            {item.badge}
+                          </span>
+                          <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditModal(item)}
+                              className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                              title="Edit Card"
+                            >
+                              <Edit3 size={13} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteService(item.id)}
+                              className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-colors cursor-pointer"
+                              title="Hapus Card"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
                         </div>
+
+                        <h3 className="text-sm font-bold text-white pt-1">
+                          {displayCardTitle}
+                        </h3>
+                        <p className="text-xs text-slate-400 leading-relaxed">
+                          {displayCardDesc}
+                        </p>
                       </div>
 
-                      <h3 className="text-sm font-bold text-white pt-1">
-                        {item.title}
-                      </h3>
-                      <p className="text-xs text-slate-400 leading-relaxed">
-                        {item.description}
-                      </p>
+                      <div className="pt-4 mt-4 border-t border-white/5 flex flex-wrap gap-1">
+                        {Array.isArray(displayCardTags) &&
+                          displayCardTags.map((tag, idx) => (
+                            <span
+                              key={idx}
+                              className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-[9px] font-mono text-slate-300"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                      </div>
                     </div>
-
-                    <div className="pt-4 mt-4 border-t border-white/5 flex flex-wrap gap-1">
-                      {Array.isArray(item.tags) &&
-                        item.tags.map((tag, idx) => (
-                          <span
-                            key={idx}
-                            className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-[9px] font-mono text-slate-300"
-                          >
-                            {tag}
-                          </span>
-                        ))}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -767,7 +921,7 @@ export default function ServicesManagementPage() {
             <form onSubmit={handleSaveServiceCard} className="space-y-4 text-xs">
               <div>
                 <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                  Judul Layanan (Title)
+                  Judul Layanan (Title - English)
                 </label>
                 <input
                   type="text"
@@ -783,7 +937,22 @@ export default function ServicesManagementPage() {
 
               <div>
                 <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                  Deskripsi Layanan
+                  Judul Layanan (Indonesia)
+                </label>
+                <input
+                  type="text"
+                  value={modalForm.title_id}
+                  onChange={(e) =>
+                    setModalForm({ ...modalForm, title_id: e.target.value })
+                  }
+                  placeholder="Contoh: PENGEMBANGAN APLIKASI MOBILE"
+                  className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                  Deskripsi Layanan (English)
                 </label>
                 <textarea
                   rows={3}
@@ -793,6 +962,24 @@ export default function ServicesManagementPage() {
                     setModalForm({ ...modalForm, description: e.target.value })
                   }
                   placeholder="Deskripsi singkat layanan..."
+                  className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white leading-relaxed focus:border-cyan-400"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                  Deskripsi Layanan (Indonesia)
+                </label>
+                <textarea
+                  rows={3}
+                  value={modalForm.description_id}
+                  onChange={(e) =>
+                    setModalForm({
+                      ...modalForm,
+                      description_id: e.target.value,
+                    })
+                  }
+                  placeholder="Deskripsi singkat dalam bahasa Indonesia..."
                   className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white leading-relaxed focus:border-cyan-400"
                 />
               </div>
@@ -829,13 +1016,28 @@ export default function ServicesManagementPage() {
 
               <div>
                 <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                  Tags (Pisahkan dengan koma)
+                  Tags (Pisahkan dengan koma - English)
                 </label>
                 <input
                   type="text"
                   value={modalForm.tagsStr}
                   onChange={(e) =>
                     setModalForm({ ...modalForm, tagsStr: e.target.value })
+                  }
+                  placeholder="React, Next.js, API"
+                  className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-mono text-slate-400 mb-1">
+                  Tags (Pisahkan dengan koma - Indonesia)
+                </label>
+                <input
+                  type="text"
+                  value={modalForm.tagsIdStr}
+                  onChange={(e) =>
+                    setModalForm({ ...modalForm, tagsIdStr: e.target.value })
                   }
                   placeholder="React, Next.js, API"
                   className="w-full px-3 py-2 rounded-xl bg-[#07090e] border border-white/10 text-white font-mono focus:border-cyan-400"

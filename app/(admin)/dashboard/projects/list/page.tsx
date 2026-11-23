@@ -33,7 +33,6 @@ import {
   Save,
   Upload,
   Star,
-  Radio,
 } from 'lucide-react';
 
 interface SubProjectItem {
@@ -87,7 +86,6 @@ export default function ProjectsListPage() {
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
-  const [livePulse, setLivePulse] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'all' | 'single' | 'multi'>('all');
   const [toast, setToast] = useState<{
@@ -161,8 +159,6 @@ export default function ProjectsListPage() {
       window.dispatchEvent(
         new CustomEvent(ADMIN_SYNC_CHANNEL, { detail: eventDetail })
       );
-      setLivePulse(true);
-      setTimeout(() => setLivePulse(false), 1800);
     },
     [syncProjectsCache]
   );
@@ -281,8 +277,8 @@ export default function ProjectsListPage() {
         setTimeout(() => router.refresh(), 50);
         showToast(
           newStatus
-            ? `Proyek "${title}" disematkan ke halaman utama & disinkronkan secara real-time!`
-            : `Proyek "${title}" dilepas dari sematan & disinkronkan secara real-time.`
+            ? `Proyek "${title}" disematkan ke halaman utama & disinkronkan!`
+            : `Proyek "${title}" dilepas dari sematan & disinkronkan.`
         );
       } else {
         showToast(
@@ -310,7 +306,7 @@ export default function ProjectsListPage() {
         setProjects(nextList);
         broadcastProjectsUpdate('delete', { id }, nextList);
         setTimeout(() => router.refresh(), 50);
-        showToast(`Proyek "${title}" berhasil dihapus secara real-time.`);
+        showToast(`Proyek "${title}" berhasil dihapus.`);
       } else {
         showToast(
           `Gagal menghapus: ${json?.error || 'Terjadi kesalahan'}`,
@@ -410,7 +406,7 @@ export default function ProjectsListPage() {
         );
         setTimeout(() => router.refresh(), 50);
         showToast(
-          'Item koleksi multi-proyek berhasil diperbarui ke Neon & disinkronkan secara real-time!'
+          'Item koleksi multi-proyek berhasil diperbarui ke Neon & disinkronkan!'
         );
         setIsMultiModalOpen(false);
         await fetchProjects();
@@ -633,24 +629,12 @@ export default function ProjectsListPage() {
               <ArrowLeft size={13} />
               <span>Kembali ke Projects Hub</span>
             </Link>
-            <div className="flex items-center gap-2.5 flex-wrap">
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-                Kelola & Daftar Proyek Terpublikasi
-              </h1>
-              <span
-                className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-mono border transition-colors ${
-                  livePulse
-                    ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300'
-                    : 'bg-white/5 border-white/10 text-slate-400'
-                }`}
-              >
-                <Radio size={11} className="text-emerald-400" />
-                <span>LIVE SYNC</span>
-              </span>
-            </div>
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+              Kelola & Daftar Proyek Terpublikasi
+            </h1>
             <p className="text-xs text-slate-400">
               Pusat daftar seluruh studi kasus dan koleksi portofolio yang aktif
-              via Neon secara dinamis dan real-time.
+              via Neon secara dinamis.
             </p>
           </div>
 
