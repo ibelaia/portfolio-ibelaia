@@ -63,11 +63,27 @@ interface Project {
 }
 
 const PROJECTS_LIST_SYNC_CHANNEL = 'portfolio-sync-projects';
+const ADMIN_SYNC_CHANNEL = 'portfolio-admin-sync';
+const PROJECTS_CACHE_KEY = 'portfolio_projects_cache';
+const PROJECTS_COUNT_KEY = 'portfolio_projects_count';
+
+async function parseJsonSafely(response: Response): Promise<any | null> {
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    return null;
+  }
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
 
 export default function ProjectsListPage() {
   const router = useRouter();
   const { signOut } = useAuth();
   const syncChannelRef = useRef<BroadcastChannel | null>(null);
+  const adminChannelRef = useRef<BroadcastChannel | null>(null);
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -96,11 +112,25 @@ export default function ProjectsListPage() {
     setTimeout(() => setToast(null), 3500);
   };
 
+  const syncProjectsCache = useCallback((list: Project[]) => {
+    try {
+      localStorage.setItem(PROJECTS_CACHE_KEY, JSON.stringify(list));
+      localStorage.setItem(PROJECTS_COUNT_KEY, String(list.length));
+    } catch {
+      // Abaikan jika localStorage diblokir
+    }
+  }, []);
+
   const broadcastProjectsUpdate = useCallback(
-    (action: string, detailData?: any) => {
+    (action: string, detailData?: any, nextList?: Project[]) => {
+      if (Array.isArray(nextList)) {
+        syncProjectsCache(nextList);
+      }
+
       const eventDetail = {
         section: 'projects',
         action,
+        count: Array.isArray(nextList) ? nextList.length : undefined,
         updatedAt: Date.now(),
         data: detailData,
       };
@@ -108,6 +138,9 @@ export default function ProjectsListPage() {
       try {
         if (syncChannelRef.current) {
           syncChannelRef.current.postMessage(eventDetail);
+        }
+        if (adminChannelRef.current) {
+          adminChannelRef.current.postMessage(eventDetail);
         }
       } catch {
         // Abaikan jika BroadcastChannel tidak tersedia
@@ -125,39 +158,46 @@ export default function ProjectsListPage() {
       window.dispatchEvent(
         new CustomEvent(PROJECTS_LIST_SYNC_CHANNEL, { detail: eventDetail })
       );
+      window.dispatchEvent(
+        new CustomEvent(ADMIN_SYNC_CHANNEL, { detail: eventDetail })
+      );
       setLivePulse(true);
       setTimeout(() => setLivePulse(false), 1800);
     },
-    []
+    [syncProjectsCache]
   );
 
-  const fetchProjects = useCallback(async (isMountedRef?: { current: boolean }) => {
-    if (!isMountedRef || isMountedRef.current) {
-      setLoading(true);
-    }
-    try {
-      const response = await fetch('/api/projects', { cache: 'no-store' });
-      const json = await response.json();
-
-      if (isMountedRef && !isMountedRef.current) return;
-
-      if (json.success && Array.isArray(json.data)) {
-        const sortedData = [...json.data].sort((a, b) => {
-          if (a.is_featured === b.is_featured) return 0;
-          return a.is_featured ? -1 : 1;
-        });
-        setProjects(sortedData);
-      }
-    } catch (err) {
+  const fetchProjects = useCallback(
+    async (isMountedRef?: { current: boolean }) => {
       if (!isMountedRef || isMountedRef.current) {
-        console.warn('Gagal memuat daftar proyek dari Neon:', err);
+        setLoading(true);
       }
-    } finally {
-      if (!isMountedRef || isMountedRef.current) {
-        setLoading(false);
+      try {
+        const response = await fetch('/api/projects', { cache: 'no-store' });
+        const json = await parseJsonSafely(response);
+
+        if (isMountedRef && !isMountedRef.current) return;
+
+        if (response.ok && json && Array.isArray(json.data)) {
+          const sortedData = [...json.data].sort((a, b) => {
+            if (a.is_featured === b.is_featured) return 0;
+            return a.is_featured ? -1 : 1;
+          });
+          setProjects(sortedData);
+          syncProjectsCache(sortedData);
+        }
+      } catch (err) {
+        if (!isMountedRef || isMountedRef.current) {
+          console.warn('Gagal memuat daftar proyek dari Neon:', err);
+        }
+      } finally {
+        if (!isMountedRef || isMountedRef.current) {
+          setLoading(false);
+        }
       }
-    }
-  }, []);
+    },
+    [syncProjectsCache]
+  );
 
   useEffect(() => {
     const isMountedRef = { current: true };
@@ -169,10 +209,22 @@ export default function ProjectsListPage() {
           fetchProjects(isMountedRef);
         }
       };
+
+      adminChannelRef.current = new BroadcastChannel(ADMIN_SYNC_CHANNEL);
+      adminChannelRef.current.onmessage = () => {
+        if (isMountedRef.current) {
+          fetchProjects(isMountedRef);
+        }
+      };
     }
 
     const handleStorageSync = (e: StorageEvent) => {
-      if (e.key === PROJECTS_LIST_SYNC_CHANNEL && isMountedRef.current) {
+      if (
+        (e.key === PROJECTS_LIST_SYNC_CHANNEL ||
+          e.key === ADMIN_SYNC_CHANNEL ||
+          e.key === PROJECTS_CACHE_KEY) &&
+        isMountedRef.current
+      ) {
         fetchProjects(isMountedRef);
       }
     };
@@ -186,6 +238,10 @@ export default function ProjectsListPage() {
       if (syncChannelRef.current) {
         syncChannelRef.current.close();
         syncChannelRef.current = null;
+      }
+      if (adminChannelRef.current) {
+        adminChannelRef.current.close();
+        adminChannelRef.current = null;
       }
     };
   }, [fetchProjects]);
@@ -203,20 +259,26 @@ export default function ProjectsListPage() {
         cache: 'no-store',
         body: JSON.stringify({ id, is_featured: newStatus }),
       });
-      const json = await response.json();
+      const json = await parseJsonSafely(response);
 
-      if (response.ok && json.success) {
+      if (response.ok && json && json.success) {
+        let nextSorted: Project[] = [];
         setProjects((prev) => {
           const updated = prev.map((p) =>
             p.id === id ? { ...p, is_featured: newStatus } : p
           );
-          return updated.sort((a, b) => {
+          nextSorted = updated.sort((a, b) => {
             if (a.is_featured === b.is_featured) return 0;
             return a.is_featured ? -1 : 1;
           });
+          return nextSorted;
         });
-        broadcastProjectsUpdate('featured', { id, is_featured: newStatus });
-        router.refresh();
+        broadcastProjectsUpdate(
+          'featured',
+          { id, is_featured: newStatus },
+          nextSorted
+        );
+        setTimeout(() => router.refresh(), 50);
         showToast(
           newStatus
             ? `Proyek "${title}" disematkan ke halaman utama & disinkronkan secara real-time!`
@@ -224,7 +286,7 @@ export default function ProjectsListPage() {
         );
       } else {
         showToast(
-          `Gagal memperbarui status: ${json.error || 'Terjadi kesalahan'}`,
+          `Gagal memperbarui status: ${json?.error || 'Terjadi kesalahan'}`,
           'error'
         );
       }
@@ -241,18 +303,17 @@ export default function ProjectsListPage() {
         method: 'DELETE',
         cache: 'no-store',
       });
-      const json = await response.json();
+      const json = await parseJsonSafely(response);
 
-      if (response.ok && json.success) {
-        setProjects((prev) => prev.filter((p) => p.id !== id));
-        broadcastProjectsUpdate('delete', { id });
-        router.refresh();
-        showToast(
-          `Proyek "${title}" berhasil dihapus secara real-time.`
-        );
+      if (response.ok && json && json.success) {
+        const nextList = projects.filter((p) => p.id !== id);
+        setProjects(nextList);
+        broadcastProjectsUpdate('delete', { id }, nextList);
+        setTimeout(() => router.refresh(), 50);
+        showToast(`Proyek "${title}" berhasil dihapus secara real-time.`);
       } else {
         showToast(
-          `Gagal menghapus: ${json.error || 'Terjadi kesalahan'}`,
+          `Gagal menghapus: ${json?.error || 'Terjadi kesalahan'}`,
           'error'
         );
       }
@@ -330,14 +391,24 @@ export default function ProjectsListPage() {
           collection_items: subItems,
         }),
       });
-      const json = await response.json();
+      const json = await parseJsonSafely(response);
 
-      if (response.ok && json.success) {
-        broadcastProjectsUpdate('sub_items', {
-          id: selectedMultiProject.id,
-          collection_items: subItems,
-        });
-        router.refresh();
+      if (response.ok && json && json.success) {
+        const nextList = projects.map((p) =>
+          p.id === selectedMultiProject.id
+            ? { ...p, collection_items: subItems }
+            : p
+        );
+        setProjects(nextList);
+        broadcastProjectsUpdate(
+          'sub_items',
+          {
+            id: selectedMultiProject.id,
+            collection_items: subItems,
+          },
+          nextList
+        );
+        setTimeout(() => router.refresh(), 50);
         showToast(
           'Item koleksi multi-proyek berhasil diperbarui ke Neon & disinkronkan secara real-time!'
         );
@@ -345,7 +416,7 @@ export default function ProjectsListPage() {
         await fetchProjects();
       } else {
         showToast(
-          `Gagal menyimpan item koleksi: ${json.error || 'Terjadi kesalahan'}`,
+          `Gagal menyimpan item koleksi: ${json?.error || 'Terjadi kesalahan'}`,
           'error'
         );
       }

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import {
   Award,
@@ -15,90 +15,200 @@ import {
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 
+interface CertificateCardItem {
+  id: string;
+  issuer: string;
+  title: string;
+  titleId?: string;
+  year: string;
+  credentialId: string;
+  desc: string;
+  descId?: string;
+  image: string;
+  icon: React.ReactNode;
+  link?: string;
+}
+
+const DEFAULT_CERTIFICATES: CertificateCardItem[] = [
+  {
+    id: '01',
+    issuer: 'freeCodeCamp',
+    title: 'Responsive Web Design Certification',
+    titleId: 'Sertifikasi Desain Web Responsif',
+    year: '2024',
+    credentialId: 'FCC-8921-X90',
+    desc: 'Completed the Responsive Web Design Developer Certification covering HTML, CSS, Flexbox, CSS Grid, and responsive design principles.',
+    descId:
+      'Menyelesaikan sertifikasi pengembang desain web responsif mencakup HTML, CSS, Flexbox, CSS Grid, dan prinsip desain ramah pengguna.',
+    image:
+      'https://images.unsplash.com/photo-1517694712202-14dd9538aa97?auto=format&fit=crop&w=800&q=80',
+    icon: <Award size={16} className="text-cyan-400" />,
+    link: 'https://www.freecodecamp.org/certification',
+  },
+  {
+    id: '02',
+    issuer: 'Google',
+    title: 'Google IT Automation with Python',
+    titleId: 'Otomatisasi IT Google dengan Python',
+    year: '2024',
+    credentialId: 'GGL-IT-7734-AU',
+    desc: 'Completed automation training including Python scripting, system administration, and IT automation best practices.',
+    descId:
+      'Menyelesaikan pelatihan otomasi sistem tingkat lanjut menggunakan Python, administrasi server, dan praktik terbaik IT.',
+    image:
+      'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=800&q=80',
+    icon: <Terminal size={16} className="text-emerald-400" />,
+    link: 'https://coursera.org/verify/professional-cert',
+  },
+  {
+    id: '03',
+    issuer: 'Udemy',
+    title: 'The Complete JavaScript Course 2024',
+    titleId: 'Kursus Komprehensif JavaScript 2024',
+    year: '2024',
+    credentialId: 'UC-9023-8812-JS',
+    desc: 'Completed an in-depth JavaScript course covering ES6+, DOM manipulation, APIs, and modern JavaScript concepts.',
+    descId:
+      'Menyelesaikan kursus intensif JavaScript modern mencakup ES6+, manipulasi DOM, integrasi API, dan pemrograman asinkron.',
+    image:
+      'https://images.unsplash.com/photo-1555066931-4365d14bab8c?auto=format&fit=crop&w=800&q=80',
+    icon: <Code2 size={16} className="text-purple-400" />,
+    link: 'https://www.udemy.com/certificate/UC-EXAMPLE',
+  },
+];
+
+const CERT_ICON_PALETTE = [
+  <Award key="award" size={16} className="text-cyan-400" />,
+  <Terminal key="terminal" size={16} className="text-emerald-400" />,
+  <Code2 key="code" size={16} className="text-purple-400" />,
+];
+
+async function parseJsonSafely(response: Response): Promise<any | null> {
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    return null;
+  }
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+function mapRawCertificates(rawList: any[]): CertificateCardItem[] {
+  return rawList.map((item: any, index: number) => ({
+    id: String(item.id || String(index + 1).padStart(2, '0')),
+    issuer: item.issuer || item.organization || item.provider || 'Certification',
+    title: item.title || item.name || `Certificate ${index + 1}`,
+    titleId:
+      item.titleId ||
+      item.title_id ||
+      item.title ||
+      item.name ||
+      `Sertifikat ${index + 1}`,
+    year: String(item.year || item.issue_year || item.date || '2024'),
+    credentialId:
+      item.credentialId ||
+      item.credential_id ||
+      item.credential_code ||
+      `CERT-0${index + 1}`,
+    desc: item.desc || item.description || '',
+    descId: item.descId || item.desc_id || item.desc || item.description || '',
+    image:
+      item.image ||
+      item.image_url ||
+      item.thumbnail ||
+      DEFAULT_CERTIFICATES[index % DEFAULT_CERTIFICATES.length].image,
+    icon: CERT_ICON_PALETTE[index % CERT_ICON_PALETTE.length],
+    link: item.link || item.credential_url || item.url || '/certificates',
+  }));
+}
+
 export const CertificatesSection: React.FC = () => {
   const { t } = useApp();
+  const [certificates, setCertificates] =
+    useState<CertificateCardItem[]>(DEFAULT_CERTIFICATES);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [syncTick, setSyncTick] = useState(0);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   void ShieldCheck;
 
-  useEffect(() => {
-    void syncTick;
-    let channel: BroadcastChannel | null = null;
+  const fetchNeonCertificates = useCallback(async () => {
+    try {
+      const endpoints = ['/api/certificates', '/api/portfolio'];
+      for (const endpoint of endpoints) {
+        const response = await fetch(endpoint, { cache: 'no-store' });
+        if (!response.ok) continue;
 
-    const handleSyncSignal = () => {
-      setSyncTick((prev) => prev + 1);
+        const json = await parseJsonSafely(response);
+        if (!json || json.success === false) continue;
+
+        const list =
+          endpoint === '/api/portfolio'
+            ? json.certificates || json.data?.certificates
+            : Array.isArray(json.data)
+              ? json.data
+              : json.certificates;
+
+        if (Array.isArray(list) && list.length > 0) {
+          const mapped = mapRawCertificates(list);
+          setCertificates(mapped);
+          setCurrentIndex((prev) =>
+            prev >= mapped.length ? Math.max(0, mapped.length - 1) : prev
+          );
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('Gagal memuat certificates dari Neon API:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const triggerSync = () => {
+      if (isMounted) {
+        fetchNeonCertificates();
+      }
     };
 
+    triggerSync();
+
+    let adminChannel: BroadcastChannel | null = null;
+    let certsChannel: BroadcastChannel | null = null;
+
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-      channel = new BroadcastChannel('portfolio-admin-sync');
-      channel.onmessage = handleSyncSignal;
+      adminChannel = new BroadcastChannel('portfolio-admin-sync');
+      adminChannel.onmessage = triggerSync;
+
+      certsChannel = new BroadcastChannel('portfolio-sync-certificates');
+      certsChannel.onmessage = triggerSync;
     }
 
     const handleStorage = (event: StorageEvent) => {
       if (!event.key || event.key.startsWith('portfolio')) {
-        handleSyncSignal();
+        triggerSync();
       }
     };
 
     window.addEventListener('storage', handleStorage);
+    window.addEventListener('portfolio-admin-sync', triggerSync);
+    window.addEventListener('portfolio-sync-certificates', triggerSync);
 
     return () => {
+      isMounted = false;
       window.removeEventListener('storage', handleStorage);
-      if (channel) {
-        channel.close();
+      window.removeEventListener('portfolio-admin-sync', triggerSync);
+      window.removeEventListener('portfolio-sync-certificates', triggerSync);
+      if (adminChannel) {
+        adminChannel.close();
+      }
+      if (certsChannel) {
+        certsChannel.close();
       }
     };
-  }, [syncTick]);
-
-  const certificates = [
-    {
-      id: '01',
-      issuer: 'freeCodeCamp',
-      title: 'Responsive Web Design Certification',
-      titleId: 'Sertifikasi Desain Web Responsif',
-      year: '2024',
-      credentialId: 'FCC-8921-X90',
-      desc: 'Completed the Responsive Web Design Developer Certification covering HTML, CSS, Flexbox, CSS Grid, and responsive design principles.',
-      descId:
-        'Menyelesaikan sertifikasi pengembang desain web responsif mencakup HTML, CSS, Flexbox, CSS Grid, dan prinsip desain ramah pengguna.',
-      image:
-        'https://images.unsplash.com/photo-1517694712202-14dd9538aa97?auto=format&fit=crop&w=800&q=80',
-      icon: <Award size={16} className="text-cyan-400" />,
-      link: 'https://www.freecodecamp.org/certification',
-    },
-    {
-      id: '02',
-      issuer: 'Google',
-      title: 'Google IT Automation with Python',
-      titleId: 'Otomatisasi IT Google dengan Python',
-      year: '2024',
-      credentialId: 'GGL-IT-7734-AU',
-      desc: 'Completed automation training including Python scripting, system administration, and IT automation best practices.',
-      descId:
-        'Menyelesaikan pelatihan otomasi sistem tingkat lanjut menggunakan Python, administrasi server, dan praktik terbaik IT.',
-      image:
-        'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=800&q=80',
-      icon: <Terminal size={16} className="text-emerald-400" />,
-      link: 'https://coursera.org/verify/professional-cert',
-    },
-    {
-      id: '03',
-      issuer: 'Udemy',
-      title: 'The Complete JavaScript Course 2024',
-      titleId: 'Kursus Komprehensif JavaScript 2024',
-      year: '2024',
-      credentialId: 'UC-9023-8812-JS',
-      desc: 'Completed an in-depth JavaScript course covering ES6+, DOM manipulation, APIs, and modern JavaScript concepts.',
-      descId:
-        'Menyelesaikan kursus intensif JavaScript modern mencakup ES6+, manipulasi DOM, integrasi API, dan pemrograman asinkron.',
-      image:
-        'https://images.unsplash.com/photo-1555066931-4365d14bab8c?auto=format&fit=crop&w=800&q=80',
-      icon: <Code2 size={16} className="text-purple-400" />,
-      link: 'https://www.udemy.com/certificate/UC-EXAMPLE',
-    },
-  ];
+  }, [fetchNeonCertificates]);
 
   const handlePrev = () => {
     setCurrentIndex((prev) => {
@@ -173,6 +283,7 @@ export const CertificatesSection: React.FC = () => {
           </Link>
 
           <button
+            type="button"
             onClick={handlePrev}
             className="p-2.5 rounded-full border border-white/10 bg-[#090e1f] hover:bg-white/5 text-slate-300 hover:text-white transition-all cursor-pointer"
             aria-label="Previous certificate"
@@ -180,6 +291,7 @@ export const CertificatesSection: React.FC = () => {
             <ChevronLeft size={16} />
           </button>
           <button
+            type="button"
             onClick={handleNext}
             className="p-2.5 rounded-full border border-white/10 bg-[#090e1f] hover:bg-white/5 text-slate-300 hover:text-white transition-all cursor-pointer"
             aria-label="Next certificate"
@@ -286,6 +398,7 @@ export const CertificatesSection: React.FC = () => {
             {certificates.map((_, dotIdx) => (
               <button
                 key={dotIdx}
+                type="button"
                 onClick={() => {
                   setCurrentIndex(dotIdx);
                   scrollToCard(dotIdx);

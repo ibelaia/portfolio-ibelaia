@@ -52,10 +52,30 @@ interface VisitorLog {
 }
 
 const DASHBOARD_SYNC_CHANNEL = 'portfolio-sync-dashboard';
+const PROJECTS_SYNC_CHANNEL = 'portfolio-sync-projects';
+const SERVICES_SYNC_CHANNEL = 'portfolio-sync-services';
+const CERTIFICATES_SYNC_CHANNEL = 'portfolio-sync-certificates';
+const ADMIN_SYNC_CHANNEL = 'portfolio-admin-sync';
+
+async function parseJsonSafely(response: Response): Promise<any | null> {
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    return null;
+  }
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
 
 export default function AdminDashboardPage() {
   const router = useRouter();
   const syncChannelRef = useRef<BroadcastChannel | null>(null);
+  const projectsChannelRef = useRef<BroadcastChannel | null>(null);
+  const servicesChannelRef = useRef<BroadcastChannel | null>(null);
+  const certificatesChannelRef = useRef<BroadcastChannel | null>(null);
+  const adminChannelRef = useRef<BroadcastChannel | null>(null);
 
   const [authChecking, setAuthChecking] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -114,6 +134,18 @@ export default function AdminDashboardPage() {
         if (syncChannelRef.current) {
           syncChannelRef.current.postMessage(eventDetail);
         }
+        if (projectsChannelRef.current) {
+          projectsChannelRef.current.postMessage(eventDetail);
+        }
+        if (servicesChannelRef.current) {
+          servicesChannelRef.current.postMessage(eventDetail);
+        }
+        if (certificatesChannelRef.current) {
+          certificatesChannelRef.current.postMessage(eventDetail);
+        }
+        if (adminChannelRef.current) {
+          adminChannelRef.current.postMessage(eventDetail);
+        }
       } catch {
         // Abaikan jika BroadcastChannel tidak tersedia
       }
@@ -130,55 +162,227 @@ export default function AdminDashboardPage() {
       window.dispatchEvent(
         new CustomEvent(DASHBOARD_SYNC_CHANNEL, { detail: eventDetail })
       );
+      window.dispatchEvent(
+        new CustomEvent(PROJECTS_SYNC_CHANNEL, { detail: eventDetail })
+      );
       setLivePulse(true);
       setTimeout(() => setLivePulse(false), 1800);
     },
     []
   );
 
-  const fetchAllDataCounts = useCallback(async () => {
-    try {
-      const response = await fetch('/api/dashboard/stats', {
-        cache: 'no-store',
-      });
-      const json = await response.json();
-      if (json.success && json.counts) {
-        setCounts(json.counts);
-      }
-    } catch (err) {
-      console.warn('Gagal memuat statistik dashboard:', err);
-    }
-  }, []);
-
-  const handleLogout = async () => {
-    router.replace('/login');
-  };
-
-  const fetchProjects = useCallback(async () => {
+  const fetchProjects = useCallback(async (): Promise<Project[]> => {
     setLoadingProjects(true);
     try {
       const response = await fetch('/api/projects', { cache: 'no-store' });
-      const json = await response.json();
-      if (json.success && Array.isArray(json.data)) {
+      const json = await parseJsonSafely(response);
+      if (response.ok && json && Array.isArray(json.data)) {
         setProjects(json.data);
+        try {
+          localStorage.setItem('portfolio_projects_count', String(json.data.length));
+        } catch {
+          // Abaikan error akses localStorage
+        }
+        setCounts((prev) => ({
+          ...prev,
+          projects: json.data.length,
+        }));
+        return json.data;
+      }
+
+      const portfolioRes = await fetch('/api/portfolio', { cache: 'no-store' });
+      const portfolioJson = await parseJsonSafely(portfolioRes);
+      if (
+        portfolioRes.ok &&
+        portfolioJson &&
+        Array.isArray(portfolioJson.projects)
+      ) {
+        setProjects(portfolioJson.projects);
+        try {
+          localStorage.setItem(
+            'portfolio_projects_count',
+            String(portfolioJson.projects.length)
+          );
+        } catch {
+          // Abaikan error akses localStorage
+        }
+        setCounts((prev) => ({
+          ...prev,
+          projects: portfolioJson.projects.length,
+        }));
+        return portfolioJson.projects;
       }
     } catch (err) {
       console.warn('Gagal memuat proyek:', err);
     } finally {
       setLoadingProjects(false);
     }
+    return [];
   }, []);
+
+  const fetchAllDataCounts = useCallback(
+    async (knownProjectsCount?: number) => {
+      let nextProjects =
+        typeof knownProjectsCount === 'number'
+          ? knownProjectsCount
+          : projects.length;
+      let nextServices: number | null = null;
+      let nextAchievements: number | null = null;
+      let nextCertificates: number | null = null;
+      let nextVisitors: number | null = null;
+
+      try {
+        const cachedServices = localStorage.getItem('portfolio_services_count');
+        if (cachedServices !== null && !Number.isNaN(Number(cachedServices))) {
+          nextServices = Number(cachedServices);
+        }
+        const cachedCertificates = localStorage.getItem(
+          'portfolio_certificates_count'
+        );
+        if (
+          cachedCertificates !== null &&
+          !Number.isNaN(Number(cachedCertificates))
+        ) {
+          nextCertificates = Number(cachedCertificates);
+        }
+      } catch {
+        // Abaikan error akses localStorage
+      }
+
+      try {
+        const response = await fetch('/api/dashboard/stats', {
+          cache: 'no-store',
+        });
+        const json = await parseJsonSafely(response);
+        if (response.ok && json && json.success && json.counts) {
+          if (
+            typeof knownProjectsCount !== 'number' &&
+            typeof json.counts.projects === 'number'
+          ) {
+            nextProjects = json.counts.projects;
+          }
+          if (typeof json.counts.services === 'number') {
+            nextServices = json.counts.services;
+          }
+          if (typeof json.counts.achievements === 'number') {
+            nextAchievements = json.counts.achievements;
+          }
+          if (typeof json.counts.certificates === 'number') {
+            nextCertificates = json.counts.certificates;
+          }
+          if (typeof json.counts.visitors === 'number') {
+            nextVisitors = json.counts.visitors;
+          }
+        }
+      } catch {
+        // Fallback ke endpoint individual di bawah
+      }
+
+      try {
+        const [portfolioRes, servicesRes, certificatesRes] =
+          await Promise.allSettled([
+            fetch('/api/portfolio', { cache: 'no-store' }),
+            fetch('/api/services', { cache: 'no-store' }),
+            fetch('/api/certificates', { cache: 'no-store' }),
+          ]);
+
+        if (portfolioRes.status === 'fulfilled' && portfolioRes.value.ok) {
+          const portfolioJson = await parseJsonSafely(portfolioRes.value);
+          if (portfolioJson && portfolioJson.success) {
+            if (
+              typeof knownProjectsCount !== 'number' &&
+              Array.isArray(portfolioJson.projects)
+            ) {
+              nextProjects = portfolioJson.projects.length;
+            }
+            if (Array.isArray(portfolioJson.achievements)) {
+              nextAchievements = portfolioJson.achievements.length;
+            }
+          }
+        }
+
+        if (servicesRes.status === 'fulfilled' && servicesRes.value.ok) {
+          const servicesJson = await parseJsonSafely(servicesRes.value);
+          if (servicesJson && Array.isArray(servicesJson.data)) {
+            nextServices = servicesJson.data.length;
+          } else if (
+            servicesJson &&
+            Array.isArray(servicesJson.services)
+          ) {
+            nextServices = servicesJson.services.length;
+          }
+        }
+
+        if (
+          certificatesRes.status === 'fulfilled' &&
+          certificatesRes.value.ok
+        ) {
+          const certificatesJson = await parseJsonSafely(
+            certificatesRes.value
+          );
+          if (certificatesJson && Array.isArray(certificatesJson.data)) {
+            nextCertificates = certificatesJson.data.length;
+          } else if (
+            certificatesJson &&
+            Array.isArray(certificatesJson.certificates)
+          ) {
+            nextCertificates = certificatesJson.certificates.length;
+          }
+        }
+      } catch (err) {
+        console.warn('Gagal memuat statistik tambahan:', err);
+      }
+
+      try {
+        localStorage.setItem('portfolio_projects_count', String(nextProjects));
+        if (nextServices !== null) {
+          localStorage.setItem('portfolio_services_count', String(nextServices));
+        }
+        if (nextCertificates !== null) {
+          localStorage.setItem(
+            'portfolio_certificates_count',
+            String(nextCertificates)
+          );
+        }
+      } catch {
+        // Abaikan error akses localStorage
+      }
+
+      setCounts((prev) => ({
+        projects: nextProjects,
+        services: nextServices !== null ? nextServices : prev.services,
+        achievements:
+          nextAchievements !== null ? nextAchievements : prev.achievements,
+        certificates:
+          nextCertificates !== null ? nextCertificates : prev.certificates,
+        visitors: nextVisitors !== null ? nextVisitors : prev.visitors,
+      }));
+    },
+    [projects.length]
+  );
+
+  const handleLogout = async () => {
+    router.replace('/login');
+  };
 
   const fetchVisitorLogs = useCallback(async () => {
     setLoadingLogs(true);
     try {
       const response = await fetch('/api/visitor-logs', { cache: 'no-store' });
-      const json = await response.json();
-      if (json.success && Array.isArray(json.data)) {
-        setVisitorLogs(json.data);
+      if (!response.ok) {
+        setVisitorLogs([]);
+        return;
       }
-    } catch (err) {
-      console.warn('Gagal memuat visitor logs:', err);
+      const json = await parseJsonSafely(response);
+      if (json && json.success && Array.isArray(json.data)) {
+        setVisitorLogs(json.data);
+        setCounts((prev) => ({
+          ...prev,
+          visitors: json.data.length,
+        }));
+      }
+    } catch {
+      // Abaikan jika endpoint belum tersedia
     } finally {
       setLoadingLogs(false);
     }
@@ -187,44 +391,91 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     let isMounted = true;
 
+    const refreshAll = async () => {
+      if (!isMounted) return;
+      const loadedProjects = await fetchProjects();
+      if (!isMounted) return;
+      await Promise.all([
+        fetchAllDataCounts(loadedProjects.length),
+        fetchVisitorLogs(),
+      ]);
+    };
+
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
       syncChannelRef.current = new BroadcastChannel(DASHBOARD_SYNC_CHANNEL);
-      syncChannelRef.current.onmessage = () => {
-        if (isMounted) {
-          fetchAllDataCounts();
-          fetchProjects();
-          fetchVisitorLogs();
-        }
-      };
+      syncChannelRef.current.onmessage = () => refreshAll();
+
+      projectsChannelRef.current = new BroadcastChannel(PROJECTS_SYNC_CHANNEL);
+      projectsChannelRef.current.onmessage = () => refreshAll();
+
+      servicesChannelRef.current = new BroadcastChannel(SERVICES_SYNC_CHANNEL);
+      servicesChannelRef.current.onmessage = () => refreshAll();
+
+      certificatesChannelRef.current = new BroadcastChannel(
+        CERTIFICATES_SYNC_CHANNEL
+      );
+      certificatesChannelRef.current.onmessage = () => refreshAll();
+
+      adminChannelRef.current = new BroadcastChannel(ADMIN_SYNC_CHANNEL);
+      adminChannelRef.current.onmessage = () => refreshAll();
     }
 
     const handleStorageSync = (e: StorageEvent) => {
-      if (e.key === DASHBOARD_SYNC_CHANNEL && isMounted) {
-        fetchAllDataCounts();
-        fetchProjects();
-        fetchVisitorLogs();
+      if (
+        !e.key ||
+        e.key === DASHBOARD_SYNC_CHANNEL ||
+        e.key === PROJECTS_SYNC_CHANNEL ||
+        e.key === SERVICES_SYNC_CHANNEL ||
+        e.key === CERTIFICATES_SYNC_CHANNEL ||
+        e.key.startsWith('portfolio')
+      ) {
+        refreshAll();
       }
     };
 
+    const handleCustomSync = () => {
+      refreshAll();
+    };
+
     window.addEventListener('storage', handleStorageSync);
+    window.addEventListener(DASHBOARD_SYNC_CHANNEL, handleCustomSync);
+    window.addEventListener(PROJECTS_SYNC_CHANNEL, handleCustomSync);
+    window.addEventListener(SERVICES_SYNC_CHANNEL, handleCustomSync);
+    window.addEventListener(CERTIFICATES_SYNC_CHANNEL, handleCustomSync);
 
     async function checkAuth() {
       if (!isMounted) return;
       setAuthChecking(false);
-      await Promise.all([
-        fetchAllDataCounts(),
-        fetchProjects(),
-        fetchVisitorLogs(),
-      ]);
+      await refreshAll();
     }
     checkAuth();
 
     return () => {
       isMounted = false;
       window.removeEventListener('storage', handleStorageSync);
+      window.removeEventListener(DASHBOARD_SYNC_CHANNEL, handleCustomSync);
+      window.removeEventListener(PROJECTS_SYNC_CHANNEL, handleCustomSync);
+      window.removeEventListener(SERVICES_SYNC_CHANNEL, handleCustomSync);
+      window.removeEventListener(CERTIFICATES_SYNC_CHANNEL, handleCustomSync);
       if (syncChannelRef.current) {
         syncChannelRef.current.close();
         syncChannelRef.current = null;
+      }
+      if (projectsChannelRef.current) {
+        projectsChannelRef.current.close();
+        projectsChannelRef.current = null;
+      }
+      if (servicesChannelRef.current) {
+        servicesChannelRef.current.close();
+        servicesChannelRef.current = null;
+      }
+      if (certificatesChannelRef.current) {
+        certificatesChannelRef.current.close();
+        certificatesChannelRef.current = null;
+      }
+      if (adminChannelRef.current) {
+        adminChannelRef.current.close();
+        adminChannelRef.current = null;
       }
     };
   }, [fetchAllDataCounts, fetchProjects, fetchVisitorLogs]);
@@ -237,19 +488,33 @@ export default function AdminDashboardPage() {
         method: 'DELETE',
         cache: 'no-store',
       });
-      const json = await response.json();
+      const json = await parseJsonSafely(response);
 
-      if (response.ok && json.success) {
-        setProjects((prev) => prev.filter((p) => p.id !== id));
-        await fetchAllDataCounts();
-        broadcastDashboardUpdate('delete_project', { id });
-        router.refresh();
-        showToast(
-          `Proyek "${title}" berhasil dihapus secara real-time.`
-        );
+      if (response.ok && json && json.success) {
+        const nextList = projects.filter((p) => p.id !== id);
+        setProjects(nextList);
+        try {
+          localStorage.setItem(
+            'portfolio_projects_count',
+            String(nextList.length)
+          );
+        } catch {
+          // Abaikan error akses localStorage
+        }
+        setCounts((prev) => ({
+          ...prev,
+          projects: Math.max(0, nextList.length),
+        }));
+        await fetchAllDataCounts(nextList.length);
+        broadcastDashboardUpdate('delete_project', {
+          id,
+          count: nextList.length,
+        });
+        setTimeout(() => router.refresh(), 50);
+        showToast(`Proyek "${title}" berhasil dihapus secara real-time.`);
       } else {
         showToast(
-          `Gagal: ${json.error || 'Terjadi kesalahan'}`,
+          `Gagal: ${json?.error || 'Terjadi kesalahan'}`,
           'error'
         );
       }
@@ -284,18 +549,22 @@ export default function AdminDashboardPage() {
         cache: 'no-store',
         body: JSON.stringify(payload),
       });
-      const json = await response.json();
+      const json = await parseJsonSafely(response);
 
-      if (response.ok && json.success) {
-        broadcastDashboardUpdate('create_project', json.data ?? payload);
-        router.refresh();
+      if (response.ok && json && json.success) {
+        const updatedList = await fetchProjects();
+        broadcastDashboardUpdate('create_project', {
+          ...(json.data ?? payload),
+          count: updatedList.length,
+        });
+        setTimeout(() => router.refresh(), 50);
         showToast(
           'Proyek baru berhasil ditambahkan ke Neon & disinkronkan secara real-time!'
         );
         setIsModalOpen(false);
-        await Promise.all([fetchProjects(), fetchAllDataCounts()]);
+        await fetchAllDataCounts(updatedList.length);
       } else {
-        showToast(json.error || 'Gagal menyimpan proyek', 'error');
+        showToast(json?.error || 'Gagal menyimpan proyek', 'error');
       }
     } catch (err: any) {
       showToast(`Error: ${err?.message || 'Terjadi kesalahan'}`, 'error');

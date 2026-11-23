@@ -167,11 +167,17 @@ function ProjectsManagementContent() {
       }
       try {
         const res = await fetch('/api/projects', { cache: 'no-store' });
-        const json = await res.json();
+        const text = await res.text();
+        let json: any = null;
+        try {
+          json = text ? JSON.parse(text) : null;
+        } catch {
+          json = null;
+        }
 
         if (isMountedRef && !isMountedRef.current) return;
 
-        if (json.success && Array.isArray(json.data)) {
+        if (json?.success && Array.isArray(json.data)) {
           setTotalCount(json.data.length);
 
           if (editId) {
@@ -403,11 +409,20 @@ function ProjectsManagementContent() {
         cache: 'no-store',
         body: JSON.stringify(payload),
       });
-      const json = await response.json();
+      const text = await response.text();
+      let json: any = null;
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch {
+        json = null;
+      }
 
-      if (response.ok && json.success) {
-        broadcastProjectsUpdate(editingId ? 'update' : 'create', json.data ?? payload);
-        router.refresh();
+      if (response.ok && json?.success) {
+        broadcastProjectsUpdate(
+          editingId ? 'update' : 'create',
+          json.data ?? payload
+        );
+        setTimeout(() => router.refresh(), 50);
         showToast(
           editingId
             ? 'Proyek berhasil diperbarui ke Neon & disinkronkan secara real-time!'
@@ -416,7 +431,7 @@ function ProjectsManagementContent() {
         router.push('/dashboard/projects/list');
       } else {
         showToast(
-          `Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`,
+          `Gagal menyimpan: ${json?.error || `HTTP ${response.status} — Terjadi kesalahan`}`,
           'error'
         );
       }

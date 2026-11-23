@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Code,
   Palette,
@@ -14,84 +14,186 @@ import {
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 
+interface ServiceCardItem {
+  id: string;
+  title: string;
+  titleId?: string;
+  desc: string;
+  descId?: string;
+  icon: React.ReactNode;
+  tags: string[];
+}
+
+const DEFAULT_SERVICES: ServiceCardItem[] = [
+  {
+    id: '01',
+    title: 'Web Development',
+    titleId: 'Pengembangan Web',
+    desc: 'Building responsive websites and e-commerce experiences with modern web technologies.',
+    descId:
+      'Membangun website responsif dan toko daring modern dengan teknologi web terkini.',
+    icon: <Code size={18} className="text-cyan-400" />,
+    tags: ['HTML', 'CSS', 'JavaScript', 'E-COMMERCE'],
+  },
+  {
+    id: '02',
+    title: 'UI/UX Design',
+    titleId: 'Desain UI/UX',
+    desc: 'Designing intuitive wireframes, mockups, and high-fidelity user interface prototypes.',
+    descId:
+      'Merancang wireframe yang intuitif, mockup estetis, serta purwarupa antarmuka interaktif.',
+    icon: <Palette size={18} className="text-emerald-400" />,
+    tags: ['FIGMA', 'WIREFRAME', 'PROTOTYPE'],
+  },
+  {
+    id: '03',
+    title: 'Database & Backend',
+    titleId: 'Basis Data & Backend',
+    desc: 'Developing scalable backend architectures, RESTful APIs, and optimized databases.',
+    descId:
+      'Mengembangkan arsitektur backend andal, API RESTful, serta optimasi basis data.',
+    icon: <Database size={18} className="text-cyan-400" />,
+    tags: ['MYSQL', 'DATABASE', 'API'],
+  },
+  {
+    id: '04',
+    title: 'Web3 Development',
+    titleId: 'Pengembangan Web3',
+    desc: 'Exploring smart contract interactions, dApps integration, and decentralized ecosystems.',
+    descId:
+      'Mengeksplorasi integrasi dApps, interaksi smart contract, dan ekosistem terdesentralisasi.',
+    icon: <Boxes size={18} className="text-purple-400" />,
+    tags: ['SOLIDITY', 'WEB3', 'SMART CONTRACTS'],
+  },
+];
+
+const SERVICE_ICON_PALETTE = [
+  <Code key="code" size={18} className="text-cyan-400" />,
+  <Palette key="palette" size={18} className="text-emerald-400" />,
+  <Database key="database" size={18} className="text-cyan-400" />,
+  <Boxes key="boxes" size={18} className="text-purple-400" />,
+];
+
+async function parseJsonSafely(response: Response): Promise<any | null> {
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    return null;
+  }
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+function mapRawServices(rawList: any[]): ServiceCardItem[] {
+  return rawList.map((item: any, index: number) => {
+    const rawTags = Array.isArray(item.tags)
+      ? item.tags
+      : Array.isArray(item.skills)
+        ? item.skills
+        : DEFAULT_SERVICES[index % DEFAULT_SERVICES.length].tags;
+
+    return {
+      id: String(item.id || String(index + 1).padStart(2, '0')),
+      title: item.title || item.name || `Service ${index + 1}`,
+      titleId:
+        item.titleId ||
+        item.title_id ||
+        item.title ||
+        item.name ||
+        `Layanan ${index + 1}`,
+      desc: item.desc || item.description || '',
+      descId: item.descId || item.desc_id || item.desc || item.description || '',
+      icon: SERVICE_ICON_PALETTE[index % SERVICE_ICON_PALETTE.length],
+      tags: rawTags,
+    };
+  });
+}
+
 export const ServicesSection: React.FC = () => {
   const { t } = useApp();
+  const [services, setServices] = useState<ServiceCardItem[]>(DEFAULT_SERVICES);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [showAllModal, setShowAllModal] = useState(false);
-  const [syncTick, setSyncTick] = useState(0);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    void syncTick;
-    let channel: BroadcastChannel | null = null;
+  const fetchNeonServices = useCallback(async () => {
+    try {
+      const endpoints = ['/api/services', '/api/portfolio'];
+      for (const endpoint of endpoints) {
+        const response = await fetch(endpoint, { cache: 'no-store' });
+        if (!response.ok) continue;
 
-    const handleSyncSignal = () => {
-      setSyncTick((prev) => prev + 1);
+        const json = await parseJsonSafely(response);
+        if (!json || json.success === false) continue;
+
+        const list =
+          endpoint === '/api/portfolio'
+            ? json.services || json.data?.services
+            : Array.isArray(json.data)
+              ? json.data
+              : json.services;
+
+        if (Array.isArray(list) && list.length > 0) {
+          const mapped = mapRawServices(list);
+          setServices(mapped);
+          setCurrentIndex((prev) =>
+            prev >= mapped.length ? Math.max(0, mapped.length - 1) : prev
+          );
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('Gagal memuat services dari Neon API:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const triggerSync = () => {
+      if (isMounted) {
+        fetchNeonServices();
+      }
     };
 
+    triggerSync();
+
+    let adminChannel: BroadcastChannel | null = null;
+    let servicesChannel: BroadcastChannel | null = null;
+
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-      channel = new BroadcastChannel('portfolio-admin-sync');
-      channel.onmessage = handleSyncSignal;
+      adminChannel = new BroadcastChannel('portfolio-admin-sync');
+      adminChannel.onmessage = triggerSync;
+
+      servicesChannel = new BroadcastChannel('portfolio-sync-services');
+      servicesChannel.onmessage = triggerSync;
     }
 
     const handleStorage = (event: StorageEvent) => {
       if (!event.key || event.key.startsWith('portfolio')) {
-        handleSyncSignal();
+        triggerSync();
       }
     };
 
     window.addEventListener('storage', handleStorage);
+    window.addEventListener('portfolio-admin-sync', triggerSync);
+    window.addEventListener('portfolio-sync-services', triggerSync);
 
     return () => {
+      isMounted = false;
       window.removeEventListener('storage', handleStorage);
-      if (channel) {
-        channel.close();
+      window.removeEventListener('portfolio-admin-sync', triggerSync);
+      window.removeEventListener('portfolio-sync-services', triggerSync);
+      if (adminChannel) {
+        adminChannel.close();
+      }
+      if (servicesChannel) {
+        servicesChannel.close();
       }
     };
-  }, [syncTick]);
-
-  const services = [
-    {
-      id: '01',
-      title: 'Web Development',
-      titleId: 'Pengembangan Web',
-      desc: 'Building responsive websites and e-commerce experiences with modern web technologies.',
-      descId:
-        'Membangun website responsif dan toko daring modern dengan teknologi web terkini.',
-      icon: <Code size={18} className="text-cyan-400" />,
-      tags: ['HTML', 'CSS', 'JavaScript', 'E-COMMERCE'],
-    },
-    {
-      id: '02',
-      title: 'UI/UX Design',
-      titleId: 'Desain UI/UX',
-      desc: 'Designing intuitive wireframes, mockups, and high-fidelity user interface prototypes.',
-      descId:
-        'Merancang wireframe yang intuitif, mockup estetis, serta purwarupa antarmuka interaktif.',
-      icon: <Palette size={18} className="text-emerald-400" />,
-      tags: ['FIGMA', 'WIREFRAME', 'PROTOTYPE'],
-    },
-    {
-      id: '03',
-      title: 'Database & Backend',
-      titleId: 'Basis Data & Backend',
-      desc: 'Developing scalable backend architectures, RESTful APIs, and optimized databases.',
-      descId:
-        'Mengembangkan arsitektur backend andal, API RESTful, serta optimasi basis data.',
-      icon: <Database size={18} className="text-cyan-400" />,
-      tags: ['MYSQL', 'DATABASE', 'API'],
-    },
-    {
-      id: '04',
-      title: 'Web3 Development',
-      titleId: 'Pengembangan Web3',
-      desc: 'Exploring smart contract interactions, dApps integration, and decentralized ecosystems.',
-      descId:
-        'Mengeksplorasi integrasi dApps, interaksi smart contract, dan ekosistem terdesentralisasi.',
-      icon: <Boxes size={18} className="text-purple-400" />,
-      tags: ['SOLIDITY', 'WEB3', 'SMART CONTRACTS'],
-    },
-  ];
+  }, [fetchNeonServices]);
 
   const handlePrev = () => {
     setCurrentIndex((prev) => {
@@ -118,6 +220,8 @@ export const ServicesSection: React.FC = () => {
       });
     }
   };
+
+  const totalPad = String(services.length).padStart(2, '0');
 
   return (
     <section className="w-full max-w-7xl mx-auto px-4 sm:px-8 py-10">
@@ -155,6 +259,7 @@ export const ServicesSection: React.FC = () => {
         {/* Tombol Navigasi Desktop Carousel */}
         <div className="hidden sm:flex items-center gap-2">
           <button
+            type="button"
             onClick={handlePrev}
             className="p-2.5 rounded-full border border-white/10 bg-[#090e1f] hover:bg-white/5 text-slate-300 hover:text-white transition-all cursor-pointer"
             aria-label="Previous service"
@@ -162,6 +267,7 @@ export const ServicesSection: React.FC = () => {
             <ChevronLeft size={16} />
           </button>
           <button
+            type="button"
             onClick={handleNext}
             className="p-2.5 rounded-full border border-white/10 bg-[#090e1f] hover:bg-white/5 text-slate-300 hover:text-white transition-all cursor-pointer"
             aria-label="Next service"
@@ -176,6 +282,7 @@ export const ServicesSection: React.FC = () => {
         {/* Mobile View All Trigger */}
         <div className="flex sm:hidden justify-end mb-4">
           <button
+            type="button"
             onClick={() => setShowAllModal(true)}
             className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#1e1b4b]/80 border border-purple-500/30 text-purple-200 text-xs font-semibold active:scale-95 transition-all cursor-pointer"
           >
@@ -219,7 +326,7 @@ export const ServicesSection: React.FC = () => {
                       {item.icon}
                     </div>
                     <span className="font-mono text-xs text-slate-400 tracking-wider">
-                      {item.id} <span className="text-slate-600">/ 04</span>
+                      {item.id} <span className="text-slate-600">/ {totalPad}</span>
                     </span>
                   </div>
 
@@ -252,6 +359,7 @@ export const ServicesSection: React.FC = () => {
             {services.map((_, dotIdx) => (
               <button
                 key={dotIdx}
+                type="button"
                 onClick={() => {
                   setCurrentIndex(dotIdx);
                   scrollToCard(dotIdx);
@@ -292,6 +400,7 @@ export const ServicesSection: React.FC = () => {
                 </h3>
               </div>
               <button
+                type="button"
                 onClick={() => setShowAllModal(false)}
                 className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 cursor-pointer"
                 aria-label="Tutup Modal"

@@ -27,6 +27,59 @@ interface ProjectItem {
   isFeatured?: boolean;
 }
 
+const PROJECTS_SYNC_CHANNEL = 'portfolio-sync-projects';
+const ADMIN_SYNC_CHANNEL = 'portfolio-admin-sync';
+const PROJECTS_CACHE_KEY = 'portfolio_projects_cache';
+
+async function parseJsonSafely(response: Response): Promise<any | null> {
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    return null;
+  }
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+function mapRawProjects(rawList: any[]): ProjectItem[] {
+  const mapped: ProjectItem[] = rawList.map((item: any, index: number) => {
+    const isMulti =
+      item.type === 'multi' ||
+      (Array.isArray(item.collection_items) &&
+        item.collection_items.length > 0);
+    const targetLink = isMulti
+      ? `/projects/collection/${item.slug}`
+      : `/projects/${item.slug}`;
+
+    return {
+      id: String(index + 1).padStart(2, '0'),
+      slug: item.slug || `project-${index + 1}`,
+      type: item.type || (isMulti ? 'multi' : 'single'),
+      title: item.title,
+      titleId: item.title,
+      category: item.category || 'WEB',
+      desc: item.description || item.overview || '',
+      descId: item.description || item.overview || '',
+      image:
+        item.image_url ||
+        item.thumbnail ||
+        'https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=800&q=80',
+      tags: Array.isArray(item.tags)
+        ? item.tags
+        : ['Next.js', 'PostgreSQL'],
+      link: item.live_url || targetLink,
+      isFeatured: Boolean(item.is_featured),
+    };
+  });
+
+  return mapped.sort((a, b) => {
+    if (a.isFeatured === b.isFeatured) return 0;
+    return a.isFeatured ? -1 : 1;
+  });
+}
+
 export const ProjectsSection: React.FC = () => {
   const { t } = useApp();
   const [projects, setProjects] = useState<ProjectItem[]>([]);
@@ -36,47 +89,30 @@ export const ProjectsSection: React.FC = () => {
   const fetchNeonProjects = useCallback(async () => {
     try {
       const response = await fetch('/api/projects', { cache: 'no-store' });
-      const json = await response.json();
+      const json = await parseJsonSafely(response);
 
-      if (json.success && json.data && json.data.length > 0) {
-        const mapped: ProjectItem[] = json.data.map(
-          (item: any, index: number) => {
-            const isMulti =
-              item.type === 'multi' ||
-              (Array.isArray(item.collection_items) &&
-                item.collection_items.length > 0);
-            const targetLink = isMulti
-              ? `/projects/collection/${item.slug}`
-              : `/projects/${item.slug}`;
-
-            return {
-              id: String(index + 1).padStart(2, '0'),
-              slug: item.slug || `project-${index + 1}`,
-              type: item.type || (isMulti ? 'multi' : 'single'),
-              title: item.title,
-              titleId: item.title,
-              category: item.category || 'WEB',
-              desc: item.description || item.overview || '',
-              descId: item.description || item.overview || '',
-              image:
-                item.image_url ||
-                item.thumbnail ||
-                'https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=800&q=80',
-              tags: Array.isArray(item.tags)
-                ? item.tags
-                : ['Next.js', 'PostgreSQL'],
-              link: item.live_url || targetLink,
-              isFeatured: Boolean(item.is_featured),
-            };
-          }
-        );
-
-        const sorted = mapped.sort((a, b) => {
-          if (a.isFeatured === b.isFeatured) return 0;
-          return a.isFeatured ? -1 : 1;
-        });
-
+      if (response.ok && json?.success && Array.isArray(json.data) && json.data.length > 0) {
+        const sorted = mapRawProjects(json.data);
         setProjects(sorted);
+        try {
+          localStorage.setItem(PROJECTS_CACHE_KEY, JSON.stringify(json.data));
+          localStorage.setItem('portfolio_projects_count', String(json.data.length));
+        } catch {
+          // Abaikan error akses localStorage
+        }
+        return;
+      }
+
+      try {
+        const cachedRaw = localStorage.getItem(PROJECTS_CACHE_KEY);
+        if (cachedRaw) {
+          const cachedList = JSON.parse(cachedRaw);
+          if (Array.isArray(cachedList) && cachedList.length > 0) {
+            setProjects(mapRawProjects(cachedList));
+          }
+        }
+      } catch {
+        // Abaikan error parse cache lokal
       }
     } catch (err) {
       console.warn('Gagal memuat proyek dari Neon API:', err);
@@ -84,28 +120,50 @@ export const ProjectsSection: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    fetchNeonProjects();
+    let isMounted = true;
 
-    let channel: BroadcastChannel | null = null;
-    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-      channel = new BroadcastChannel('portfolio-admin-sync');
-      channel.onmessage = () => {
-        fetchNeonProjects();
-      };
-    }
-
-    const handleStorage = (event: StorageEvent) => {
-      if (!event.key || event.key.startsWith('portfolio')) {
+    const triggerSync = () => {
+      if (isMounted) {
         fetchNeonProjects();
       }
     };
 
+    triggerSync();
+
+    let adminChannel: BroadcastChannel | null = null;
+    let projectsChannel: BroadcastChannel | null = null;
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      adminChannel = new BroadcastChannel(ADMIN_SYNC_CHANNEL);
+      adminChannel.onmessage = triggerSync;
+
+      projectsChannel = new BroadcastChannel(PROJECTS_SYNC_CHANNEL);
+      projectsChannel.onmessage = triggerSync;
+    }
+
+    const handleStorage = (event: StorageEvent) => {
+      if (
+        !event.key ||
+        event.key.startsWith('portfolio')
+      ) {
+        triggerSync();
+      }
+    };
+
     window.addEventListener('storage', handleStorage);
+    window.addEventListener(ADMIN_SYNC_CHANNEL, triggerSync);
+    window.addEventListener(PROJECTS_SYNC_CHANNEL, triggerSync);
 
     return () => {
+      isMounted = false;
       window.removeEventListener('storage', handleStorage);
-      if (channel) {
-        channel.close();
+      window.removeEventListener(ADMIN_SYNC_CHANNEL, triggerSync);
+      window.removeEventListener(PROJECTS_SYNC_CHANNEL, triggerSync);
+      if (adminChannel) {
+        adminChannel.close();
+      }
+      if (projectsChannel) {
+        projectsChannel.close();
       }
     };
   }, [fetchNeonProjects]);
@@ -177,6 +235,7 @@ export const ProjectsSection: React.FC = () => {
         {/* Tombol Navigasi Desktop Carousel */}
         <div className="hidden md:flex items-center gap-2">
           <button
+            type="button"
             onClick={handlePrev}
             className="p-2.5 rounded-full border border-white/10 bg-[#090e1f] hover:bg-white/5 text-slate-300 hover:text-white transition-all cursor-pointer"
             aria-label="Previous project"
@@ -184,6 +243,7 @@ export const ProjectsSection: React.FC = () => {
             <ChevronLeft size={16} />
           </button>
           <button
+            type="button"
             onClick={handleNext}
             className="p-2.5 rounded-full border border-white/10 bg-[#090e1f] hover:bg-white/5 text-slate-300 hover:text-white transition-all cursor-pointer"
             aria-label="Next project"
@@ -299,6 +359,7 @@ export const ProjectsSection: React.FC = () => {
             {projects.map((_, dotIdx) => (
               <button
                 key={dotIdx}
+                type="button"
                 onClick={() => {
                   setCurrentIndex(dotIdx);
                   scrollToCard(dotIdx);

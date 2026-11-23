@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import {
   Trophy,
@@ -14,99 +14,204 @@ import {
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 
+interface AchievementCardItem {
+  id: string;
+  title: string;
+  titleId?: string;
+  badge: string;
+  badgeId?: string;
+  year: string;
+  desc: string;
+  descId?: string;
+  image: string;
+  icon: React.ReactNode;
+}
+
+const DEFAULT_ACHIEVEMENTS: AchievementCardItem[] = [
+  {
+    id: '01',
+    title: 'Web Development Competition',
+    titleId: 'Kompetisi Web Development',
+    badge: '1st Place',
+    badgeId: 'Juara 1',
+    year: '2024',
+    desc: 'Secured 1st place in a university-level web development competition focusing on accessible UI & high performance.',
+    descId:
+      'Meraih Juara 1 pada kompetisi web tingkat universitas dengan fokus aksesibilitas UI dan performa tinggi.',
+    image:
+      'https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?auto=format&fit=crop&w=800&q=80',
+    icon: <Trophy size={16} className="text-purple-300" />,
+  },
+  {
+    id: '02',
+    title: 'Hackathon Finalist',
+    titleId: 'Finalis Hackathon',
+    badge: 'Finalist',
+    badgeId: 'Finalis',
+    year: '2024',
+    desc: 'Built and presented a digital solution in a competitive 48-hour hackathon sprint.',
+    descId:
+      'Membangun dan mempresentasikan solusi platform digital dalam kompetisi hackathon 48 jam.',
+    image:
+      'https://images.unsplash.com/photo-1531482615713-2afd69097998?auto=format&fit=crop&w=800&q=80',
+    icon: <Presentation size={16} className="text-cyan-300" />,
+  },
+  {
+    id: '03',
+    title: 'Academic Excellence',
+    titleId: 'Prestasi Akademik',
+    badge: 'Academic',
+    badgeId: 'Akademik',
+    year: '2023',
+    desc: 'Recognized for strong academic performance and consistent technical development throughout coursework.',
+    descId:
+      'Apresiasi atas performa akademik unggul dan konsistensi pengembangan teknis selama perkuliahan.',
+    image:
+      'https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=800&q=80',
+    icon: <GraduationCap size={16} className="text-emerald-300" />,
+  },
+  {
+    id: '04',
+    title: 'Open Source Contributor',
+    titleId: 'Kontributor Open Source',
+    badge: 'Contributor',
+    badgeId: 'Kontributor',
+    year: '2023',
+    desc: 'Contributed to collaborative developer toolkits, reusable components, and community software.',
+    descId:
+      'Berkontribusi pada proyek sumber terbuka, komponen modular, dan perangkat komunitas developer.',
+    image:
+      'https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=800&q=80',
+    icon: <GitPullRequest size={16} className="text-amber-300" />,
+  },
+];
+
+const ICON_PALETTE = [
+  <Trophy key="trophy" size={16} className="text-purple-300" />,
+  <Presentation key="presentation" size={16} className="text-cyan-300" />,
+  <GraduationCap key="graduation" size={16} className="text-emerald-300" />,
+  <GitPullRequest key="git" size={16} className="text-amber-300" />,
+];
+
+async function parseJsonSafely(response: Response): Promise<any | null> {
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    return null;
+  }
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+function mapRawAchievements(rawList: any[]): AchievementCardItem[] {
+  return rawList.map((item: any, index: number) => ({
+    id: String(item.id || String(index + 1).padStart(2, '0')),
+    title: item.title || `Achievement ${index + 1}`,
+    titleId: item.titleId || item.title_id || item.title || `Prestasi ${index + 1}`,
+    badge: item.badge || item.category || item.level || 'Achievement',
+    badgeId:
+      item.badgeId ||
+      item.badge_id ||
+      item.badge ||
+      item.category ||
+      'Prestasi',
+    year: String(item.year || item.date || '2024'),
+    desc: item.desc || item.description || '',
+    descId: item.descId || item.desc_id || item.desc || item.description || '',
+    image:
+      item.image ||
+      item.image_url ||
+      item.thumbnail ||
+      DEFAULT_ACHIEVEMENTS[index % DEFAULT_ACHIEVEMENTS.length].image,
+    icon: ICON_PALETTE[index % ICON_PALETTE.length],
+  }));
+}
+
 export const AchievementsSection: React.FC = () => {
   const { t } = useApp();
+  const [achievements, setAchievements] =
+    useState<AchievementCardItem[]>(DEFAULT_ACHIEVEMENTS);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [syncTick, setSyncTick] = useState(0);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    void syncTick;
-    let channel: BroadcastChannel | null = null;
+  const fetchNeonAchievements = useCallback(async () => {
+    try {
+      const endpoints = ['/api/achievements', '/api/portfolio'];
+      for (const endpoint of endpoints) {
+        const response = await fetch(endpoint, { cache: 'no-store' });
+        if (!response.ok) continue;
 
-    const handleSyncSignal = () => {
-      setSyncTick((prev) => prev + 1);
+        const json = await parseJsonSafely(response);
+        if (!json || json.success === false) continue;
+
+        const list =
+          endpoint === '/api/portfolio'
+            ? json.achievements || json.data?.achievements
+            : Array.isArray(json.data)
+              ? json.data
+              : json.achievements;
+
+        if (Array.isArray(list) && list.length > 0) {
+          const mapped = mapRawAchievements(list);
+          setAchievements(mapped);
+          setCurrentIndex((prev) =>
+            prev >= mapped.length ? Math.max(0, mapped.length - 1) : prev
+          );
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn('Gagal memuat achievements dari Neon API:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const triggerSync = () => {
+      if (isMounted) {
+        fetchNeonAchievements();
+      }
     };
 
+    triggerSync();
+
+    let adminChannel: BroadcastChannel | null = null;
+    let achievementsChannel: BroadcastChannel | null = null;
+
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
-      channel = new BroadcastChannel('portfolio-admin-sync');
-      channel.onmessage = handleSyncSignal;
+      adminChannel = new BroadcastChannel('portfolio-admin-sync');
+      adminChannel.onmessage = triggerSync;
+
+      achievementsChannel = new BroadcastChannel('portfolio-sync-achievements');
+      achievementsChannel.onmessage = triggerSync;
     }
 
     const handleStorage = (event: StorageEvent) => {
       if (!event.key || event.key.startsWith('portfolio')) {
-        handleSyncSignal();
+        triggerSync();
       }
     };
 
     window.addEventListener('storage', handleStorage);
+    window.addEventListener('portfolio-admin-sync', triggerSync);
+    window.addEventListener('portfolio-sync-achievements', triggerSync);
 
     return () => {
+      isMounted = false;
       window.removeEventListener('storage', handleStorage);
-      if (channel) {
-        channel.close();
+      window.removeEventListener('portfolio-admin-sync', triggerSync);
+      window.removeEventListener('portfolio-sync-achievements', triggerSync);
+      if (adminChannel) {
+        adminChannel.close();
+      }
+      if (achievementsChannel) {
+        achievementsChannel.close();
       }
     };
-  }, [syncTick]);
-
-  const achievements = [
-    {
-      id: '01',
-      title: 'Web Development Competition',
-      titleId: 'Kompetisi Web Development',
-      badge: '1st Place',
-      badgeId: 'Juara 1',
-      year: '2024',
-      desc: 'Secured 1st place in a university-level web development competition focusing on accessible UI & high performance.',
-      descId:
-        'Meraih Juara 1 pada kompetisi web tingkat universitas dengan fokus aksesibilitas UI dan performa tinggi.',
-      image:
-        'https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?auto=format&fit=crop&w=800&q=80',
-      icon: <Trophy size={16} className="text-purple-300" />,
-    },
-    {
-      id: '02',
-      title: 'Hackathon Finalist',
-      titleId: 'Finalis Hackathon',
-      badge: 'Finalist',
-      badgeId: 'Finalis',
-      year: '2024',
-      desc: 'Built and presented a digital solution in a competitive 48-hour hackathon sprint.',
-      descId:
-        'Membangun dan mempresentasikan solusi platform digital dalam kompetisi hackathon 48 jam.',
-      image:
-        'https://images.unsplash.com/photo-1531482615713-2afd69097998?auto=format&fit=crop&w=800&q=80',
-      icon: <Presentation size={16} className="text-cyan-300" />,
-    },
-    {
-      id: '03',
-      title: 'Academic Excellence',
-      titleId: 'Prestasi Akademik',
-      badge: 'Academic',
-      badgeId: 'Akademik',
-      year: '2023',
-      desc: 'Recognized for strong academic performance and consistent technical development throughout coursework.',
-      descId:
-        'Apresiasi atas performa akademik unggul dan konsistensi pengembangan teknis selama perkuliahan.',
-      image:
-        'https://images.unsplash.com/photo-1523240795612-9a054b0db644?auto=format&fit=crop&w=800&q=80',
-      icon: <GraduationCap size={16} className="text-emerald-300" />,
-    },
-    {
-      id: '04',
-      title: 'Open Source Contributor',
-      titleId: 'Kontributor Open Source',
-      badge: 'Contributor',
-      badgeId: 'Kontributor',
-      year: '2023',
-      desc: 'Contributed to collaborative developer toolkits, reusable components, and community software.',
-      descId:
-        'Berkontribusi pada proyek sumber terbuka, komponen modular, dan perangkat komunitas developer.',
-      image:
-        'https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=800&q=80',
-      icon: <GitPullRequest size={16} className="text-amber-300" />,
-    },
-  ];
+  }, [fetchNeonAchievements]);
 
   const handlePrev = () => {
     setCurrentIndex((prev) => {
@@ -182,6 +287,7 @@ export const AchievementsSection: React.FC = () => {
           </Link>
 
           <button
+            type="button"
             onClick={handlePrev}
             className="p-2.5 rounded-full border border-white/10 bg-[#090e1f] hover:bg-white/5 text-slate-300 hover:text-white transition-all cursor-pointer"
             aria-label="Previous achievement"
@@ -189,6 +295,7 @@ export const AchievementsSection: React.FC = () => {
             <ChevronLeft size={16} />
           </button>
           <button
+            type="button"
             onClick={handleNext}
             className="p-2.5 rounded-full border border-white/10 bg-[#090e1f] hover:bg-white/5 text-slate-300 hover:text-white transition-all cursor-pointer"
             aria-label="Next achievement"
@@ -277,6 +384,7 @@ export const AchievementsSection: React.FC = () => {
             {achievements.map((_, dotIdx) => (
               <button
                 key={dotIdx}
+                type="button"
                 onClick={() => {
                   setCurrentIndex(dotIdx);
                   scrollToCard(dotIdx);

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -41,6 +41,8 @@ interface CertificateItem {
 }
 
 const CERTIFICATES_SYNC_CHANNEL = 'portfolio-sync-certificates';
+const DASHBOARD_SYNC_CHANNEL = 'portfolio-sync-dashboard';
+const ADMIN_SYNC_CHANNEL = 'portfolio-admin-sync';
 
 function parseSkillsString(raw: any): string {
   if (Array.isArray(raw)) {
@@ -91,6 +93,8 @@ function normalizeCertificateItem(item: any, index = 0): CertificateItem {
 export default function CertificatesManagementPage() {
   const router = useRouter();
   const syncChannelRef = useRef<BroadcastChannel | null>(null);
+  const dashboardChannelRef = useRef<BroadcastChannel | null>(null);
+  const adminChannelRef = useRef<BroadcastChannel | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [savingHeader, setSavingHeader] = useState(false);
@@ -132,43 +136,67 @@ export default function CertificatesManagementPage() {
     setTimeout(() => setToast(null), 3500);
   };
 
-  const broadcastCertificatesUpdate = (action: string, detailData?: any) => {
-    const eventDetail = {
-      section: 'certificates',
-      action,
-      updatedAt: Date.now(),
-      data: detailData,
-    };
+  const broadcastCertificatesUpdate = useCallback(
+    (action: string, detailData?: any, totalCount?: number) => {
+      const eventDetail = {
+        section: 'certificates',
+        action,
+        count: typeof totalCount === 'number' ? totalCount : undefined,
+        updatedAt: Date.now(),
+        data: detailData,
+      };
 
-    try {
-      if (syncChannelRef.current) {
-        syncChannelRef.current.postMessage(eventDetail);
+      try {
+        if (syncChannelRef.current) {
+          syncChannelRef.current.postMessage(eventDetail);
+        }
+        if (dashboardChannelRef.current) {
+          dashboardChannelRef.current.postMessage(eventDetail);
+        }
+        if (adminChannelRef.current) {
+          adminChannelRef.current.postMessage(eventDetail);
+        }
+      } catch {
+        // Abaikan jika BroadcastChannel tidak tersedia
       }
-    } catch {
-      // Abaikan jika BroadcastChannel tidak tersedia
-    }
 
-    try {
-      localStorage.setItem(
-        CERTIFICATES_SYNC_CHANNEL,
-        JSON.stringify(eventDetail)
+      try {
+        localStorage.setItem(
+          CERTIFICATES_SYNC_CHANNEL,
+          JSON.stringify(eventDetail)
+        );
+        if (typeof totalCount === 'number') {
+          localStorage.setItem(
+            'portfolio_certificates_count',
+            String(totalCount)
+          );
+        }
+      } catch {
+        // Abaikan jika localStorage diblokir
+      }
+
+      window.dispatchEvent(
+        new CustomEvent(CERTIFICATES_SYNC_CHANNEL, { detail: eventDetail })
       );
-    } catch {
-      // Abaikan jika localStorage diblokir
-    }
-
-    window.dispatchEvent(
-      new CustomEvent(CERTIFICATES_SYNC_CHANNEL, { detail: eventDetail })
-    );
-    setLivePulse(true);
-    setTimeout(() => setLivePulse(false), 1800);
-  };
+      window.dispatchEvent(
+        new CustomEvent(DASHBOARD_SYNC_CHANNEL, { detail: eventDetail })
+      );
+      window.dispatchEvent(
+        new CustomEvent(ADMIN_SYNC_CHANNEL, { detail: eventDetail })
+      );
+      setLivePulse(true);
+      setTimeout(() => setLivePulse(false), 1800);
+    },
+    []
+  );
 
   useEffect(() => {
     let isMounted = true;
 
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
       syncChannelRef.current = new BroadcastChannel(CERTIFICATES_SYNC_CHANNEL);
+      dashboardChannelRef.current = new BroadcastChannel(DASHBOARD_SYNC_CHANNEL);
+      adminChannelRef.current = new BroadcastChannel(ADMIN_SYNC_CHANNEL);
     }
 
     async function loadData() {
@@ -192,10 +220,14 @@ export default function CertificatesManagementPage() {
             });
           }
           if (Array.isArray(json.data)) {
-            setCertificates(
-              json.data.map((item: any, idx: number) =>
-                normalizeCertificateItem(item, idx)
-              )
+            const normalizedList = json.data.map((item: any, idx: number) =>
+              normalizeCertificateItem(item, idx)
+            );
+            setCertificates(normalizedList);
+            broadcastCertificatesUpdate(
+              'loaded',
+              normalizedList,
+              normalizedList.length
             );
           }
         }
@@ -218,8 +250,16 @@ export default function CertificatesManagementPage() {
         syncChannelRef.current.close();
         syncChannelRef.current = null;
       }
+      if (dashboardChannelRef.current) {
+        dashboardChannelRef.current.close();
+        dashboardChannelRef.current = null;
+      }
+      if (adminChannelRef.current) {
+        adminChannelRef.current.close();
+        adminChannelRef.current = null;
+      }
     };
-  }, []);
+  }, [broadcastCertificatesUpdate]);
 
   const handleSaveHeader = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -235,8 +275,12 @@ export default function CertificatesManagementPage() {
       const json = await response.json();
 
       if (response.ok && json.success) {
-        broadcastCertificatesUpdate('header', json.data ?? headerForm);
-        router.refresh();
+        broadcastCertificatesUpdate(
+          'header',
+          json.data ?? headerForm,
+          certificates.length
+        );
+        setTimeout(() => router.refresh(), 50);
         showToast(
           'Header Certificates berhasil disimpan dan disinkronkan secara real-time!'
         );
@@ -334,17 +378,31 @@ export default function CertificatesManagementPage() {
         );
 
         if (editingId) {
-          setCertificates((prev) =>
-            prev.map((c) => (c.id === editingId ? normalizedSaved : c))
-          );
-          broadcastCertificatesUpdate('update', normalizedSaved);
+          setCertificates((prev) => {
+            const nextList = prev.map((c) =>
+              c.id === editingId ? normalizedSaved : c
+            );
+            broadcastCertificatesUpdate(
+              'update',
+              normalizedSaved,
+              nextList.length
+            );
+            return nextList;
+          });
           showToast('Certificate berhasil diperbarui secara real-time!');
         } else {
-          setCertificates((prev) => [normalizedSaved, ...prev]);
-          broadcastCertificatesUpdate('create', normalizedSaved);
+          setCertificates((prev) => {
+            const nextList = [normalizedSaved, ...prev];
+            broadcastCertificatesUpdate(
+              'create',
+              normalizedSaved,
+              nextList.length
+            );
+            return nextList;
+          });
           showToast('Certificate baru berhasil ditambahkan secara real-time!');
         }
-        router.refresh();
+        setTimeout(() => router.refresh(), 50);
         setIsModalOpen(false);
         setSelectedFile(null);
       } else {
@@ -374,9 +432,12 @@ export default function CertificatesManagementPage() {
       const json = await response.json();
 
       if (response.ok && json.success) {
-        setCertificates((prev) => prev.filter((c) => c.id !== id));
-        broadcastCertificatesUpdate('delete', { id });
-        router.refresh();
+        setCertificates((prev) => {
+          const nextList = prev.filter((c) => c.id !== id);
+          broadcastCertificatesUpdate('delete', { id }, nextList.length);
+          return nextList;
+        });
+        setTimeout(() => router.refresh(), 50);
         showToast('Certificate berhasil dihapus secara real-time!');
       } else {
         showToast(

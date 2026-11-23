@@ -74,8 +74,8 @@ export default function HomeManagementPage() {
     primary_btn_link: '/projects',
     secondary_btn_text: 'Contact Me',
     secondary_btn_link: '/contact',
-    projects_completed: 45,
-    happy_clients: 30,
+    projects_completed: 4,
+    happy_clients: 6,
     years_experience: 8,
   });
 
@@ -148,6 +148,8 @@ export default function HomeManagementPage() {
 
         const endpoints = ['/api/home', '/api/portfolio'];
         let loadedRecord: Record<string, any> | null = null;
+        let portfolioProjectsCount: number | null = null;
+        let portfolioAchievementsCount: number | null = null;
 
         for (const endpoint of endpoints) {
           const response = await fetch(endpoint, { cache: 'no-store' });
@@ -156,44 +158,59 @@ export default function HomeManagementPage() {
           const json = await parseJsonSafely(response);
           if (!json || json.success === false) continue;
 
+          if (endpoint === '/api/portfolio') {
+            if (Array.isArray(json.projects)) {
+              portfolioProjectsCount = json.projects.length;
+            }
+            if (Array.isArray(json.achievements)) {
+              portfolioAchievementsCount = json.achievements.length;
+            }
+          }
+
           const candidate =
             endpoint === '/api/portfolio'
               ? json.home || json.data?.home || json.data
               : json.data || json.home;
 
-          if (candidate && typeof candidate === 'object') {
+          if (candidate && typeof candidate === 'object' && !loadedRecord) {
             loadedRecord = candidate;
-            break;
           }
         }
 
-        if (!isMounted || !loadedRecord) return;
+        if (!isMounted) return;
 
-        setFormData((prev) => ({
-          ...prev,
-          subtitle: loadedRecord!.subtitle || prev.subtitle,
-          title: loadedRecord!.title || prev.title,
-          highlight_text: loadedRecord!.highlight_text || prev.highlight_text,
-          description: loadedRecord!.description || prev.description,
-          hero_cover_url: loadedRecord!.hero_cover_url || prev.hero_cover_url,
-          profile_photo_url:
-            loadedRecord!.profile_photo_url ||
-            loadedRecord!.avatar_url ||
-            prev.profile_photo_url,
-          primary_btn_text:
-            loadedRecord!.primary_btn_text || prev.primary_btn_text,
-          primary_btn_link:
-            loadedRecord!.primary_btn_link || prev.primary_btn_link,
-          secondary_btn_text:
-            loadedRecord!.secondary_btn_text || prev.secondary_btn_text,
-          secondary_btn_link:
-            loadedRecord!.secondary_btn_link || prev.secondary_btn_link,
-          projects_completed:
-            loadedRecord!.projects_completed ?? prev.projects_completed,
-          happy_clients: loadedRecord!.happy_clients ?? prev.happy_clients,
-          years_experience:
-            loadedRecord!.years_experience ?? prev.years_experience,
-        }));
+        if (loadedRecord || portfolioProjectsCount !== null || portfolioAchievementsCount !== null) {
+          setFormData((prev) => ({
+            ...prev,
+            subtitle: loadedRecord?.subtitle || prev.subtitle,
+            title: loadedRecord?.title || prev.title,
+            highlight_text: loadedRecord?.highlight_text || prev.highlight_text,
+            description: loadedRecord?.description || prev.description,
+            hero_cover_url: loadedRecord?.hero_cover_url || prev.hero_cover_url,
+            profile_photo_url:
+              loadedRecord?.profile_photo_url ||
+              loadedRecord?.avatar_url ||
+              prev.profile_photo_url,
+            primary_btn_text:
+              loadedRecord?.primary_btn_text || prev.primary_btn_text,
+            primary_btn_link:
+              loadedRecord?.primary_btn_link || prev.primary_btn_link,
+            secondary_btn_text:
+              loadedRecord?.secondary_btn_text || prev.secondary_btn_text,
+            secondary_btn_link:
+              loadedRecord?.secondary_btn_link || prev.secondary_btn_link,
+            projects_completed:
+              portfolioProjectsCount ??
+              loadedRecord?.projects_completed ??
+              prev.projects_completed,
+            happy_clients:
+              portfolioAchievementsCount ??
+              loadedRecord?.happy_clients ??
+              prev.happy_clients,
+            years_experience:
+              loadedRecord?.years_experience ?? prev.years_experience,
+          }));
+        }
       } catch (err) {
         if (isMounted) {
           console.warn('Gagal memuat data home:', err);
@@ -288,7 +305,7 @@ export default function HomeManagementPage() {
       }
 
       broadcastHomeUpdate(mergedData);
-      router.refresh();
+      setTimeout(() => router.refresh(), 50);
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 3000);
 

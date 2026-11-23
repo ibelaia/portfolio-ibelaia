@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import {
   ArrowRight,
@@ -57,61 +57,159 @@ export default function HomePage() {
   const [data, setData] = useState<HomeData>(INITIAL_HOME_DATA);
   const [photoFailed, setPhotoFailed] = useState(false);
 
+  const applyHomePayload = useCallback(
+    (
+      homeRow: Record<string, any> = {},
+      generalRow: Record<string, any> = {},
+      liveCounts?: { projects?: number; achievements?: number }
+    ) => {
+      let localPhoto: string | null = null;
+      let localHome: Record<string, any> = {};
+      let cachedProjectsCount: number | null = null;
+
+      try {
+        localPhoto = localStorage.getItem('portfolio_profile_photo_url');
+        const cachedHomeRaw = localStorage.getItem('portfolio_home_settings');
+        if (cachedHomeRaw) {
+          localHome = JSON.parse(cachedHomeRaw) || {};
+        }
+        const cachedProj = localStorage.getItem('portfolio_projects_count');
+        if (cachedProj !== null && !Number.isNaN(Number(cachedProj))) {
+          cachedProjectsCount = Number(cachedProj);
+        }
+      } catch {
+        // Abaikan error akses localStorage
+      }
+
+      const nextPhoto =
+        localPhoto ||
+        localHome.profile_photo_url ||
+        localHome.avatar_url ||
+        homeRow.profile_photo_url ||
+        homeRow.avatar_url ||
+        generalRow.avatar_url ||
+        generalRow.profile_photo_url ||
+        DEFAULT_PROFILE_PHOTO;
+
+      setPhotoFailed(false);
+      setData((prev) => {
+        const resolvedProjects =
+          typeof liveCounts?.projects === 'number'
+            ? liveCounts.projects
+            : cachedProjectsCount !== null
+              ? cachedProjectsCount
+              : toSafeNumber(
+                  localHome.projects_completed ??
+                    homeRow.projects_completed ??
+                    generalRow.projects_completed,
+                  prev.projects_completed
+                );
+
+        const resolvedAchievements =
+          typeof liveCounts?.achievements === 'number'
+            ? liveCounts.achievements
+            : toSafeNumber(
+                localHome.happy_clients ??
+                  homeRow.happy_clients ??
+                  generalRow.happy_clients,
+                prev.happy_clients
+              );
+
+        return {
+          title:
+            localHome.title ||
+            homeRow.title ||
+            homeRow.hero_title ||
+            generalRow.full_name ||
+            generalRow.site_name ||
+            prev.title,
+          subtitle:
+            localHome.subtitle ||
+            homeRow.subtitle ||
+            generalRow.site_tagline ||
+            prev.subtitle,
+          highlight_text:
+            localHome.highlight_text ||
+            homeRow.highlight_text ||
+            homeRow.hero_highlight ||
+            prev.highlight_text,
+          description:
+            localHome.description ||
+            homeRow.description ||
+            homeRow.hero_description ||
+            generalRow.site_tagline ||
+            prev.description,
+          profile_photo_url: nextPhoto,
+          projects_completed: resolvedProjects,
+          happy_clients: resolvedAchievements,
+          years_experience: toSafeNumber(
+            localHome.years_experience ??
+              homeRow.years_experience ??
+              generalRow.years_experience,
+            prev.years_experience
+          ),
+          availability_status:
+            generalRow.availability_status ||
+            homeRow.availability_status ||
+            prev.availability_status,
+          location: generalRow.location || homeRow.location || prev.location,
+          site_tagline:
+            generalRow.site_tagline || homeRow.site_tagline || prev.site_tagline,
+        };
+      });
+    },
+    []
+  );
+
   useEffect(() => {
     let isMounted = true;
 
     async function fetchNeonHomeData() {
+      applyHomePayload();
+
+      let liveProjectsCount: number | undefined;
+      let liveAchievementsCount: number | undefined;
+      let homeRow: Record<string, any> = {};
+      let generalRow: Record<string, any> = {};
+
       try {
-        const response = await fetch('/api/settings', { cache: 'no-store' });
-        const json = await response.json();
+        const [portfolioRes, projectsRes] = await Promise.allSettled([
+          fetch('/api/portfolio', { cache: 'no-store' }),
+          fetch('/api/projects', { cache: 'no-store' }),
+        ]);
+
+        if (portfolioRes.status === 'fulfilled' && portfolioRes.value.ok) {
+          const ct = portfolioRes.value.headers.get('content-type') || '';
+          if (ct.includes('application/json')) {
+            const json = await portfolioRes.value.json();
+            if (json.success) {
+              homeRow = json.home || json.data || {};
+              generalRow = json.general || {};
+              if (Array.isArray(json.projects)) {
+                liveProjectsCount = json.projects.length;
+              }
+              if (Array.isArray(json.achievements)) {
+                liveAchievementsCount = json.achievements.length;
+              }
+            }
+          }
+        }
+
+        if (projectsRes.status === 'fulfilled' && projectsRes.value.ok) {
+          const ct = projectsRes.value.headers.get('content-type') || '';
+          if (ct.includes('application/json')) {
+            const projJson = await projectsRes.value.json();
+            if (Array.isArray(projJson?.data)) {
+              liveProjectsCount = projJson.data.length;
+            }
+          }
+        }
 
         if (!isMounted) return;
-
-        if (json.success && json.data) {
-          const res = json.data;
-          const nextPhoto =
-            res.avatar_url || res.profile_photo_url || DEFAULT_PROFILE_PHOTO;
-
-          setPhotoFailed(false);
-          setData({
-            title:
-              res.hero_title ||
-              res.full_name ||
-              res.site_name ||
-              INITIAL_HOME_DATA.title,
-            subtitle:
-              res.site_tagline ||
-              res.subtitle ||
-              INITIAL_HOME_DATA.subtitle,
-            highlight_text:
-              res.hero_highlight ||
-              res.highlight_text ||
-              INITIAL_HOME_DATA.highlight_text,
-            description:
-              res.hero_description ||
-              res.description ||
-              res.site_tagline ||
-              INITIAL_HOME_DATA.description,
-            profile_photo_url: nextPhoto,
-            projects_completed: toSafeNumber(
-              res.projects_completed,
-              INITIAL_HOME_DATA.projects_completed
-            ),
-            happy_clients: toSafeNumber(
-              res.happy_clients,
-              INITIAL_HOME_DATA.happy_clients
-            ),
-            years_experience: toSafeNumber(
-              res.years_experience,
-              INITIAL_HOME_DATA.years_experience
-            ),
-            availability_status:
-              res.availability_status || INITIAL_HOME_DATA.availability_status,
-            location: res.location || INITIAL_HOME_DATA.location,
-            site_tagline:
-              res.site_tagline || INITIAL_HOME_DATA.site_tagline,
-          });
-        }
+        applyHomePayload(homeRow, generalRow, {
+          projects: liveProjectsCount,
+          achievements: liveAchievementsCount,
+        });
       } catch (err) {
         if (isMounted) {
           console.warn('Gagal memuat home data dari Neon API:', err);
@@ -121,10 +219,119 @@ export default function HomePage() {
 
     fetchNeonHomeData();
 
+    let adminChannel: BroadcastChannel | null = null;
+    let homeChannel: BroadcastChannel | null = null;
+    let dashboardChannel: BroadcastChannel | null = null;
+    let projectsChannel: BroadcastChannel | null = null;
+
+    const handleRealtimeUpdate = (event?: MessageEvent) => {
+      if (!isMounted) return;
+      const payload = event?.data || {};
+      const incomingData =
+        payload?.data && typeof payload.data === 'object' ? payload.data : payload;
+      const explicitCount =
+        typeof payload?.count === 'number'
+          ? payload.count
+          : typeof incomingData?.count === 'number'
+            ? incomingData.count
+            : undefined;
+
+      if (payload?.section === 'dashboard' || payload?.section === 'projects') {
+        if (typeof explicitCount === 'number') {
+          applyHomePayload(
+            {},
+            {},
+            {
+              projects: explicitCount,
+            }
+          );
+        } else {
+          fetchNeonHomeData();
+        }
+        return;
+      }
+
+      if (incomingData && typeof incomingData === 'object') {
+        applyHomePayload(
+          incomingData,
+          {},
+          typeof explicitCount === 'number'
+            ? { projects: explicitCount }
+            : undefined
+        );
+      } else {
+        fetchNeonHomeData();
+      }
+    };
+
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      adminChannel = new BroadcastChannel('portfolio-admin-sync');
+      adminChannel.onmessage = handleRealtimeUpdate;
+
+      homeChannel = new BroadcastChannel('portfolio-sync-home');
+      homeChannel.onmessage = handleRealtimeUpdate;
+
+      dashboardChannel = new BroadcastChannel('portfolio-sync-dashboard');
+      dashboardChannel.onmessage = handleRealtimeUpdate;
+
+      projectsChannel = new BroadcastChannel('portfolio-sync-projects');
+      projectsChannel.onmessage = handleRealtimeUpdate;
+    }
+
+    const handleStorage = (event: StorageEvent) => {
+      if (!isMounted) return;
+      if (
+        !event.key ||
+        event.key.startsWith('portfolio') ||
+        event.key.includes('photo') ||
+        event.key.includes('avatar')
+      ) {
+        fetchNeonHomeData();
+      }
+    };
+
+    const handleCustomHomeSync = (event: Event) => {
+      if (!isMounted) return;
+      const customEvent = event as CustomEvent;
+      const incomingData = customEvent.detail?.data || {};
+      const explicitCount =
+        typeof customEvent.detail?.count === 'number'
+          ? customEvent.detail.count
+          : undefined;
+      applyHomePayload(
+        incomingData,
+        {},
+        typeof explicitCount === 'number'
+          ? { projects: explicitCount }
+          : undefined
+      );
+    };
+
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('portfolio-sync-home', handleCustomHomeSync);
+    window.addEventListener('portfolio-sync-dashboard', handleCustomHomeSync);
+    window.addEventListener('portfolio-sync-projects', handleCustomHomeSync);
+
     return () => {
       isMounted = false;
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('portfolio-sync-home', handleCustomHomeSync);
+      window.removeEventListener('portfolio-sync-dashboard', handleCustomHomeSync);
+      window.removeEventListener('portfolio-sync-projects', handleCustomHomeSync);
+      if (adminChannel) {
+        adminChannel.close();
+      }
+      if (homeChannel) {
+        homeChannel.close();
+      }
+      if (dashboardChannel) {
+        dashboardChannel.close();
+      }
+      if (projectsChannel) {
+        projectsChannel.close();
+      }
     };
-  }, []);
+  }, [applyHomePayload]);
 
   const activePhotoSrc = photoFailed
     ? DEFAULT_PROFILE_PHOTO

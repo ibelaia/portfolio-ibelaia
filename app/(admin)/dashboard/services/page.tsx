@@ -38,10 +38,14 @@ interface ServiceItem {
 }
 
 const SERVICES_SYNC_CHANNEL = 'portfolio-sync-services';
+const DASHBOARD_SYNC_CHANNEL = 'portfolio-sync-dashboard';
+const ADMIN_SYNC_CHANNEL = 'portfolio-admin-sync';
 
 export default function ServicesManagementPage() {
   const router = useRouter();
   const syncChannelRef = useRef<BroadcastChannel | null>(null);
+  const dashboardChannelRef = useRef<BroadcastChannel | null>(null);
+  const adminChannelRef = useRef<BroadcastChannel | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -79,10 +83,11 @@ export default function ServicesManagementPage() {
   };
 
   const broadcastServicesUpdate = useCallback(
-    (action: string, detailData?: any) => {
+    (action: string, detailData?: any, totalCount?: number) => {
       const eventDetail = {
         section: 'services',
         action,
+        count: typeof totalCount === 'number' ? totalCount : undefined,
         updatedAt: Date.now(),
         data: detailData,
       };
@@ -90,6 +95,12 @@ export default function ServicesManagementPage() {
       try {
         if (syncChannelRef.current) {
           syncChannelRef.current.postMessage(eventDetail);
+        }
+        if (dashboardChannelRef.current) {
+          dashboardChannelRef.current.postMessage(eventDetail);
+        }
+        if (adminChannelRef.current) {
+          adminChannelRef.current.postMessage(eventDetail);
         }
       } catch {
         // Abaikan jika BroadcastChannel tidak tersedia
@@ -100,12 +111,24 @@ export default function ServicesManagementPage() {
           SERVICES_SYNC_CHANNEL,
           JSON.stringify(eventDetail)
         );
+        if (typeof totalCount === 'number') {
+          localStorage.setItem(
+            'portfolio_services_count',
+            String(totalCount)
+          );
+        }
       } catch {
         // Abaikan jika localStorage diblokir
       }
 
       window.dispatchEvent(
         new CustomEvent(SERVICES_SYNC_CHANNEL, { detail: eventDetail })
+      );
+      window.dispatchEvent(
+        new CustomEvent(DASHBOARD_SYNC_CHANNEL, { detail: eventDetail })
+      );
+      window.dispatchEvent(
+        new CustomEvent(ADMIN_SYNC_CHANNEL, { detail: eventDetail })
       );
       setLivePulse(true);
       setTimeout(() => setLivePulse(false), 1800);
@@ -118,6 +141,8 @@ export default function ServicesManagementPage() {
 
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
       syncChannelRef.current = new BroadcastChannel(SERVICES_SYNC_CHANNEL);
+      dashboardChannelRef.current = new BroadcastChannel(DASHBOARD_SYNC_CHANNEL);
+      adminChannelRef.current = new BroadcastChannel(ADMIN_SYNC_CHANNEL);
     }
 
     async function loadData() {
@@ -139,8 +164,9 @@ export default function ServicesManagementPage() {
           }
           if (Array.isArray(json.data) && json.data.length > 0) {
             setServices(json.data);
+            broadcastServicesUpdate('loaded', json.data, json.data.length);
           } else {
-            setServices([
+            const defaultList: ServiceItem[] = [
               {
                 id: '1',
                 title: 'WEB DEVELOPMENT',
@@ -177,7 +203,9 @@ export default function ServicesManagementPage() {
                 tags: ['SOLIDITY', 'WEB3', 'SMART CONTRACTS'],
                 icon_name: 'Cpu',
               },
-            ]);
+            ];
+            setServices(defaultList);
+            broadcastServicesUpdate('loaded', defaultList, defaultList.length);
           }
         }
       } catch (err) {
@@ -199,8 +227,16 @@ export default function ServicesManagementPage() {
         syncChannelRef.current.close();
         syncChannelRef.current = null;
       }
+      if (dashboardChannelRef.current) {
+        dashboardChannelRef.current.close();
+        dashboardChannelRef.current = null;
+      }
+      if (adminChannelRef.current) {
+        adminChannelRef.current.close();
+        adminChannelRef.current = null;
+      }
     };
-  }, []);
+  }, [broadcastServicesUpdate]);
 
   const handleSaveHeader = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -216,8 +252,12 @@ export default function ServicesManagementPage() {
       const json = await response.json();
 
       if (response.ok && json.success) {
-        broadcastServicesUpdate('header', json.data ?? headerForm);
-        router.refresh();
+        broadcastServicesUpdate(
+          'header',
+          json.data ?? headerForm,
+          services.length
+        );
+        setTimeout(() => router.refresh(), 50);
         showToast(
           'Judul dan Deskripsi Services berhasil disimpan ke Neon & disinkronkan secara real-time!'
         );
@@ -287,10 +327,17 @@ export default function ServicesManagementPage() {
 
       if (response.ok && json.success) {
         if (editingId) {
-          setServices((prev) =>
-            prev.map((s) => (s.id === editingId ? { ...s, ...cardPayload } : s))
-          );
-          broadcastServicesUpdate('update_card', json.data ?? cardPayload);
+          setServices((prev) => {
+            const nextList = prev.map((s) =>
+              s.id === editingId ? { ...s, ...cardPayload } : s
+            );
+            broadcastServicesUpdate(
+              'update_card',
+              json.data ?? cardPayload,
+              nextList.length
+            );
+            return nextList;
+          });
           showToast(
             'Card Service berhasil diperbarui & disinkronkan secara real-time!'
           );
@@ -299,13 +346,20 @@ export default function ServicesManagementPage() {
             ...cardPayload,
             id: String(Date.now()),
           };
-          setServices((prev) => [...prev, savedItem]);
-          broadcastServicesUpdate('create_card', savedItem);
+          setServices((prev) => {
+            const nextList = [...prev, savedItem];
+            broadcastServicesUpdate(
+              'create_card',
+              savedItem,
+              nextList.length
+            );
+            return nextList;
+          });
           showToast(
             'Card Service baru berhasil ditambahkan & disinkronkan secara real-time!'
           );
         }
-        router.refresh();
+        setTimeout(() => router.refresh(), 50);
         setIsModalOpen(false);
       } else {
         showToast(
@@ -331,9 +385,12 @@ export default function ServicesManagementPage() {
       const json = await response.json();
 
       if (response.ok && json.success) {
-        setServices((prev) => prev.filter((s) => s.id !== id));
-        broadcastServicesUpdate('delete_card', { id });
-        router.refresh();
+        setServices((prev) => {
+          const nextList = prev.filter((s) => s.id !== id);
+          broadcastServicesUpdate('delete_card', { id }, nextList.length);
+          return nextList;
+        });
+        setTimeout(() => router.refresh(), 50);
         showToast('Card Service berhasil dihapus secara real-time!');
       } else {
         showToast(
