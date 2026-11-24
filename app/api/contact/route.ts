@@ -9,6 +9,8 @@ const NO_STORE_HEADERS = {
   Expires: '0',
 };
 
+let contactSchemaEnsured = false;
+
 function extractRows(raw: any): any[] {
   if (Array.isArray(raw)) return raw;
   if (raw && Array.isArray(raw.rows)) return raw.rows;
@@ -16,62 +18,96 @@ function extractRows(raw: any): any[] {
 }
 
 async function ensureContactTables() {
-  await sql`
-    CREATE TABLE IF NOT EXISTS contact_content (
-      id TEXT PRIMARY KEY,
-      badge_text TEXT DEFAULT 'GET IN TOUCH',
-      badge_text_id TEXT DEFAULT 'HUBUNGI SAYA',
-      email TEXT DEFAULT 'hello@ibelaia.dev',
-      title TEXT DEFAULT 'Let''s Build Something Meaningful.',
-      title_id TEXT DEFAULT 'Mari Membangun Sesuatu yang Bermakna.',
-      subtitle TEXT DEFAULT '',
-      subtitle_id TEXT DEFAULT '',
-      phone TEXT DEFAULT '+62 812 3015 6692',
-      location TEXT DEFAULT 'Surabaya, Indonesia',
-      location_id TEXT DEFAULT 'Surabaya, Indonesia',
-      response_time TEXT DEFAULT '< 24 Business Hours',
-      response_time_id TEXT DEFAULT '< 24 Jam Kerja',
-      updated_at TIMESTAMP DEFAULT NOW()
-    )
-  `;
+  if (!contactSchemaEnsured) {
+    await sql`
+      CREATE TABLE IF NOT EXISTS contact_content (
+        id TEXT PRIMARY KEY DEFAULT 'default',
+        badge_text TEXT DEFAULT 'GET IN TOUCH',
+        badge_text_id TEXT DEFAULT 'HUBUNGI SAYA',
+        email TEXT DEFAULT 'hello@ibelaia.dev',
+        title TEXT DEFAULT 'Let''s Build Something Meaningful.',
+        title_id TEXT DEFAULT 'Mari Membangun Sesuatu yang Bermakna.',
+        subtitle TEXT DEFAULT '',
+        subtitle_id TEXT DEFAULT '',
+        phone TEXT DEFAULT '+62 812 3015 6692',
+        location TEXT DEFAULT 'Surabaya, Indonesia',
+        location_id TEXT DEFAULT 'Surabaya, Indonesia',
+        response_time TEXT DEFAULT '< 24 Business Hours',
+        response_time_id TEXT DEFAULT '< 24 Jam Kerja',
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `;
 
-  await sql`
-    ALTER TABLE contact_content
-    ADD COLUMN IF NOT EXISTS badge_text_id TEXT DEFAULT 'HUBUNGI SAYA',
-    ADD COLUMN IF NOT EXISTS title_id TEXT DEFAULT 'Mari Membangun Sesuatu yang Bermakna.',
-    ADD COLUMN IF NOT EXISTS subtitle_id TEXT DEFAULT '',
-    ADD COLUMN IF NOT EXISTS location_id TEXT DEFAULT 'Surabaya, Indonesia',
-    ADD COLUMN IF NOT EXISTS response_time_id TEXT DEFAULT '< 24 Jam Kerja',
-    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()
-  `;
+    await sql`
+      ALTER TABLE contact_content
+      ADD COLUMN IF NOT EXISTS badge_text_id TEXT DEFAULT 'HUBUNGI SAYA',
+      ADD COLUMN IF NOT EXISTS title_id TEXT DEFAULT 'Mari Membangun Sesuatu yang Bermakna.',
+      ADD COLUMN IF NOT EXISTS subtitle_id TEXT DEFAULT '',
+      ADD COLUMN IF NOT EXISTS location_id TEXT DEFAULT 'Surabaya, Indonesia',
+      ADD COLUMN IF NOT EXISTS response_time_id TEXT DEFAULT '< 24 Jam Kerja',
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()
+    `;
 
-  await sql`
-    CREATE TABLE IF NOT EXISTS messages (
-      id SERIAL PRIMARY KEY,
-      name TEXT DEFAULT '',
-      nama TEXT DEFAULT '',
-      email TEXT DEFAULT '',
-      subject TEXT DEFAULT '',
-      subjek TEXT DEFAULT '',
-      message TEXT DEFAULT '',
-      pesan TEXT DEFAULT '',
-      ip_address TEXT DEFAULT '',
-      created_at TIMESTAMP DEFAULT NOW()
-    )
-  `;
+    try {
+      await sql`
+        ALTER TABLE contact_content
+        ALTER COLUMN badge_text DROP NOT NULL,
+        ALTER COLUMN title DROP NOT NULL,
+        ALTER COLUMN subtitle DROP NOT NULL,
+        ALTER COLUMN email DROP NOT NULL,
+        ALTER COLUMN phone DROP NOT NULL,
+        ALTER COLUMN location DROP NOT NULL,
+        ALTER COLUMN response_time DROP NOT NULL
+      `;
+    } catch {
+      // Abaikan jika kolom sudah nullable
+    }
 
-  await sql`
-    ALTER TABLE messages
-    ADD COLUMN IF NOT EXISTS name TEXT DEFAULT '',
-    ADD COLUMN IF NOT EXISTS nama TEXT DEFAULT '',
-    ADD COLUMN IF NOT EXISTS email TEXT DEFAULT '',
-    ADD COLUMN IF NOT EXISTS subject TEXT DEFAULT '',
-    ADD COLUMN IF NOT EXISTS subjek TEXT DEFAULT '',
-    ADD COLUMN IF NOT EXISTS message TEXT DEFAULT '',
-    ADD COLUMN IF NOT EXISTS pesan TEXT DEFAULT '',
-    ADD COLUMN IF NOT EXISTS ip_address TEXT DEFAULT '',
-    ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()
-  `;
+    await sql`
+      CREATE TABLE IF NOT EXISTS messages (
+        id SERIAL PRIMARY KEY,
+        name TEXT DEFAULT '',
+        nama TEXT DEFAULT '',
+        email TEXT DEFAULT '',
+        subject TEXT DEFAULT '',
+        subjek TEXT DEFAULT '',
+        message TEXT DEFAULT '',
+        pesan TEXT DEFAULT '',
+        ip_address TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `;
+
+    await sql`
+      ALTER TABLE messages
+      ADD COLUMN IF NOT EXISTS name TEXT DEFAULT '',
+      ADD COLUMN IF NOT EXISTS nama TEXT DEFAULT '',
+      ADD COLUMN IF NOT EXISTS email TEXT DEFAULT '',
+      ADD COLUMN IF NOT EXISTS subject TEXT DEFAULT '',
+      ADD COLUMN IF NOT EXISTS subjek TEXT DEFAULT '',
+      ADD COLUMN IF NOT EXISTS message TEXT DEFAULT '',
+      ADD COLUMN IF NOT EXISTS pesan TEXT DEFAULT '',
+      ADD COLUMN IF NOT EXISTS ip_address TEXT DEFAULT '',
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()
+    `;
+
+    try {
+      await sql`
+        ALTER TABLE messages
+        ALTER COLUMN name DROP NOT NULL,
+        ALTER COLUMN nama DROP NOT NULL,
+        ALTER COLUMN email DROP NOT NULL,
+        ALTER COLUMN subject DROP NOT NULL,
+        ALTER COLUMN subjek DROP NOT NULL,
+        ALTER COLUMN message DROP NOT NULL,
+        ALTER COLUMN pesan DROP NOT NULL
+      `;
+    } catch {
+      // Abaikan jika kolom sudah nullable
+    }
+
+    contactSchemaEnsured = true;
+  }
 
   const rawCols: any = await sql`
     SELECT column_name

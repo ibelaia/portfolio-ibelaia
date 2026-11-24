@@ -388,8 +388,8 @@ export default function HomePage() {
 
       try {
         const [portfolioRes, projectsRes] = await Promise.allSettled([
-          fetch('/api/portfolio', { cache: 'no-store' }),
-          fetch('/api/projects', { cache: 'no-store' }),
+          fetch(`/api/portfolio?t=${Date.now()}`, { cache: 'no-store' }),
+          fetch(`/api/projects?t=${Date.now()}`, { cache: 'no-store' }),
         ]);
 
         if (portfolioRes.status === 'fulfilled' && portfolioRes.value.ok) {

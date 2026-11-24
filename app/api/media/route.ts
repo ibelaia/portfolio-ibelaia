@@ -11,6 +11,14 @@ const NO_STORE_HEADERS = {
 
 const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024; // 2 MB
 
+const ALLOWED_MIME_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/webp',
+  'image/svg+xml',
+]);
+
 let mediaSchemaReady = false;
 
 function extractRows(raw: any): any[] {
@@ -31,6 +39,15 @@ async function ensureMediaTable() {
       size_bytes BIGINT NOT NULL DEFAULT 0,
       created_at TIMESTAMP DEFAULT NOW()
     )
+  `;
+
+  await sql`
+    ALTER TABLE media_assets
+    ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS url TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS mime_type TEXT NOT NULL DEFAULT 'image/png',
+    ADD COLUMN IF NOT EXISTS size_bytes BIGINT NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()
   `;
 
   mediaSchemaReady = true;
@@ -112,8 +129,19 @@ export async function POST(request: Request) {
         );
       }
 
-      name = String(formData.get('name') || fileEntry.name || 'image');
       mimeType = fileEntry.type || 'image/png';
+      if (!ALLOWED_MIME_TYPES.has(mimeType)) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              'Format berkas tidak didukung. Gunakan PNG, JPG, WEBP, atau SVG.',
+          },
+          { status: 400, headers: NO_STORE_HEADERS }
+        );
+      }
+
+      name = String(formData.get('name') || fileEntry.name || 'image').trim();
       sizeBytes = fileEntry.size || 0;
 
       const arrayBuffer = await fileEntry.arrayBuffer();

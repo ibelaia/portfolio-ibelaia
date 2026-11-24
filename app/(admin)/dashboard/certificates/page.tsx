@@ -242,7 +242,7 @@ export default function CertificatesManagementPage() {
 
     async function loadData() {
       try {
-        const response = await fetch('/api/certificates', {
+        const response = await fetch(`/api/certificates?t=${Date.now()}`, {
           cache: 'no-store',
         });
         const json = await response.json();

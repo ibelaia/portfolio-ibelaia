@@ -70,13 +70,13 @@ export default function GeneralSettingsAdminPage() {
     copyright_text: '2026 IbeLaia.Dev. All rights reserved.',
   });
 
-  const showToast = (
-    message: string,
-    type: 'success' | 'error' = 'success'
-  ) => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3500);
-  };
+  const showToast = useCallback(
+    (message: string, type: 'success' | 'error' = 'success') => {
+      setToast({ message, type });
+      setTimeout(() => setToast(null), 3500);
+    },
+    []
+  );
 
   const broadcastSettingsUpdate = useCallback((updatedData: GeneralData) => {
     const eventDetail = {
@@ -115,24 +115,34 @@ export default function GeneralSettingsAdminPage() {
 
     async function loadGeneral() {
       try {
-        const response = await fetch('/api/settings', { cache: 'no-store' });
-        const json = await response.json();
+        const response = await fetch(`/api/settings?t=${Date.now()}`, {
+          cache: 'no-store',
+        });
+        const rawText = await response.text();
+        let json: any = null;
+        try {
+          json = rawText ? JSON.parse(rawText) : null;
+        } catch {
+          json = null;
+        }
 
         if (!isMounted) return;
 
-        if (json.success && json.data) {
+        if (response.ok && json?.success && json?.data) {
           const data = json.data;
-          setForm({
-            site_name: data.site_name || '',
-            site_tagline: data.site_tagline || '',
-            availability_status: data.availability_status || 'Available for Hire',
-            contact_email: data.contact_email || '',
-            location: data.location || '',
-            github_url: data.github_url || '',
-            linkedin_url: data.linkedin_url || '',
-            footer_description: data.footer_description || '',
-            copyright_text: data.copyright_text || '',
-          });
+          setForm((prev) => ({
+            site_name: data.site_name ?? prev.site_name,
+            site_tagline: data.site_tagline ?? prev.site_tagline,
+            availability_status:
+              data.availability_status ?? prev.availability_status,
+            contact_email: data.contact_email ?? prev.contact_email,
+            location: data.location ?? prev.location,
+            github_url: data.github_url ?? prev.github_url,
+            linkedin_url: data.linkedin_url ?? prev.linkedin_url,
+            footer_description:
+              data.footer_description ?? prev.footer_description,
+            copyright_text: data.copyright_text ?? prev.copyright_text,
+          }));
         }
       } catch (err) {
         if (isMounted) {
@@ -167,17 +177,40 @@ export default function GeneralSettingsAdminPage() {
         cache: 'no-store',
         body: JSON.stringify(form),
       });
-      const json = await response.json();
+      const rawText = await response.text();
+      let json: any = null;
+      try {
+        json = rawText ? JSON.parse(rawText) : null;
+      } catch {
+        json = null;
+      }
 
-      if (response.ok && json.success) {
-        broadcastSettingsUpdate(json.data ?? form);
+      if (response.ok && json?.success) {
+        const savedData: GeneralData = json.data
+          ? {
+              site_name: json.data.site_name ?? form.site_name,
+              site_tagline: json.data.site_tagline ?? form.site_tagline,
+              availability_status:
+                json.data.availability_status ?? form.availability_status,
+              contact_email: json.data.contact_email ?? form.contact_email,
+              location: json.data.location ?? form.location,
+              github_url: json.data.github_url ?? form.github_url,
+              linkedin_url: json.data.linkedin_url ?? form.linkedin_url,
+              footer_description:
+                json.data.footer_description ?? form.footer_description,
+              copyright_text: json.data.copyright_text ?? form.copyright_text,
+            }
+          : form;
+
+        setForm(savedData);
+        broadcastSettingsUpdate(savedData);
         router.refresh();
         showToast(
           'Pengaturan General & Footer berhasil disimpan ke Neon & disinkronkan secara real-time!'
         );
       } else {
         showToast(
-          `Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`,
+          `Gagal menyimpan: ${json?.error || `HTTP ${response.status}`}`,
           'error'
         );
       }

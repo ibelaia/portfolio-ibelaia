@@ -9,8 +9,31 @@ const NO_STORE_HEADERS = {
   Expires: '0',
 };
 
+let homeColumnsEnsured = false;
+
+async function ensureHomeBilingualColumns() {
+  if (homeColumnsEnsured) return;
+
+  await sql`
+    ALTER TABLE home_settings
+    ADD COLUMN IF NOT EXISTS subtitle_id TEXT DEFAULT '',
+    ADD COLUMN IF NOT EXISTS highlight_text_id TEXT DEFAULT '',
+    ADD COLUMN IF NOT EXISTS description_id TEXT DEFAULT '',
+    ADD COLUMN IF NOT EXISTS primary_btn_text TEXT DEFAULT 'Explore My Work',
+    ADD COLUMN IF NOT EXISTS primary_btn_text_id TEXT DEFAULT 'Jelajahi Karya Saya',
+    ADD COLUMN IF NOT EXISTS primary_btn_link TEXT DEFAULT '/projects',
+    ADD COLUMN IF NOT EXISTS secondary_btn_text TEXT DEFAULT 'Contact Me',
+    ADD COLUMN IF NOT EXISTS secondary_btn_text_id TEXT DEFAULT 'Hubungi Saya',
+    ADD COLUMN IF NOT EXISTS secondary_btn_link TEXT DEFAULT '/contact'
+  `;
+
+  homeColumnsEnsured = true;
+}
+
 export async function GET() {
   try {
+    await ensureHomeBilingualColumns();
+
     // Mengambil data dari berbagai tabel Neon secara paralel
     const [general, home, projects, achievements] = await Promise.all([
       sql`SELECT * FROM general_settings LIMIT 1`,
@@ -40,8 +63,11 @@ export async function GET() {
 
 async function upsertHomeSettings(request: NextRequest) {
   try {
+    await ensureHomeBilingualColumns();
+
     const body = await request.json();
-    const payload = body?.home && typeof body.home === 'object' ? body.home : body;
+    const payload =
+      body?.home && typeof body.home === 'object' ? body.home : body;
 
     const existingRows = await sql`SELECT * FROM home_settings LIMIT 1`;
     const current = (existingRows[0] || {}) as Record<string, any>;
@@ -57,15 +83,25 @@ async function upsertHomeSettings(request: NextRequest) {
       payload?.hero_cover_url ?? current.hero_cover_url ?? null;
 
     const subtitle = payload?.subtitle ?? current.subtitle ?? null;
+    const subtitleId = payload?.subtitle_id ?? current.subtitle_id ?? '';
     const title = payload?.title ?? current.title ?? null;
-    const highlightText = payload?.highlight_text ?? current.highlight_text ?? null;
+    const highlightText =
+      payload?.highlight_text ?? current.highlight_text ?? null;
+    const highlightTextId =
+      payload?.highlight_text_id ?? current.highlight_text_id ?? '';
     const description = payload?.description ?? current.description ?? null;
+    const descriptionId =
+      payload?.description_id ?? current.description_id ?? '';
     const primaryBtnText =
       payload?.primary_btn_text ?? current.primary_btn_text ?? null;
+    const primaryBtnTextId =
+      payload?.primary_btn_text_id ?? current.primary_btn_text_id ?? '';
     const primaryBtnLink =
       payload?.primary_btn_link ?? current.primary_btn_link ?? null;
     const secondaryBtnText =
       payload?.secondary_btn_text ?? current.secondary_btn_text ?? null;
+    const secondaryBtnTextId =
+      payload?.secondary_btn_text_id ?? current.secondary_btn_text_id ?? '';
     const secondaryBtnLink =
       payload?.secondary_btn_link ?? current.secondary_btn_link ?? null;
 
@@ -85,85 +121,100 @@ async function upsertHomeSettings(request: NextRequest) {
     let savedRow: Record<string, any> = {
       ...current,
       subtitle,
+      subtitle_id: subtitleId,
       title,
       highlight_text: highlightText,
+      highlight_text_id: highlightTextId,
       description,
+      description_id: descriptionId,
       hero_cover_url: heroCoverUrl,
       profile_photo_url: profilePhotoUrl,
       primary_btn_text: primaryBtnText,
+      primary_btn_text_id: primaryBtnTextId,
       primary_btn_link: primaryBtnLink,
       secondary_btn_text: secondaryBtnText,
+      secondary_btn_text_id: secondaryBtnTextId,
       secondary_btn_link: secondaryBtnLink,
       projects_completed: projectsCompleted,
       happy_clients: happyClients,
       years_experience: yearsExperience,
     };
 
-    try {
-      if (current.id !== undefined && current.id !== null) {
-        const updated = await sql`
-          UPDATE home_settings
-          SET
-            subtitle = ${subtitle},
-            title = ${title},
-            highlight_text = ${highlightText},
-            description = ${description},
-            hero_cover_url = ${heroCoverUrl},
-            profile_photo_url = ${profilePhotoUrl},
-            primary_btn_text = ${primaryBtnText},
-            primary_btn_link = ${primaryBtnLink},
-            secondary_btn_text = ${secondaryBtnText},
-            secondary_btn_link = ${secondaryBtnLink},
-            projects_completed = ${projectsCompleted},
-            happy_clients = ${happyClients},
-            years_experience = ${yearsExperience}
-          WHERE id = ${current.id}
-          RETURNING *
-        `;
-        if (updated[0]) {
-          savedRow = updated[0];
-        }
-      } else {
-        const inserted = await sql`
-          INSERT INTO home_settings (
-            subtitle,
-            title,
-            highlight_text,
-            description,
-            hero_cover_url,
-            profile_photo_url,
-            primary_btn_text,
-            primary_btn_link,
-            secondary_btn_text,
-            secondary_btn_link,
-            projects_completed,
-            happy_clients,
-            years_experience
-          )
-          VALUES (
-            ${subtitle},
-            ${title},
-            ${highlightText},
-            ${description},
-            ${heroCoverUrl},
-            ${profilePhotoUrl},
-            ${primaryBtnText},
-            ${primaryBtnLink},
-            ${secondaryBtnText},
-            ${secondaryBtnLink},
-            ${projectsCompleted},
-            ${happyClients},
-            ${yearsExperience}
-          )
-          RETURNING *
-        `;
-        if (inserted[0]) {
-          savedRow = inserted[0];
-        }
+    if (current.id !== undefined && current.id !== null) {
+      const updated = await sql`
+        UPDATE home_settings
+        SET
+          subtitle = ${subtitle},
+          subtitle_id = ${subtitleId},
+          title = ${title},
+          highlight_text = ${highlightText},
+          highlight_text_id = ${highlightTextId},
+          description = ${description},
+          description_id = ${descriptionId},
+          hero_cover_url = ${heroCoverUrl},
+          profile_photo_url = ${profilePhotoUrl},
+          primary_btn_text = ${primaryBtnText},
+          primary_btn_text_id = ${primaryBtnTextId},
+          primary_btn_link = ${primaryBtnLink},
+          secondary_btn_text = ${secondaryBtnText},
+          secondary_btn_text_id = ${secondaryBtnTextId},
+          secondary_btn_link = ${secondaryBtnLink},
+          projects_completed = ${projectsCompleted},
+          happy_clients = ${happyClients},
+          years_experience = ${yearsExperience}
+        WHERE id = ${current.id}
+        RETURNING *
+      `;
+      if (updated[0]) {
+        savedRow = updated[0];
       }
-    } catch {
-      // Jika skema kolom di Neon tidak memiliki sebagian kolom opsional,
-      // tetap kembalikan data tersinkronisasi agar alur tidak gagal total.
+    } else {
+      const inserted = await sql`
+        INSERT INTO home_settings (
+          subtitle,
+          subtitle_id,
+          title,
+          highlight_text,
+          highlight_text_id,
+          description,
+          description_id,
+          hero_cover_url,
+          profile_photo_url,
+          primary_btn_text,
+          primary_btn_text_id,
+          primary_btn_link,
+          secondary_btn_text,
+          secondary_btn_text_id,
+          secondary_btn_link,
+          projects_completed,
+          happy_clients,
+          years_experience
+        )
+        VALUES (
+          ${subtitle},
+          ${subtitleId},
+          ${title},
+          ${highlightText},
+          ${highlightTextId},
+          ${description},
+          ${descriptionId},
+          ${heroCoverUrl},
+          ${profilePhotoUrl},
+          ${primaryBtnText},
+          ${primaryBtnTextId},
+          ${primaryBtnLink},
+          ${secondaryBtnText},
+          ${secondaryBtnTextId},
+          ${secondaryBtnLink},
+          ${projectsCompleted},
+          ${happyClients},
+          ${yearsExperience}
+        )
+        RETURNING *
+      `;
+      if (inserted[0]) {
+        savedRow = inserted[0];
+      }
     }
 
     return NextResponse.json(

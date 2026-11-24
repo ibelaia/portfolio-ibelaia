@@ -260,12 +260,14 @@ export default function AboutManagementPage() {
       }
 
       try {
-        const response = await fetch('/api/about', { cache: 'no-store' });
+        const response = await fetch(`/api/about?t=${Date.now()}`, {
+          cache: 'no-store',
+        });
         const json = await response.json();
 
         if (!isMounted) return;
 
-        if (json.success && json.data) {
+        if (response.ok && json.success && json.data) {
           const data = json.data;
           setForm((prev) => ({
             ...prev,
@@ -425,11 +427,11 @@ export default function AboutManagementPage() {
         broadcastAboutUpdate(mergedData);
         router.refresh();
         showToast(
-          'Data halaman About berhasil disimpan dan disinkronkan!'
+          'Data halaman About berhasil disimpan ke Neon dan disinkronkan!'
         );
       } else {
         showToast(
-          `Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`,
+          `Gagal menyimpan ke Neon: ${json.error || 'Terjadi kesalahan'}`,
           'error'
         );
       }

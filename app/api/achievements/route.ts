@@ -12,8 +12,23 @@ const NO_STORE_HEADERS = {
 let schemaEnsured = false;
 let headerSchemaEnsured = false;
 
+function extractRows(raw: any): any[] {
+  if (Array.isArray(raw)) return raw;
+  if (raw && Array.isArray(raw.rows)) return raw.rows;
+  return [];
+}
+
 async function ensureAchievementsSchema() {
   if (schemaEnsured) return;
+  try {
+    await sql`
+      ALTER TABLE achievements
+      ALTER COLUMN highlights TYPE TEXT USING highlights::TEXT
+    `;
+  } catch {
+    // Abaikan jika kolom highlights sudah bertipe TEXT
+  }
+
   try {
     await sql`
       ALTER TABLE achievements
@@ -21,11 +36,14 @@ async function ensureAchievementsSchema() {
       ADD COLUMN IF NOT EXISTS badge_id TEXT DEFAULT '',
       ADD COLUMN IF NOT EXISTS title_id TEXT DEFAULT '',
       ADD COLUMN IF NOT EXISTS description_id TEXT DEFAULT '',
+      ADD COLUMN IF NOT EXISTS highlights_id TEXT DEFAULT '[]',
       ADD COLUMN IF NOT EXISTS date_str TEXT DEFAULT '',
       ADD COLUMN IF NOT EXISTS date_str_id TEXT DEFAULT '',
       ADD COLUMN IF NOT EXISTS location TEXT DEFAULT '',
       ADD COLUMN IF NOT EXISTS location_id TEXT DEFAULT '',
-      ADD COLUMN IF NOT EXISTS image_url TEXT DEFAULT '/placeholder.svg'
+      ADD COLUMN IF NOT EXISTS image_url TEXT DEFAULT '/placeholder.svg',
+      ADD COLUMN IF NOT EXISTS credential_url TEXT DEFAULT '',
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()
     `;
     schemaEnsured = true;
   } catch (err) {
@@ -38,7 +56,7 @@ async function ensureHeaderSchema() {
   try {
     await sql`
       CREATE TABLE IF NOT EXISTS achievements_header (
-        id TEXT PRIMARY KEY,
+        id TEXT PRIMARY KEY DEFAULT 'default',
         badge_text TEXT DEFAULT 'HONORS & RECOGNITION',
         badge_text_id TEXT DEFAULT 'PENGHARGAAN & PENCAPAIAN',
         title TEXT DEFAULT 'Honors & Milestones',
@@ -91,6 +109,10 @@ function normalizeArrayField(raw: any): string[] {
   return [];
 }
 
+function serializeArrayForDb(raw: any): string {
+  return JSON.stringify(normalizeArrayField(raw));
+}
+
 export async function GET() {
   try {
     await ensureAchievementsSchema();
@@ -98,24 +120,25 @@ export async function GET() {
 
     let headerRow: any = null;
     try {
-      const headerRows = await sql`
+      const rawHeader: any = await sql`
         SELECT * FROM achievements_header WHERE id = 'default' LIMIT 1
       `;
-      headerRow = headerRows[0] || null;
+      headerRow = extractRows(rawHeader)[0] || null;
     } catch {
       headerRow = null;
     }
 
-    const data = await sql`
+    const rawData: any = await sql`
       SELECT * FROM achievements
-      ORDER BY created_at DESC
+      ORDER BY created_at DESC NULLS LAST
     `;
+    const rows = extractRows(rawData);
 
     return NextResponse.json(
       {
         success: true,
         header: headerRow,
-        data: data,
+        data: rows,
         updatedAt: Date.now(),
       },
       { status: 200, headers: NO_STORE_HEADERS }
@@ -147,7 +170,7 @@ export async function POST(req: NextRequest) {
       const subtitle = String(body.subtitle || '').trim();
       const subtitleId = String(body.subtitle_id || '').trim();
 
-      const headerRows = await sql`
+      const rawHeaderSaved: any = await sql`
         INSERT INTO achievements_header (
           id,
           badge_text,
@@ -182,7 +205,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           success: true,
-          data: headerRows[0] || body,
+          data: extractRows(rawHeaderSaved)[0] || body,
           updatedAt: Date.now(),
         },
         { status: 200, headers: NO_STORE_HEADERS }
@@ -213,84 +236,51 @@ export async function POST(req: NextRequest) {
     const locationId = String(body.location_id || '').trim();
     const imageUrl = String(body.image_url || '/placeholder.svg').trim();
     const credentialUrl = String(body.credential_url || '').trim();
-    const highlights = normalizeArrayField(body.highlights);
-    const highlightsId = normalizeArrayField(body.highlights_id);
+    const highlightsSerialized = serializeArrayForDb(body.highlights);
+    const highlightsIdSerialized = serializeArrayForDb(body.highlights_id);
 
-    let rows: any[] = [];
-    try {
-      rows = await sql`
-        INSERT INTO achievements (
-          badge,
-          badge_id,
-          title,
-          title_id,
-          description,
-          description_id,
-          highlights,
-          highlights_id,
-          date_str,
-          date_str_id,
-          location,
-          location_id,
-          image_url,
-          credential_url
-        )
-        VALUES (
-          ${issuerOrBadge},
-          ${badgeId},
-          ${title},
-          ${titleId},
-          ${description},
-          ${descriptionId},
-          ${highlights},
-          ${highlightsId},
-          ${dateStr},
-          ${dateStrId},
-          ${location},
-          ${locationId},
-          ${imageUrl},
-          ${credentialUrl}
-        )
-        RETURNING *
-      `;
-    } catch {
-      rows = await sql`
-        INSERT INTO achievements (
-          badge,
-          badge_id,
-          title,
-          title_id,
-          description,
-          description_id,
-          date_str,
-          date_str_id,
-          location,
-          location_id,
-          image_url,
-          credential_url
-        )
-        VALUES (
-          ${issuerOrBadge},
-          ${badgeId},
-          ${title},
-          ${titleId},
-          ${description},
-          ${descriptionId},
-          ${dateStr},
-          ${dateStrId},
-          ${location},
-          ${locationId},
-          ${imageUrl},
-          ${credentialUrl}
-        )
-        RETURNING *
-      `;
-    }
+    const rawInserted: any = await sql`
+      INSERT INTO achievements (
+        badge,
+        badge_id,
+        title,
+        title_id,
+        description,
+        description_id,
+        highlights,
+        highlights_id,
+        date_str,
+        date_str_id,
+        location,
+        location_id,
+        image_url,
+        credential_url,
+        updated_at
+      )
+      VALUES (
+        ${issuerOrBadge},
+        ${badgeId},
+        ${title},
+        ${titleId},
+        ${description},
+        ${descriptionId},
+        ${highlightsSerialized},
+        ${highlightsIdSerialized},
+        ${dateStr},
+        ${dateStrId},
+        ${location},
+        ${locationId},
+        ${imageUrl},
+        ${credentialUrl},
+        NOW()
+      )
+      RETURNING *
+    `;
 
     return NextResponse.json(
       {
         success: true,
-        data: rows[0] || null,
+        data: extractRows(rawInserted)[0] || null,
         updatedAt: Date.now(),
       },
       { status: 201, headers: NO_STORE_HEADERS }
@@ -337,56 +327,35 @@ export async function PUT(req: NextRequest) {
     const locationId = String(body.location_id || '').trim();
     const imageUrl = String(body.image_url || '/placeholder.svg').trim();
     const credentialUrl = String(body.credential_url || '').trim();
-    const highlights = normalizeArrayField(body.highlights);
-    const highlightsId = normalizeArrayField(body.highlights_id);
+    const highlightsSerialized = serializeArrayForDb(body.highlights);
+    const highlightsIdSerialized = serializeArrayForDb(body.highlights_id);
 
-    let rows: any[] = [];
-    try {
-      rows = await sql`
-        UPDATE achievements
-        SET
-          badge = ${issuerOrBadge},
-          badge_id = ${badgeId},
-          title = ${title},
-          title_id = ${titleId},
-          description = ${description},
-          description_id = ${descriptionId},
-          highlights = ${highlights},
-          highlights_id = ${highlightsId},
-          date_str = ${dateStr},
-          date_str_id = ${dateStrId},
-          location = ${location},
-          location_id = ${locationId},
-          image_url = ${imageUrl},
-          credential_url = ${credentialUrl}
-        WHERE id = ${id}
-        RETURNING *
-      `;
-    } catch {
-      rows = await sql`
-        UPDATE achievements
-        SET
-          badge = ${issuerOrBadge},
-          badge_id = ${badgeId},
-          title = ${title},
-          title_id = ${titleId},
-          description = ${description},
-          description_id = ${descriptionId},
-          date_str = ${dateStr},
-          date_str_id = ${dateStrId},
-          location = ${location},
-          location_id = ${locationId},
-          image_url = ${imageUrl},
-          credential_url = ${credentialUrl}
-        WHERE id = ${id}
-        RETURNING *
-      `;
-    }
+    const rawUpdated: any = await sql`
+      UPDATE achievements
+      SET
+        badge = ${issuerOrBadge},
+        badge_id = ${badgeId},
+        title = ${title},
+        title_id = ${titleId},
+        description = ${description},
+        description_id = ${descriptionId},
+        highlights = ${highlightsSerialized},
+        highlights_id = ${highlightsIdSerialized},
+        date_str = ${dateStr},
+        date_str_id = ${dateStrId},
+        location = ${location},
+        location_id = ${locationId},
+        image_url = ${imageUrl},
+        credential_url = ${credentialUrl},
+        updated_at = NOW()
+      WHERE id = ${id}
+      RETURNING *
+    `;
 
     return NextResponse.json(
       {
         success: true,
-        data: rows[0] || null,
+        data: extractRows(rawUpdated)[0] || null,
         updatedAt: Date.now(),
       },
       { status: 200, headers: NO_STORE_HEADERS }

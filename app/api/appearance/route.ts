@@ -43,15 +43,37 @@ async function ensureAppearanceTable() {
     )
   `;
 
+  await sql`
+    ALTER TABLE appearance_settings
+    ADD COLUMN IF NOT EXISTS theme_mode TEXT NOT NULL DEFAULT 'dark',
+    ADD COLUMN IF NOT EXISTS accent_color TEXT NOT NULL DEFAULT 'cyan',
+    ADD COLUMN IF NOT EXISTS border_radius TEXT NOT NULL DEFAULT 'rounded-2xl',
+    ADD COLUMN IF NOT EXISTS font_family TEXT NOT NULL DEFAULT 'font-sans',
+    ADD COLUMN IF NOT EXISTS glassmorphism BOOLEAN NOT NULL DEFAULT TRUE,
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()
+  `;
+
   appearanceSchemaReady = true;
 }
 
 function normalizeAppearance(row: any) {
   return {
-    theme_mode: row?.theme_mode || 'dark',
-    accent_color: row?.accent_color || 'cyan',
-    border_radius: row?.border_radius || 'rounded-2xl',
-    font_family: row?.font_family || 'font-sans',
+    theme_mode:
+      row?.theme_mode === 'light' || row?.theme_mode === 'system'
+        ? row.theme_mode
+        : 'dark',
+    accent_color:
+      row?.accent_color === 'purple' ||
+      row?.accent_color === 'emerald' ||
+      row?.accent_color === 'rose' ||
+      row?.accent_color === 'amber'
+        ? row.accent_color
+        : 'cyan',
+    border_radius:
+      row?.border_radius === 'rounded-xl' || row?.border_radius === 'rounded-3xl'
+        ? row.border_radius
+        : 'rounded-2xl',
+    font_family: row?.font_family === 'font-mono' ? 'font-mono' : 'font-sans',
     glassmorphism: parseBooleanSafely(row?.glassmorphism, true),
   };
 }
@@ -144,13 +166,15 @@ export async function POST(request: Request) {
     `;
 
     const savedRows = extractRows(rawSaved);
-    const normalized = normalizeAppearance(savedRows[0] || {
-      theme_mode: themeMode,
-      accent_color: accentColor,
-      border_radius: borderRadius,
-      font_family: fontFamily,
-      glassmorphism,
-    });
+    const normalized = normalizeAppearance(
+      savedRows[0] || {
+        theme_mode: themeMode,
+        accent_color: accentColor,
+        border_radius: borderRadius,
+        font_family: fontFamily,
+        glassmorphism,
+      }
+    );
 
     return NextResponse.json(
       {

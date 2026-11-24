@@ -16,10 +16,21 @@ async function ensureServicesSchema() {
   try {
     await sql`
       ALTER TABLE services
+      ALTER COLUMN tags TYPE TEXT USING tags::TEXT
+    `;
+  } catch {
+    // Abaikan jika kolom tags sudah bertipe TEXT
+  }
+
+  try {
+    await sql`
+      ALTER TABLE services
       ADD COLUMN IF NOT EXISTS badge TEXT DEFAULT '01',
       ADD COLUMN IF NOT EXISTS icon_name TEXT DEFAULT 'Code2',
       ADD COLUMN IF NOT EXISTS title_id TEXT DEFAULT '',
-      ADD COLUMN IF NOT EXISTS description_id TEXT DEFAULT ''
+      ADD COLUMN IF NOT EXISTS description_id TEXT DEFAULT '',
+      ADD COLUMN IF NOT EXISTS tags_id TEXT DEFAULT '[]',
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()
     `;
     schemaEnsured = true;
   } catch (err) {
@@ -84,6 +95,10 @@ function normalizeTagsToArray(raw: any): string[] {
   return [];
 }
 
+function serializeTagsForDb(raw: any): string {
+  return JSON.stringify(normalizeTagsToArray(raw));
+}
+
 function formatServiceRow(row: Record<string, any>) {
   const { icon: _ignoredIcon, price: _ignoredPrice, ...rest } = row;
   return {
@@ -136,6 +151,7 @@ export async function POST(req: NextRequest) {
       description_id,
       badge,
       tags,
+      tags_id,
       icon_name,
     } = body;
 
@@ -146,7 +162,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const tagsArray = normalizeTagsToArray(tags);
+    const tagsSerialized = serializeTagsForDb(tags);
+    const tagsIdSerialized = serializeTagsForDb(
+      tags_id !== undefined && tags_id !== null ? tags_id : tags
+    );
     const resolvedIconName = String(icon_name || body.icon || 'Code2');
     const resolvedBadge = String(badge || '01');
 
@@ -158,7 +177,9 @@ export async function POST(req: NextRequest) {
         description_id,
         badge,
         tags,
-        icon_name
+        tags_id,
+        icon_name,
+        updated_at
       )
       VALUES (
         ${String(title).trim()},
@@ -166,8 +187,10 @@ export async function POST(req: NextRequest) {
         ${String(description || '')},
         ${String(description_id || '')},
         ${resolvedBadge},
-        ${tagsArray},
-        ${resolvedIconName}
+        ${tagsSerialized},
+        ${tagsIdSerialized},
+        ${resolvedIconName},
+        NOW()
       )
       RETURNING *
     `;
@@ -206,6 +229,7 @@ export async function PUT(req: NextRequest) {
       description_id,
       badge,
       tags,
+      tags_id,
       icon_name,
     } = body;
 
@@ -216,7 +240,10 @@ export async function PUT(req: NextRequest) {
       );
     }
 
-    const tagsArray = normalizeTagsToArray(tags);
+    const tagsSerialized = serializeTagsForDb(tags);
+    const tagsIdSerialized = serializeTagsForDb(
+      tags_id !== undefined && tags_id !== null ? tags_id : tags
+    );
     const resolvedIconName = String(icon_name || body.icon || 'Code2');
     const resolvedBadge = String(badge || '01');
 
@@ -228,8 +255,10 @@ export async function PUT(req: NextRequest) {
         description = ${String(description || '')},
         description_id = ${String(description_id || '')},
         badge = ${resolvedBadge},
-        tags = ${tagsArray},
-        icon_name = ${resolvedIconName}
+        tags = ${tagsSerialized},
+        tags_id = ${tagsIdSerialized},
+        icon_name = ${resolvedIconName},
+        updated_at = NOW()
       WHERE id = ${id}
       RETURNING *
     `;

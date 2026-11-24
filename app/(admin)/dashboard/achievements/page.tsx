@@ -217,7 +217,7 @@ export default function AchievementsManagementPage() {
 
     async function loadData() {
       try {
-        const response = await fetch('/api/achievements', {
+        const response = await fetch(`/api/achievements?t=${Date.now()}`, {
           cache: 'no-store',
         });
         const json = await response.json();

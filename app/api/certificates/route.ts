@@ -12,8 +12,23 @@ const NO_STORE_HEADERS = {
 let schemaEnsured = false;
 let headerSchemaEnsured = false;
 
+function extractRows(raw: any): any[] {
+  if (Array.isArray(raw)) return raw;
+  if (raw && Array.isArray(raw.rows)) return raw.rows;
+  return [];
+}
+
 async function ensureCertificatesSchema() {
   if (schemaEnsured) return;
+  try {
+    await sql`
+      ALTER TABLE certificates
+      ALTER COLUMN skills TYPE TEXT USING skills::TEXT
+    `;
+  } catch {
+    // Abaikan jika kolom skills sudah bertipe TEXT
+  }
+
   try {
     await sql`
       ALTER TABLE certificates
@@ -23,10 +38,12 @@ async function ensureCertificatesSchema() {
       ADD COLUMN IF NOT EXISTS issuer TEXT DEFAULT '',
       ADD COLUMN IF NOT EXISTS description TEXT DEFAULT '',
       ADD COLUMN IF NOT EXISTS description_id TEXT DEFAULT '',
+      ADD COLUMN IF NOT EXISTS skills_id TEXT DEFAULT '[]',
       ADD COLUMN IF NOT EXISTS date_str TEXT DEFAULT '',
       ADD COLUMN IF NOT EXISTS date_str_id TEXT DEFAULT '',
       ADD COLUMN IF NOT EXISTS image_url TEXT DEFAULT '/placeholder.svg',
-      ADD COLUMN IF NOT EXISTS credential_url TEXT DEFAULT ''
+      ADD COLUMN IF NOT EXISTS credential_url TEXT DEFAULT '',
+      ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()
     `;
     schemaEnsured = true;
   } catch (err) {
@@ -39,7 +56,7 @@ async function ensureHeaderSchema() {
   try {
     await sql`
       CREATE TABLE IF NOT EXISTS certificates_header (
-        id TEXT PRIMARY KEY,
+        id TEXT PRIMARY KEY DEFAULT 'default',
         badge_text TEXT DEFAULT 'VERIFIED CREDENTIALS & LICENSES',
         badge_text_id TEXT DEFAULT 'KREDENSIAL & LISENSI TERVERIFIKASI',
         title TEXT DEFAULT 'All Certificates',
@@ -92,6 +109,10 @@ function normalizeArrayField(raw: any): string[] {
   return [];
 }
 
+function serializeArrayForDb(raw: any): string {
+  return JSON.stringify(normalizeArrayField(raw));
+}
+
 export async function GET() {
   try {
     await ensureCertificatesSchema();
@@ -99,24 +120,25 @@ export async function GET() {
 
     let headerRow: any = null;
     try {
-      const headerRows = await sql`
+      const rawHeader: any = await sql`
         SELECT * FROM certificates_header WHERE id = 'default' LIMIT 1
       `;
-      headerRow = headerRows[0] || null;
+      headerRow = extractRows(rawHeader)[0] || null;
     } catch {
       headerRow = null;
     }
 
-    const data = await sql`
+    const rawData: any = await sql`
       SELECT * FROM certificates
-      ORDER BY created_at DESC
+      ORDER BY created_at DESC NULLS LAST
     `;
+    const rows = extractRows(rawData);
 
     return NextResponse.json(
       {
         success: true,
         header: headerRow,
-        data: data,
+        data: rows,
         updatedAt: Date.now(),
       },
       { status: 200, headers: NO_STORE_HEADERS }
@@ -148,7 +170,7 @@ export async function POST(req: NextRequest) {
       const subtitle = String(body.subtitle || '').trim();
       const subtitleId = String(body.subtitle_id || '').trim();
 
-      const headerRows = await sql`
+      const rawHeaderSaved: any = await sql`
         INSERT INTO certificates_header (
           id,
           badge_text,
@@ -183,7 +205,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           success: true,
-          data: headerRows[0] || body,
+          data: extractRows(rawHeaderSaved)[0] || body,
           updatedAt: Date.now(),
         },
         { status: 200, headers: NO_STORE_HEADERS }
@@ -211,80 +233,49 @@ export async function POST(req: NextRequest) {
     const dateStrId = String(body.date_str_id || '').trim();
     const imageUrl = String(body.image_url || '/placeholder.svg').trim();
     const credentialUrl = String(body.credential_url || '').trim();
-    const skills = normalizeArrayField(body.skills);
-    const skillsId = normalizeArrayField(body.skills_id);
+    const skillsSerialized = serializeArrayForDb(body.skills);
+    const skillsIdSerialized = serializeArrayForDb(body.skills_id);
 
-    let rows: any[] = [];
-    try {
-      rows = await sql`
-        INSERT INTO certificates (
-          badge,
-          badge_id,
-          title,
-          title_id,
-          issuer,
-          description,
-          description_id,
-          skills,
-          skills_id,
-          date_str,
-          date_str_id,
-          image_url,
-          credential_url
-        )
-        VALUES (
-          ${badge},
-          ${badgeId},
-          ${title},
-          ${titleId},
-          ${issuer},
-          ${description},
-          ${descriptionId},
-          ${skills},
-          ${skillsId},
-          ${dateStr},
-          ${dateStrId},
-          ${imageUrl},
-          ${credentialUrl}
-        )
-        RETURNING *
-      `;
-    } catch {
-      rows = await sql`
-        INSERT INTO certificates (
-          badge,
-          badge_id,
-          title,
-          title_id,
-          issuer,
-          description,
-          description_id,
-          date_str,
-          date_str_id,
-          image_url,
-          credential_url
-        )
-        VALUES (
-          ${badge},
-          ${badgeId},
-          ${title},
-          ${titleId},
-          ${issuer},
-          ${description},
-          ${descriptionId},
-          ${dateStr},
-          ${dateStrId},
-          ${imageUrl},
-          ${credentialUrl}
-        )
-        RETURNING *
-      `;
-    }
+    const rawInserted: any = await sql`
+      INSERT INTO certificates (
+        badge,
+        badge_id,
+        title,
+        title_id,
+        issuer,
+        description,
+        description_id,
+        skills,
+        skills_id,
+        date_str,
+        date_str_id,
+        image_url,
+        credential_url,
+        updated_at
+      )
+      VALUES (
+        ${badge},
+        ${badgeId},
+        ${title},
+        ${titleId},
+        ${issuer},
+        ${description},
+        ${descriptionId},
+        ${skillsSerialized},
+        ${skillsIdSerialized},
+        ${dateStr},
+        ${dateStrId},
+        ${imageUrl},
+        ${credentialUrl},
+        NOW()
+      )
+      RETURNING *
+    `;
 
     return NextResponse.json(
       {
         success: true,
-        data: rows[0] || null,
+        data: extractRows(rawInserted)[0] || null,
         updatedAt: Date.now(),
       },
       { status: 201, headers: NO_STORE_HEADERS }
@@ -328,54 +319,34 @@ export async function PUT(req: NextRequest) {
     const dateStrId = String(body.date_str_id || '').trim();
     const imageUrl = String(body.image_url || '/placeholder.svg').trim();
     const credentialUrl = String(body.credential_url || '').trim();
-    const skills = normalizeArrayField(body.skills);
-    const skillsId = normalizeArrayField(body.skills_id);
+    const skillsSerialized = serializeArrayForDb(body.skills);
+    const skillsIdSerialized = serializeArrayForDb(body.skills_id);
 
-    let rows: any[] = [];
-    try {
-      rows = await sql`
-        UPDATE certificates
-        SET
-          badge = ${badge},
-          badge_id = ${badgeId},
-          title = ${title},
-          title_id = ${titleId},
-          issuer = ${issuer},
-          description = ${description},
-          description_id = ${descriptionId},
-          skills = ${skills},
-          skills_id = ${skillsId},
-          date_str = ${dateStr},
-          date_str_id = ${dateStrId},
-          image_url = ${imageUrl},
-          credential_url = ${credentialUrl}
-        WHERE id = ${id}
-        RETURNING *
-      `;
-    } catch {
-      rows = await sql`
-        UPDATE certificates
-        SET
-          badge = ${badge},
-          badge_id = ${badgeId},
-          title = ${title},
-          title_id = ${titleId},
-          issuer = ${issuer},
-          description = ${description},
-          description_id = ${descriptionId},
-          date_str = ${dateStr},
-          date_str_id = ${dateStrId},
-          image_url = ${imageUrl},
-          credential_url = ${credentialUrl}
-        WHERE id = ${id}
-        RETURNING *
-      `;
-    }
+    const rawUpdated: any = await sql`
+      UPDATE certificates
+      SET
+        badge = ${badge},
+        badge_id = ${badgeId},
+        title = ${title},
+        title_id = ${titleId},
+        issuer = ${issuer},
+        description = ${description},
+        description_id = ${descriptionId},
+        skills = ${skillsSerialized},
+        skills_id = ${skillsIdSerialized},
+        date_str = ${dateStr},
+        date_str_id = ${dateStrId},
+        image_url = ${imageUrl},
+        credential_url = ${credentialUrl},
+        updated_at = NOW()
+      WHERE id = ${id}
+      RETURNING *
+    `;
 
     return NextResponse.json(
       {
         success: true,
-        data: rows[0] || null,
+        data: extractRows(rawUpdated)[0] || null,
         updatedAt: Date.now(),
       },
       { status: 200, headers: NO_STORE_HEADERS }

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -37,6 +37,8 @@ interface AppearanceForm {
   glassmorphism: boolean;
 }
 
+const APPEARANCE_SYNC_CHANNEL = 'portfolio-sync-appearance';
+
 function parseBooleanSafely(raw: any, fallback: boolean): boolean {
   if (typeof raw === 'boolean') return raw;
   if (typeof raw === 'number') return raw !== 0;
@@ -48,8 +50,43 @@ function parseBooleanSafely(raw: any, fallback: boolean): boolean {
   return fallback;
 }
 
+function applyAppearanceToDocument(settings: AppearanceForm) {
+  if (typeof document === 'undefined' || typeof window === 'undefined') return;
+
+  const root = document.documentElement;
+  const body = document.body;
+
+  const prefersDark =
+    window.matchMedia &&
+    window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const resolvedTheme =
+    settings.theme_mode === 'system'
+      ? prefersDark
+        ? 'dark'
+        : 'light'
+      : settings.theme_mode;
+
+  root.classList.remove('dark', 'light');
+  root.classList.add(resolvedTheme);
+  root.setAttribute('data-theme', resolvedTheme);
+  root.setAttribute('data-theme-mode', settings.theme_mode);
+  root.setAttribute('data-accent', settings.accent_color);
+  root.setAttribute('data-radius', settings.border_radius);
+  root.setAttribute('data-font', settings.font_family);
+  root.setAttribute(
+    'data-glass',
+    settings.glassmorphism ? 'true' : 'false'
+  );
+
+  if (body) {
+    body.classList.remove('font-sans', 'font-mono');
+    body.classList.add(settings.font_family);
+  }
+}
+
 export default function AppearanceManagementPage() {
   const router = useRouter();
+  const syncChannelRef = useRef<BroadcastChannel | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -74,7 +111,39 @@ export default function AppearanceManagementPage() {
     []
   );
 
+  const broadcastAppearanceUpdate = useCallback((settings: AppearanceForm) => {
+    applyAppearanceToDocument(settings);
+
+    const detail = {
+      section: 'appearance',
+      data: settings,
+      updatedAt: Date.now(),
+    };
+
+    try {
+      if (syncChannelRef.current) {
+        syncChannelRef.current.postMessage(detail);
+      }
+    } catch {
+      // Abaikan jika BroadcastChannel tidak tersedia
+    }
+
+    try {
+      localStorage.setItem(APPEARANCE_SYNC_CHANNEL, JSON.stringify(detail));
+    } catch {
+      // Abaikan jika localStorage diblokir
+    }
+
+    window.dispatchEvent(
+      new CustomEvent(APPEARANCE_SYNC_CHANNEL, { detail })
+    );
+  }, []);
+
   useEffect(() => {
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      syncChannelRef.current = new BroadcastChannel(APPEARANCE_SYNC_CHANNEL);
+    }
+
     let isMounted = true;
 
     async function loadAppearance() {
@@ -94,7 +163,7 @@ export default function AppearanceManagementPage() {
 
         if (response.ok && json?.success && json?.data) {
           const data = json.data;
-          setForm({
+          const loadedForm: AppearanceForm = {
             theme_mode:
               data.theme_mode === 'light' || data.theme_mode === 'system'
                 ? data.theme_mode
@@ -114,7 +183,9 @@ export default function AppearanceManagementPage() {
             font_family:
               data.font_family === 'font-mono' ? 'font-mono' : 'font-sans',
             glassmorphism: parseBooleanSafely(data.glassmorphism, true),
-          });
+          };
+          setForm(loadedForm);
+          applyAppearanceToDocument(loadedForm);
         }
       } catch (err) {
         if (isMounted) {
@@ -131,6 +202,10 @@ export default function AppearanceManagementPage() {
 
     return () => {
       isMounted = false;
+      if (syncChannelRef.current) {
+        syncChannelRef.current.close();
+        syncChannelRef.current = null;
+      }
     };
   }, []);
 
@@ -162,20 +237,25 @@ export default function AppearanceManagementPage() {
       }
 
       if (response.ok && json?.success) {
-        if (json.data) {
-          setForm({
-            theme_mode: json.data.theme_mode || payload.theme_mode,
-            accent_color: json.data.accent_color || payload.accent_color,
-            border_radius: json.data.border_radius || payload.border_radius,
-            font_family: json.data.font_family || payload.font_family,
-            glassmorphism: parseBooleanSafely(
-              json.data.glassmorphism,
-              payload.glassmorphism
-            ),
-          });
-        }
+        const savedData: AppearanceForm = json.data
+          ? {
+              theme_mode: json.data.theme_mode || payload.theme_mode,
+              accent_color: json.data.accent_color || payload.accent_color,
+              border_radius: json.data.border_radius || payload.border_radius,
+              font_family: json.data.font_family || payload.font_family,
+              glassmorphism: parseBooleanSafely(
+                json.data.glassmorphism,
+                payload.glassmorphism
+              ),
+            }
+          : payload;
+
+        setForm(savedData);
+        broadcastAppearanceUpdate(savedData);
         router.refresh();
-        showToast('Pengaturan tampilan berhasil disimpan ke database.');
+        showToast(
+          'Pengaturan tampilan berhasil disimpan & diterapkan ke seluruh halaman.'
+        );
       } else {
         showToast(
           `Gagal menyimpan: ${json?.error || `HTTP ${response.status}`}`,

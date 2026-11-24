@@ -66,13 +66,13 @@ export default function SeoSettingsAdminPage() {
     author_name: 'Ibe Laia',
   });
 
-  const showToast = (
-    message: string,
-    type: 'success' | 'error' = 'success'
-  ) => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3500);
-  };
+  const showToast = useCallback(
+    (message: string, type: 'success' | 'error' = 'success') => {
+      setToast({ message, type });
+      setTimeout(() => setToast(null), 3500);
+    },
+    []
+  );
 
   const broadcastSeoUpdate = useCallback((updatedData: SeoData) => {
     const eventDetail = {
@@ -111,20 +111,28 @@ export default function SeoSettingsAdminPage() {
 
     async function fetchSeo() {
       try {
-        const response = await fetch('/api/seo', { cache: 'no-store' });
-        const json = await response.json();
+        const response = await fetch(`/api/seo?t=${Date.now()}`, {
+          cache: 'no-store',
+        });
+        const rawText = await response.text();
+        let json: any = null;
+        try {
+          json = rawText ? JSON.parse(rawText) : null;
+        } catch {
+          json = null;
+        }
 
         if (!isMounted) return;
 
-        if (json.success && json.data) {
+        if (response.ok && json?.success && json?.data) {
           const data = json.data;
-          setSeo({
-            meta_title: data.meta_title || '',
-            meta_description: data.meta_description || '',
-            keywords: data.keywords || '',
-            og_image: data.og_image || '',
-            author_name: data.author_name || '',
-          });
+          setSeo((prev) => ({
+            meta_title: data.meta_title ?? prev.meta_title,
+            meta_description: data.meta_description ?? prev.meta_description,
+            keywords: data.keywords ?? prev.keywords,
+            og_image: data.og_image ?? prev.og_image,
+            author_name: data.author_name ?? prev.author_name,
+          }));
         }
       } catch (err) {
         if (isMounted) {
@@ -159,9 +167,15 @@ export default function SeoSettingsAdminPage() {
         cache: 'no-store',
         body: JSON.stringify(seo),
       });
-      const json = await response.json();
+      const rawText = await response.text();
+      let json: any = null;
+      try {
+        json = rawText ? JSON.parse(rawText) : null;
+      } catch {
+        json = null;
+      }
 
-      if (response.ok && json.success) {
+      if (response.ok && json?.success) {
         broadcastSeoUpdate(json.data ?? seo);
         router.refresh();
         showToast(
@@ -169,7 +183,7 @@ export default function SeoSettingsAdminPage() {
         );
       } else {
         showToast(
-          `Gagal menyimpan: ${json.error || 'Terjadi kesalahan'}`,
+          `Gagal menyimpan: ${json?.error || `HTTP ${response.status}`}`,
           'error'
         );
       }

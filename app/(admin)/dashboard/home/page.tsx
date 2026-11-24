@@ -390,8 +390,6 @@ export default function HomeManagementPage() {
     };
 
     try {
-      let mergedData: Record<string, any> = payload;
-
       const response = await fetch('/api/portfolio', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -400,37 +398,39 @@ export default function HomeManagementPage() {
       });
 
       const json = await parseJsonSafely(response);
-      if (response.ok && json && json.success !== false) {
-        const apiHome =
-          json.home && typeof json.home === 'object'
-            ? json.home
-            : json.data && typeof json.data === 'object'
-              ? json.data
-              : {};
-
-        mergedData = {
-          ...payload,
-          ...apiHome,
-          profile_photo_url:
-            apiHome.profile_photo_url ||
-            apiHome.avatar_url ||
-            payload.profile_photo_url,
-          avatar_url:
-            apiHome.avatar_url ||
-            apiHome.profile_photo_url ||
-            payload.profile_photo_url,
-        };
+      if (!response.ok || !json || json.success === false) {
+        alert(
+          `Gagal menyimpan ke Neon: ${json?.error || `HTTP ${response.status}`}`
+        );
+        return;
       }
+
+      const apiHome =
+        json.home && typeof json.home === 'object'
+          ? json.home
+          : json.data && typeof json.data === 'object'
+            ? json.data
+            : {};
+
+      const mergedData: Record<string, any> = {
+        ...payload,
+        ...apiHome,
+        profile_photo_url:
+          apiHome.profile_photo_url ||
+          apiHome.avatar_url ||
+          payload.profile_photo_url,
+        avatar_url:
+          apiHome.avatar_url ||
+          apiHome.profile_photo_url ||
+          payload.profile_photo_url,
+      };
 
       broadcastHomeUpdate(mergedData);
       setTimeout(() => router.refresh(), 50);
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 3000);
     } catch (err: any) {
-      broadcastHomeUpdate(payload);
-      setSavedSuccess(true);
-      setTimeout(() => setSavedSuccess(false), 3000);
-      console.warn('Sinkronisasi lokal tetap dijalankan:', err?.message);
+      alert(`Gagal menyimpan ke Neon: ${err?.message || 'Terjadi kesalahan'}`);
     } finally {
       setSaving(false);
     }

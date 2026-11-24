@@ -38,6 +38,16 @@ interface MediaItem {
   created_at: string;
 }
 
+const ALLOWED_IMAGE_TYPES = [
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/webp',
+  'image/svg+xml',
+];
+
+const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024;
+
 function formatFileSize(bytes: number): string {
   if (!bytes || bytes <= 0) return '0 KB';
   if (bytes < 1024) return `${bytes} B`;
@@ -52,6 +62,7 @@ export default function MediaLibraryPage() {
 
   const [items, setItems] = useState<MediaItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -68,58 +79,63 @@ export default function MediaLibraryPage() {
     []
   );
 
-  const fetchMedia = useCallback(async () => {
-    setLoading(true);
-    try {
-      const response = await fetch(`/api/media?t=${Date.now()}`, {
-        cache: 'no-store',
-      });
-      const rawText = await response.text();
-      let json: any = null;
-      try {
-        json = rawText ? JSON.parse(rawText) : null;
-      } catch {
-        json = null;
+  const loadMedia = useCallback(
+    async (isManualRefresh = false) => {
+      if (isManualRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
       }
 
-      if (response.ok && json?.success) {
-        const list = Array.isArray(json.items)
-          ? json.items
-          : Array.isArray(json.media)
-            ? json.media
-            : [];
-        setItems(list);
-      } else {
+      try {
+        const response = await fetch(`/api/media?t=${Date.now()}`, {
+          cache: 'no-store',
+        });
+        const rawText = await response.text();
+        let json: any = null;
+        try {
+          json = rawText ? JSON.parse(rawText) : null;
+        } catch {
+          json = null;
+        }
+
+        if (response.ok && json?.success) {
+          const list = Array.isArray(json.items)
+            ? json.items
+            : Array.isArray(json.media)
+              ? json.media
+              : [];
+          setItems(list);
+          if (isManualRefresh) {
+            showToast('Galeri media diperbarui.');
+          }
+        } else {
+          showToast(
+            json?.error || `Gagal memuat galeri media (HTTP ${response.status})`,
+            'error'
+          );
+        }
+      } catch (err: any) {
         showToast(
-          json?.error || `Gagal memuat galeri media (HTTP ${response.status})`,
+          err?.message || 'Terjadi kesalahan saat memuat galeri media.',
           'error'
         );
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
       }
-    } catch (err: any) {
-      showToast(
-        err?.message || 'Terjadi kesalahan saat memuat galeri media.',
-        'error'
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [showToast]);
+    },
+    [showToast]
+  );
 
   useEffect(() => {
-    fetchMedia();
-  }, [fetchMedia]);
+    loadMedia(false);
+  }, [loadMedia]);
 
   const handleUploadFile = async (file: File | undefined | null) => {
     if (!file) return;
 
-    const allowedTypes = [
-      'image/png',
-      'image/jpeg',
-      'image/jpg',
-      'image/webp',
-      'image/svg+xml',
-    ];
-    if (file.type && !allowedTypes.includes(file.type)) {
+    if (file.type && !ALLOWED_IMAGE_TYPES.includes(file.type)) {
       showToast(
         'Format berkas tidak didukung. Gunakan PNG, JPG, WEBP, atau SVG.',
         'error'
@@ -127,7 +143,7 @@ export default function MediaLibraryPage() {
       return;
     }
 
-    if (file.size > 2 * 1024 * 1024) {
+    if (file.size > MAX_FILE_SIZE_BYTES) {
       showToast('Ukuran gambar maksimal 2 MB.', 'error');
       return;
     }
@@ -156,7 +172,7 @@ export default function MediaLibraryPage() {
         if (created) {
           setItems((prev) => [created, ...prev]);
         } else {
-          await fetchMedia();
+          await loadMedia(false);
         }
         router.refresh();
         showToast('Gambar berhasil diunggah ke Media Library!');
@@ -409,11 +425,14 @@ export default function MediaLibraryPage() {
           <div className="flex items-center gap-2.5">
             <button
               type="button"
-              onClick={fetchMedia}
-              disabled={loading}
+              onClick={() => loadMedia(true)}
+              disabled={loading || refreshing}
               className="px-3.5 py-2.5 rounded-xl bg-[#0b0e17] border border-white/10 hover:border-white/20 text-xs font-semibold text-slate-200 hover:text-white flex items-center gap-2 transition-colors cursor-pointer disabled:opacity-50"
             >
-              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+              <RefreshCw
+                size={14}
+                className={loading || refreshing ? 'animate-spin' : ''}
+              />
               <span>Muat Ulang</span>
             </button>
 

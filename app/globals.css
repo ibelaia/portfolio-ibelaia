@@ -61,7 +61,8 @@
   }
 
   /* Theme Mode */
-  html.light {
+  html.light,
+  html[data-theme="light"] {
     --bg-primary: #f8fafc;
     --card-bg: #ffffff;
     --card-border: rgba(15, 23, 42, 0.1);
@@ -69,12 +70,21 @@
     --text-muted: #64748b;
   }
 
-  html.dark {
+  html.dark,
+  html[data-theme="dark"] {
     --bg-primary: #070913;
     --card-bg: #090e1f;
     --card-border: rgba(255, 255, 255, 0.1);
     --text-main: #f8fafc;
     --text-muted: #94a3b8;
+  }
+
+  html[data-font="font-mono"] body {
+    font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  html[data-font="font-sans"] body {
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
   }
 
   body {
@@ -96,6 +106,15 @@
   .border-accent {
     border-color: var(--accent);
     transition: border-color 0.2s ease;
+  }
+
+  .appearance-card {
+    background-color: var(--card-bg);
+    border-color: var(--card-border);
+    border-radius: var(--card-radius);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    transition: background-color 0.25s ease, border-color 0.25s ease, border-radius 0.2s ease, backdrop-filter 0.2s ease;
   }
 
   ::-webkit-scrollbar {

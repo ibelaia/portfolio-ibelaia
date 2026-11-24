@@ -18,6 +18,14 @@ interface AppContextType {
   t: (en: string, id: string) => string;
 }
 
+const ACCENT_HEX_MAP: Record<string, string> = {
+  cyan: '#06b6d4',
+  purple: '#a855f7',
+  emerald: '#34d399',
+  rose: '#f43f5e',
+  amber: '#fbbf24',
+};
+
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
@@ -27,28 +35,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   const [isDark, setIsDark] = useState<boolean>(true);
 
   const syncAccentVariable = useCallback(() => {
-    if (typeof window === 'undefined') return;
-    const savedAccent =
-      localStorage.getItem('portfolio_accent') ||
-      localStorage.getItem('app_accent') ||
-      '#06b6d4';
-    document.documentElement.style.setProperty('--accent', savedAccent);
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+      return;
+    }
+
+    const root = document.documentElement;
+    let accentKey = root.getAttribute('data-accent') || '';
+
+    try {
+      const syncRaw = localStorage.getItem('portfolio-sync-appearance');
+      if (syncRaw) {
+        const parsed = JSON.parse(syncRaw);
+        if (parsed?.data?.accent_color) {
+          accentKey = String(parsed.data.accent_color);
+          root.setAttribute('data-accent', accentKey);
+        }
+      }
+    } catch {
+      // Abaikan error akses localStorage
+    }
+
+    if (accentKey && ACCENT_HEX_MAP[accentKey]) {
+      root.style.setProperty('--accent', ACCENT_HEX_MAP[accentKey]);
+    }
   }, []);
 
   // Baca preferensi tersimpan dari browser (localStorage)
   useEffect(() => {
     const savedLang = localStorage.getItem('app_lang') as Language;
-    if (savedLang) setLanguage(savedLang);
+    if (savedLang === 'EN' || savedLang === 'ID') {
+      setLanguage(savedLang);
+    }
 
     const savedTheme = localStorage.getItem('app_theme');
-    if (savedTheme) {
+    if (savedTheme === 'dark' || savedTheme === 'light') {
       setIsDark(savedTheme === 'dark');
     }
 
     syncAccentVariable();
   }, [syncAccentVariable]);
 
-  // Update class HTML & simpan status tema + variabel aksen
+  // Update class HTML & simpan status tema + sinkronisasi aksen
   useEffect(() => {
     const root = document.documentElement;
     if (isDark) {
@@ -66,8 +93,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
   // Sinkronisasi lintas tab via BroadcastChannel & storage event
   useEffect(() => {
     let channel: BroadcastChannel | null = null;
+    let appearanceChannel: BroadcastChannel | null = null;
 
-    const handleSyncUpdate = () => {
+    const handleSyncUpdate = (event?: MessageEvent) => {
       const latestLang = localStorage.getItem('app_lang') as Language | null;
       if (latestLang === 'EN' || latestLang === 'ID') {
         setLanguage(latestLang);
@@ -78,12 +106,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
         setIsDark(latestTheme === 'dark');
       }
 
-      syncAccentVariable();
+      const incomingAccent = event?.data?.data?.accent_color;
+      if (incomingAccent && ACCENT_HEX_MAP[incomingAccent]) {
+        document.documentElement.setAttribute('data-accent', incomingAccent);
+        document.documentElement.style.setProperty(
+          '--accent',
+          ACCENT_HEX_MAP[incomingAccent]
+        );
+      } else {
+        syncAccentVariable();
+      }
     };
 
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
       channel = new BroadcastChannel('portfolio-admin-sync');
       channel.onmessage = handleSyncUpdate;
+
+      appearanceChannel = new BroadcastChannel('portfolio-sync-appearance');
+      appearanceChannel.onmessage = handleSyncUpdate;
     }
 
     const handleStorage = (event: StorageEvent) => {
@@ -103,6 +143,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({
       window.removeEventListener('storage', handleStorage);
       if (channel) {
         channel.close();
+      }
+      if (appearanceChannel) {
+        appearanceChannel.close();
       }
     };
   }, [syncAccentVariable]);

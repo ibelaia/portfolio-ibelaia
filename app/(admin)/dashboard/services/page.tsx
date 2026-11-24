@@ -195,7 +195,9 @@ export default function ServicesManagementPage() {
       }
 
       try {
-        const response = await fetch('/api/services', { cache: 'no-store' });
+        const response = await fetch(`/api/services?t=${Date.now()}`, {
+          cache: 'no-store',
+        });
         const json = await response.json();
 
         if (!isMounted) return;
@@ -484,7 +486,7 @@ export default function ServicesManagementPage() {
     if (!confirm('Hapus card layanan ini?')) return;
 
     try {
-      const response = await fetch(`/api/services?id=${id}`, {
+      const response = await fetch(`/api/services?id=${encodeURIComponent(id)}`, {
         method: 'DELETE',
         cache: 'no-store',
       });
