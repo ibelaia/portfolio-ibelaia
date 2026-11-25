@@ -63,8 +63,65 @@ interface Project {
 
 const PROJECTS_LIST_SYNC_CHANNEL = 'portfolio-sync-projects';
 const ADMIN_SYNC_CHANNEL = 'portfolio-admin-sync';
+const APPEARANCE_SYNC_CHANNEL = 'portfolio-sync-appearance';
 const PROJECTS_CACHE_KEY = 'portfolio_projects_cache';
 const PROJECTS_COUNT_KEY = 'portfolio_projects_count';
+
+const ACCENT_HEX_MAP: Record<string, string> = {
+  cyan: '#06b6d4',
+  purple: '#a855f7',
+  emerald: '#34d399',
+  rose: '#f43f5e',
+  amber: '#fbbf24',
+};
+
+function applyAppearanceToDom(settings: Record<string, any>) {
+  if (typeof document === 'undefined' || typeof window === 'undefined') return;
+  if (!settings || typeof settings !== 'object') return;
+
+  const root = document.documentElement;
+  const body = document.body;
+
+  const mode =
+    settings.theme_mode === 'light' || settings.theme_mode === 'system'
+      ? settings.theme_mode
+      : 'dark';
+  const prefersDark =
+    window.matchMedia &&
+    window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const resolvedTheme =
+    mode === 'system' ? (prefersDark ? 'dark' : 'light') : mode;
+
+  root.classList.remove('dark', 'light');
+  root.classList.add(resolvedTheme);
+  root.setAttribute('data-theme', resolvedTheme);
+  root.setAttribute('data-theme-mode', mode);
+
+  if (settings.accent_color) {
+    const accentKey = String(settings.accent_color);
+    root.setAttribute('data-accent', accentKey);
+    if (ACCENT_HEX_MAP[accentKey]) {
+      root.style.setProperty('--accent', ACCENT_HEX_MAP[accentKey]);
+    }
+  }
+  if (settings.border_radius) {
+    root.setAttribute('data-radius', String(settings.border_radius));
+  }
+  if (settings.font_family) {
+    root.setAttribute('data-font', String(settings.font_family));
+    if (body) {
+      body.classList.remove('font-sans', 'font-mono');
+      body.classList.add(String(settings.font_family));
+    }
+  }
+  if (typeof settings.glassmorphism !== 'undefined') {
+    const isGlass =
+      settings.glassmorphism === true ||
+      settings.glassmorphism === 'true' ||
+      settings.glassmorphism === 1;
+    root.setAttribute('data-glass', isGlass ? 'true' : 'false');
+  }
+}
 
 async function parseJsonSafely(response: Response): Promise<any | null> {
   const contentType = response.headers.get('content-type') || '';
@@ -163,13 +220,53 @@ export default function ProjectsListPage() {
     [syncProjectsCache]
   );
 
+  const syncAppearanceSettings = useCallback(async () => {
+    try {
+      const cachedRaw = localStorage.getItem(APPEARANCE_SYNC_CHANNEL);
+      if (cachedRaw) {
+        const parsed = JSON.parse(cachedRaw);
+        if (parsed?.data) {
+          applyAppearanceToDom(parsed.data);
+        }
+      }
+    } catch {
+      // Abaikan jika localStorage gagal dibaca
+    }
+
+    try {
+      const res = await fetch(`/api/appearance?t=${Date.now()}`, {
+        cache: 'no-store',
+      });
+      const json = await parseJsonSafely(res);
+      if (res.ok && json?.success && json?.data) {
+        applyAppearanceToDom(json.data);
+        try {
+          localStorage.setItem(
+            APPEARANCE_SYNC_CHANNEL,
+            JSON.stringify({
+              section: 'appearance',
+              data: json.data,
+              updatedAt: json.updatedAt || Date.now(),
+            })
+          );
+        } catch {
+          // Abaikan jika localStorage gagal ditulis
+        }
+      }
+    } catch {
+      // Abaikan jika fetch appearance gagal
+    }
+  }, []);
+
   const fetchProjects = useCallback(
     async (isMountedRef?: { current: boolean }) => {
       if (!isMountedRef || isMountedRef.current) {
         setLoading(true);
       }
       try {
-        const response = await fetch('/api/projects', { cache: 'no-store' });
+        const response = await fetch(`/api/projects?t=${Date.now()}`, {
+          cache: 'no-store',
+        });
         const json = await parseJsonSafely(response);
 
         if (isMountedRef && !isMountedRef.current) return;
@@ -197,6 +294,9 @@ export default function ProjectsListPage() {
 
   useEffect(() => {
     const isMountedRef = { current: true };
+    let appearanceChannel: BroadcastChannel | null = null;
+
+    syncAppearanceSettings();
 
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
       syncChannelRef.current = new BroadcastChannel(PROJECTS_LIST_SYNC_CHANNEL);
@@ -207,30 +307,61 @@ export default function ProjectsListPage() {
       };
 
       adminChannelRef.current = new BroadcastChannel(ADMIN_SYNC_CHANNEL);
-      adminChannelRef.current.onmessage = () => {
-        if (isMountedRef.current) {
+      adminChannelRef.current.onmessage = (event) => {
+        if (!isMountedRef.current) return;
+        if (event?.data?.section === 'appearance' && event?.data?.data) {
+          applyAppearanceToDom(event.data.data);
+        } else {
           fetchProjects(isMountedRef);
+        }
+      };
+
+      appearanceChannel = new BroadcastChannel(APPEARANCE_SYNC_CHANNEL);
+      appearanceChannel.onmessage = (event) => {
+        if (!isMountedRef.current) return;
+        if (event?.data?.data) {
+          applyAppearanceToDom(event.data.data);
+        } else {
+          syncAppearanceSettings();
         }
       };
     }
 
     const handleStorageSync = (e: StorageEvent) => {
+      if (!isMountedRef.current) return;
+      if (e.key === APPEARANCE_SYNC_CHANNEL) {
+        syncAppearanceSettings();
+      }
       if (
-        (e.key === PROJECTS_LIST_SYNC_CHANNEL ||
-          e.key === ADMIN_SYNC_CHANNEL ||
-          e.key === PROJECTS_CACHE_KEY) &&
-        isMountedRef.current
+        e.key === PROJECTS_LIST_SYNC_CHANNEL ||
+        e.key === ADMIN_SYNC_CHANNEL ||
+        e.key === PROJECTS_CACHE_KEY
       ) {
         fetchProjects(isMountedRef);
       }
     };
 
+    const handleCustomAppearance = (event: Event) => {
+      if (!isMountedRef.current) return;
+      const customEvent = event as CustomEvent;
+      if (customEvent.detail?.data) {
+        applyAppearanceToDom(customEvent.detail.data);
+      } else {
+        syncAppearanceSettings();
+      }
+    };
+
     window.addEventListener('storage', handleStorageSync);
+    window.addEventListener(APPEARANCE_SYNC_CHANNEL, handleCustomAppearance);
     fetchProjects(isMountedRef);
 
     return () => {
       isMountedRef.current = false;
       window.removeEventListener('storage', handleStorageSync);
+      window.removeEventListener(
+        APPEARANCE_SYNC_CHANNEL,
+        handleCustomAppearance
+      );
       if (syncChannelRef.current) {
         syncChannelRef.current.close();
         syncChannelRef.current = null;
@@ -239,8 +370,11 @@ export default function ProjectsListPage() {
         adminChannelRef.current.close();
         adminChannelRef.current = null;
       }
+      if (appearanceChannel) {
+        appearanceChannel.close();
+      }
     };
-  }, [fetchProjects]);
+  }, [fetchProjects, syncAppearanceSettings]);
 
   const handleToggleFeatured = async (
     id: string,
@@ -248,27 +382,53 @@ export default function ProjectsListPage() {
     title: string
   ) => {
     const newStatus = !currentStatus;
+    const targetProject = projects.find((p) => p.id === id);
+
+    const payload: Record<string, any> = {
+      id,
+      is_featured: newStatus,
+      featured: newStatus,
+      title: targetProject?.title || title,
+      category: targetProject?.category || 'Web Application',
+      slug: targetProject?.slug,
+      status: targetProject?.status || 'PUBLISHED',
+      overview: targetProject?.overview,
+      tags: targetProject?.tags,
+      thumbnail: targetProject?.thumbnail,
+    };
+
     try {
-      const response = await fetch('/api/projects', {
+      let response = await fetch('/api/projects', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         cache: 'no-store',
-        body: JSON.stringify({ id, is_featured: newStatus }),
+        body: JSON.stringify(payload),
       });
-      const json = await parseJsonSafely(response);
+      let json = await parseJsonSafely(response);
+
+      if (!response.ok || !json || !json.success) {
+        const fallbackRes = await fetch(`/api/projects/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify(payload),
+        });
+        const fallbackJson = await parseJsonSafely(fallbackRes);
+        if (fallbackRes.ok || fallbackJson) {
+          response = fallbackRes;
+          json = fallbackJson;
+        }
+      }
 
       if (response.ok && json && json.success) {
-        let nextSorted: Project[] = [];
-        setProjects((prev) => {
-          const updated = prev.map((p) =>
-            p.id === id ? { ...p, is_featured: newStatus } : p
-          );
-          nextSorted = updated.sort((a, b) => {
+        const nextSorted = projects
+          .map((p) => (p.id === id ? { ...p, is_featured: newStatus } : p))
+          .sort((a, b) => {
             if (a.is_featured === b.is_featured) return 0;
             return a.is_featured ? -1 : 1;
           });
-          return nextSorted;
-        });
+
+        setProjects(nextSorted);
         broadcastProjectsUpdate(
           'featured',
           { id, is_featured: newStatus },
@@ -384,6 +544,8 @@ export default function ProjectsListPage() {
         cache: 'no-store',
         body: JSON.stringify({
           id: selectedMultiProject.id,
+          title: selectedMultiProject.title,
+          category: selectedMultiProject.category,
           collection_items: subItems,
         }),
       });
@@ -449,7 +611,10 @@ export default function ProjectsListPage() {
   });
 
   return (
-    <div className="min-h-screen bg-[#07090e] text-[#94a3b8] flex flex-col lg:flex-row antialiased selection:bg-cyan-500/30 selection:text-cyan-200">
+    <div
+      suppressHydrationWarning
+      className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-muted)] flex flex-col lg:flex-row antialiased selection:bg-accent/30 transition-colors duration-250"
+    >
       <input
         type="file"
         ref={activeSubInputRef}
@@ -476,21 +641,23 @@ export default function ProjectsListPage() {
       )}
 
       {/* SIDEBAR */}
-      <aside className="hidden lg:flex w-64 flex-col justify-between bg-[#0b0e17] border-r border-white/5 p-5 shrink-0 min-h-screen sticky top-0">
+      <aside className="hidden lg:flex w-64 flex-col justify-between bg-[var(--card-bg)] border-r border-[var(--card-border)] p-5 shrink-0 min-h-screen sticky top-0 transition-colors duration-250">
         <div>
           <div className="flex items-center gap-1.5 px-3 py-2 mb-6">
-            <span className="text-xl font-black text-white">IbeLaia</span>
-            <span className="text-xl font-black text-[#a855f7]">.Dev</span>
+            <span className="text-xl font-black text-[var(--text-main)]">
+              IbeLaia
+            </span>
+            <span className="text-xl font-black text-accent">.Dev</span>
           </div>
 
           <div className="space-y-6 text-xs">
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-[var(--text-muted)] mb-2">
                 Overview
               </p>
               <Link
                 href="/dashboard"
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-all"
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5 transition-all"
               >
                 <LayoutDashboard size={16} />
                 <span>Dashboard</span>
@@ -498,55 +665,55 @@ export default function ProjectsListPage() {
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-[var(--text-muted)] mb-2">
                 Website Content
               </p>
               <div className="space-y-1">
                 <Link
                   href="/dashboard/home"
-                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5 transition-colors"
                 >
                   <Home size={15} />
                   <span>Home</span>
                 </Link>
                 <Link
                   href="/dashboard/about"
-                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5 transition-colors"
                 >
                   <User size={15} />
                   <span>About</span>
                 </Link>
                 <Link
                   href="/dashboard/services"
-                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5 transition-colors"
                 >
                   <Wrench size={15} />
                   <span>Services</span>
                 </Link>
                 <Link
                   href="/dashboard/projects/list"
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl font-semibold bg-[#581c87]/60 text-white border border-[#9333ea]/30 transition-all"
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl font-semibold bg-accent/15 text-[var(--text-main)] border border-accent/40 transition-all"
                 >
-                  <FolderGit2 size={15} className="text-[#c084fc]" />
+                  <FolderGit2 size={15} className="text-accent" />
                   <span>Projects</span>
                 </Link>
                 <Link
                   href="/dashboard/achievements"
-                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5 transition-colors"
                 >
                   <Award size={15} />
                   <span>Achievements</span>
                 </Link>
                 <Link
                   href="/dashboard/certificates"
-                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5 transition-colors"
                 >
                   <FileBadge size={15} />
                   <span>Certificates</span>
                 </Link>
                 <Link
                   href="/dashboard/contact"
-                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                  className="flex items-center gap-3 px-3 py-2 rounded-xl text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5 transition-colors"
                 >
                   <Mail size={15} />
                   <span>Contact</span>
@@ -555,12 +722,12 @@ export default function ProjectsListPage() {
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-[var(--text-muted)] mb-2">
                 Assets
               </p>
               <Link
                 href="/dashboard/media"
-                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5 transition-colors cursor-pointer"
               >
                 <FolderArchive size={15} />
                 <span>Media Library</span>
@@ -568,27 +735,27 @@ export default function ProjectsListPage() {
             </div>
 
             <div>
-              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-slate-500 mb-2">
+              <p className="px-3 text-[10px] font-mono tracking-wider uppercase text-[var(--text-muted)] mb-2">
                 Settings
               </p>
               <div className="space-y-1">
                 <Link
                   href="/dashboard/appearance"
-                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5 transition-colors"
                 >
                   <Palette size={15} />
                   <span>Appearance</span>
                 </Link>
                 <Link
                   href="/dashboard/seo"
-                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5 transition-colors"
                 >
                   <SearchCheck size={15} />
                   <span>SEO Settings</span>
                 </Link>
                 <Link
                   href="/dashboard/settings"
-                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5 transition-colors"
                 >
                   <Settings size={15} />
                   <span>General Settings</span>
@@ -598,17 +765,18 @@ export default function ProjectsListPage() {
           </div>
         </div>
 
-        <div className="pt-4 border-t border-white/5 space-y-3">
+        <div className="pt-4 border-t border-[var(--card-border)] space-y-3">
           <Link
             href="/projects"
             target="_blank"
-            className="w-full py-2 px-3 rounded-xl border border-white/10 hover:border-white/20 text-slate-300 hover:text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
+            className="w-full py-2 px-3 rounded-xl border border-[var(--card-border)] hover:border-accent/50 text-[var(--text-main)] text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
           >
             <span>Preview Projects</span>
             <ExternalLink size={13} />
           </Link>
           <button
             type="button"
+            suppressHydrationWarning
             onClick={handleLogout}
             className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors cursor-pointer"
           >
@@ -620,19 +788,19 @@ export default function ProjectsListPage() {
 
       {/* MAIN CONTENT */}
       <main className="flex-1 px-4 sm:px-8 py-6 max-w-6xl w-full mx-auto space-y-6 overflow-x-hidden">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[var(--card-border)]">
           <div className="space-y-1">
             <Link
               href="/dashboard/projects"
-              className="inline-flex items-center gap-1.5 text-xs font-mono text-cyan-400 hover:underline mb-1"
+              className="inline-flex items-center gap-1.5 text-xs font-mono text-accent hover:underline mb-1"
             >
               <ArrowLeft size={13} />
               <span>Kembali ke Projects Hub</span>
             </Link>
-            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-[var(--text-main)] tracking-tight">
               Kelola & Daftar Proyek Terpublikasi
             </h1>
-            <p className="text-xs text-slate-400">
+            <p className="text-xs text-[var(--text-muted)]">
               Pusat daftar seluruh studi kasus dan koleksi portofolio yang aktif
               via Neon secara dinamis.
             </p>
@@ -641,12 +809,16 @@ export default function ProjectsListPage() {
           <div className="relative w-full sm:w-72">
             <input
               type="text"
+              suppressHydrationWarning
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Cari proyek..."
-              className="w-full pl-9 pr-4 py-2 bg-[#0b0e17] border border-white/10 focus:border-cyan-400 rounded-xl text-xs text-white placeholder:text-slate-500 outline-none transition-all shadow-inner"
+              className="w-full pl-9 pr-4 py-2 bg-[var(--card-bg)] border border-[var(--card-border)] focus:border-accent rounded-xl text-xs text-[var(--text-main)] placeholder:text-[var(--text-muted)] outline-none transition-all shadow-inner"
             />
-            <Search size={14} className="absolute left-3 top-3 text-slate-500" />
+            <Search
+              size={14}
+              className="absolute left-3 top-3 text-[var(--text-muted)]"
+            />
           </div>
         </div>
 
@@ -654,22 +826,24 @@ export default function ProjectsListPage() {
         <div className="flex flex-wrap items-center gap-2 pb-2">
           <button
             type="button"
+            suppressHydrationWarning
             onClick={() => setActiveTab('all')}
             className={`px-4 py-2 rounded-xl text-xs font-mono font-semibold transition-all cursor-pointer ${
               activeTab === 'all'
-                ? 'bg-cyan-500 text-slate-950 shadow-lg shadow-cyan-500/20'
-                : 'bg-[#0b0e17] border border-white/10 text-slate-400 hover:text-white'
+                ? 'bg-accent text-slate-950 shadow-lg'
+                : 'bg-[var(--card-bg)] border border-[var(--card-border)] text-[var(--text-muted)] hover:text-[var(--text-main)]'
             }`}
           >
             Semua ({projects.length})
           </button>
           <button
             type="button"
+            suppressHydrationWarning
             onClick={() => setActiveTab('single')}
             className={`px-4 py-2 rounded-xl text-xs font-mono font-semibold transition-all cursor-pointer ${
               activeTab === 'single'
-                ? 'bg-cyan-500 text-slate-950 shadow-lg shadow-cyan-500/20'
-                : 'bg-[#0b0e17] border border-white/10 text-slate-400 hover:text-white'
+                ? 'bg-accent text-slate-950 shadow-lg'
+                : 'bg-[var(--card-bg)] border border-[var(--card-border)] text-[var(--text-muted)] hover:text-[var(--text-main)]'
             }`}
           >
             Single Case Study (
@@ -677,11 +851,12 @@ export default function ProjectsListPage() {
           </button>
           <button
             type="button"
+            suppressHydrationWarning
             onClick={() => setActiveTab('multi')}
             className={`px-4 py-2 rounded-xl text-xs font-mono font-semibold transition-all cursor-pointer ${
               activeTab === 'multi'
-                ? 'bg-purple-500 text-white shadow-lg shadow-purple-500/20'
-                : 'bg-[#0b0e17] border border-white/10 text-slate-400 hover:text-white'
+                ? 'bg-accent text-slate-950 shadow-lg'
+                : 'bg-[var(--card-bg)] border border-[var(--card-border)] text-[var(--text-muted)] hover:text-[var(--text-main)]'
             }`}
           >
             Multi-Project Collection (
@@ -691,14 +866,17 @@ export default function ProjectsListPage() {
 
         {/* Daftar Kartu Proyek */}
         {loading ? (
-          <div className="py-24 text-center text-xs font-mono text-slate-500 flex items-center justify-center gap-2">
-            <Loader2 size={18} className="animate-spin text-cyan-400" />
+          <div className="py-24 text-center text-xs font-mono text-[var(--text-muted)] flex items-center justify-center gap-2">
+            <Loader2 size={18} className="animate-spin text-accent" />
             <span>Memuat daftar proyek dari Neon API...</span>
           </div>
         ) : filteredProjects.length === 0 ? (
-          <div className="py-20 text-center bg-[#0b0e17] border border-white/5 rounded-3xl p-8 space-y-3">
-            <FolderGit2 size={36} className="mx-auto text-slate-600" />
-            <p className="text-sm font-semibold text-white">
+          <div className="py-20 text-center bg-[var(--card-bg)] border border-[var(--card-border)] rounded-3xl p-8 space-y-3">
+            <FolderGit2
+              size={36}
+              className="mx-auto text-[var(--text-muted)]"
+            />
+            <p className="text-sm font-semibold text-[var(--text-main)]">
               Tidak ada proyek ditemukan pada kategori ini
             </p>
           </div>
@@ -717,14 +895,14 @@ export default function ProjectsListPage() {
               return (
                 <div
                   key={p.id}
-                  className={`bg-[#0b0e17] border rounded-2xl overflow-hidden flex flex-col justify-between transition-all group shadow-xl ${
+                  className={`bg-[var(--card-bg)] border rounded-2xl overflow-hidden flex flex-col justify-between transition-all group shadow-xl ${
                     isStarred
-                      ? 'border-amber-400/50 shadow-amber-500/10'
-                      : 'border-white/5 hover:border-white/15'
+                      ? 'border-accent/70 shadow-accent/10'
+                      : 'border-[var(--card-border)] hover:border-accent/40'
                   }`}
                 >
                   <div>
-                    <div className="relative w-full h-36 bg-slate-950 overflow-hidden">
+                    <div className="relative w-full h-36 bg-[var(--bg-primary)] overflow-hidden">
                       <img
                         src={p.thumbnail || '/placeholder.svg'}
                         alt={p.title}
@@ -732,11 +910,11 @@ export default function ProjectsListPage() {
                       />
 
                       <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
-                        <span className="px-2 py-0.5 rounded-md text-[10px] font-mono bg-black/80 backdrop-blur-md border border-white/10 text-cyan-400 font-bold">
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-mono bg-black/80 backdrop-blur-md border border-white/10 text-accent font-bold">
                           {p.category}
                         </span>
                         {isMulti && (
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-mono bg-purple-500/80 text-white flex items-center gap-1">
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-mono bg-accent/90 text-slate-950 font-bold flex items-center gap-1">
                             <FolderArchive size={10} /> Multi ({subItemsCount})
                           </span>
                         )}
@@ -745,13 +923,14 @@ export default function ProjectsListPage() {
                       <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5">
                         <button
                           type="button"
+                          suppressHydrationWarning
                           onClick={() =>
                             handleToggleFeatured(p.id, isStarred, p.title)
                           }
                           className={`p-1.5 rounded-xl backdrop-blur-md border transition-all cursor-pointer shadow-lg flex items-center gap-1 text-[10px] font-mono font-bold ${
                             isStarred
-                              ? 'bg-amber-500/90 border-amber-400 text-slate-950 shadow-amber-500/30'
-                              : 'bg-black/60 border-white/10 text-slate-400 hover:text-amber-300'
+                              ? 'bg-accent border-accent text-slate-950'
+                              : 'bg-black/60 border-white/10 text-slate-300 hover:text-accent'
                           }`}
                           title={
                             isStarred
@@ -774,20 +953,20 @@ export default function ProjectsListPage() {
                     </div>
 
                     <div className="p-4 space-y-2">
-                      <h4 className="text-xs font-bold text-white group-hover:text-cyan-400 transition-colors line-clamp-1">
+                      <h4 className="text-xs font-bold text-[var(--text-main)] group-hover:text-accent transition-colors line-clamp-1">
                         {p.title}
                       </h4>
-                      <p className="text-[11px] text-slate-400 line-clamp-2 leading-relaxed">
+                      <p className="text-[11px] text-[var(--text-muted)] line-clamp-2 leading-relaxed">
                         {p.overview}
                       </p>
                     </div>
                   </div>
 
-                  <div className="px-4 py-3 border-t border-white/5 flex items-center justify-between bg-[#07090e]/50 text-xs">
+                  <div className="px-4 py-3 border-t border-[var(--card-border)] flex items-center justify-between bg-[var(--bg-primary)]/50 text-xs">
                     <Link
                       href={targetPublicUrl}
                       target="_blank"
-                      className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-cyan-400 transition-colors"
+                      className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-[var(--text-muted)] hover:text-accent transition-colors"
                       title="Lihat Halaman Publik"
                     >
                       <Eye size={13} />
@@ -797,7 +976,7 @@ export default function ProjectsListPage() {
                         <div className="flex items-center gap-1.5">
                           <Link
                             href={`/dashboard/projects?edit=${p.id}`}
-                            className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 font-mono text-[11px] text-slate-300 hover:text-white flex items-center gap-1 transition-colors"
+                            className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-[var(--card-border)] font-mono text-[11px] text-[var(--text-main)] flex items-center gap-1 transition-colors"
                             title="Edit Informasi Utama Koleksi"
                           >
                             <Edit3 size={11} />
@@ -805,8 +984,9 @@ export default function ProjectsListPage() {
                           </Link>
                           <button
                             type="button"
+                            suppressHydrationWarning
                             onClick={() => handleOpenMultiModal(p)}
-                            className="px-2.5 py-1 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 font-mono text-[11px] text-purple-300 flex items-center gap-1 transition-colors cursor-pointer"
+                            className="px-2.5 py-1 rounded-lg bg-accent/15 hover:bg-accent/25 border border-accent/40 font-mono text-[11px] text-accent flex items-center gap-1 transition-colors cursor-pointer"
                           >
                             <Layers size={11} />
                             <span>Item ({subItemsCount})</span>
@@ -815,7 +995,7 @@ export default function ProjectsListPage() {
                       ) : (
                         <Link
                           href={`/dashboard/projects?edit=${p.id}`}
-                          className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 font-mono text-[11px] text-slate-300 hover:text-white flex items-center gap-1 transition-colors"
+                          className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-[var(--card-border)] font-mono text-[11px] text-[var(--text-main)] flex items-center gap-1 transition-colors"
                         >
                           <Edit3 size={11} />
                           <span>Edit Studi Kasus</span>
@@ -824,6 +1004,7 @@ export default function ProjectsListPage() {
 
                       <button
                         type="button"
+                        suppressHydrationWarning
                         onClick={() => handleDelete(p.id, p.title)}
                         className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-colors cursor-pointer"
                         title="Hapus Proyek"
@@ -842,15 +1023,15 @@ export default function ProjectsListPage() {
       {/* MODAL KELOLA ITEM MULTI-PROJECT */}
       {isMultiModalOpen && selectedMultiProject && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-3 sm:p-6 overflow-y-auto">
-          <div className="bg-[#0b0e17] border border-purple-500/30 rounded-3xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl animate-in fade-in duration-200">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-[#0b0e17] shrink-0">
+          <div className="bg-[var(--card-bg)] border border-accent/40 rounded-3xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl animate-in fade-in duration-200">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--card-border)] bg-[var(--card-bg)] shrink-0">
               <div className="flex items-center gap-2.5">
-                <Layers size={18} className="text-purple-400" />
+                <Layers size={18} className="text-accent" />
                 <div>
-                  <h3 className="text-sm font-bold text-white">
+                  <h3 className="text-sm font-bold text-[var(--text-main)]">
                     Kelola Sub-Item Koleksi: {selectedMultiProject.title}
                   </h3>
-                  <p className="text-[10px] font-mono text-slate-400">
+                  <p className="text-[10px] font-mono text-[var(--text-muted)]">
                     Tambah, ubah, atau unggah gambar mockup untuk setiap item di
                     koleksi ini.
                   </p>
@@ -858,8 +1039,9 @@ export default function ProjectsListPage() {
               </div>
               <button
                 type="button"
+                suppressHydrationWarning
                 onClick={() => setIsMultiModalOpen(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
+                className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-white/5 transition-colors cursor-pointer"
               >
                 <X size={16} />
               </button>
@@ -867,13 +1049,14 @@ export default function ProjectsListPage() {
 
             <div className="p-6 overflow-y-auto space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-mono font-bold text-purple-300 uppercase tracking-wider">
+                <span className="text-xs font-mono font-bold text-accent uppercase tracking-wider">
                   Daftar Sub-Proyek ({subItems.length})
                 </span>
                 <button
                   type="button"
+                  suppressHydrationWarning
                   onClick={handleAddSubItem}
-                  className="px-3 py-1.5 rounded-xl bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 font-mono text-xs flex items-center gap-1.5 cursor-pointer border border-purple-500/30"
+                  className="px-3 py-1.5 rounded-xl bg-accent/15 hover:bg-accent/25 text-accent font-mono text-xs flex items-center gap-1.5 cursor-pointer border border-accent/40"
                 >
                   <Plus size={12} />
                   <span>+ Tambah Sub-Proyek Baru</span>
@@ -881,7 +1064,7 @@ export default function ProjectsListPage() {
               </div>
 
               {subItems.length === 0 ? (
-                <div className="py-12 text-center bg-[#07090e] border border-dashed border-white/10 rounded-2xl p-6 text-slate-500 font-mono text-xs">
+                <div className="py-12 text-center bg-[var(--bg-primary)] border border-dashed border-[var(--card-border)] rounded-2xl p-6 text-[var(--text-muted)] font-mono text-xs">
                   Belum ada sub-proyek dalam koleksi ini. Klik tombol di atas
                   untuk menambahkannya.
                 </div>
@@ -890,14 +1073,15 @@ export default function ProjectsListPage() {
                   {subItems.map((item, idx) => (
                     <div
                       key={item.id}
-                      className="p-4 rounded-xl bg-[#07090e] border border-white/10 space-y-3 relative"
+                      className="p-4 rounded-xl bg-[var(--bg-primary)] border border-[var(--card-border)] space-y-3 relative"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-mono font-bold text-white">
+                        <span className="text-xs font-mono font-bold text-[var(--text-main)]">
                           Sub-Item #{idx + 1}
                         </span>
                         <button
                           type="button"
+                          suppressHydrationWarning
                           onClick={() => handleRemoveSubItem(item.id)}
                           className="p-1 rounded-lg hover:bg-red-500/20 text-red-400 cursor-pointer"
                           title="Hapus Item"
@@ -908,11 +1092,12 @@ export default function ProjectsListPage() {
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-slate-500 text-[10px] font-mono mb-1">
+                          <label className="block text-[var(--text-muted)] text-[10px] font-mono mb-1">
                             Judul Sub-Proyek
                           </label>
                           <input
                             type="text"
+                            suppressHydrationWarning
                             value={item.title}
                             onChange={(e) =>
                               handleUpdateSubItem(
@@ -921,15 +1106,16 @@ export default function ProjectsListPage() {
                                 e.target.value
                               )
                             }
-                            className="w-full px-3 py-1.5 rounded-lg bg-[#0b0e17] border border-white/10 text-white text-xs"
+                            className="w-full px-3 py-1.5 rounded-lg bg-[var(--card-bg)] border border-[var(--card-border)] text-[var(--text-main)] text-xs"
                           />
                         </div>
                         <div>
-                          <label className="block text-slate-500 text-[10px] font-mono mb-1">
+                          <label className="block text-[var(--text-muted)] text-[10px] font-mono mb-1">
                             Sub-judul / Badge
                           </label>
                           <input
                             type="text"
+                            suppressHydrationWarning
                             value={item.subtitle}
                             onChange={(e) =>
                               handleUpdateSubItem(
@@ -938,17 +1124,17 @@ export default function ProjectsListPage() {
                                 e.target.value
                               )
                             }
-                            className="w-full px-3 py-1.5 rounded-lg bg-[#0b0e17] border border-white/10 text-white text-xs"
+                            className="w-full px-3 py-1.5 rounded-lg bg-[var(--card-bg)] border border-[var(--card-border)] text-[var(--text-main)] text-xs"
                           />
                         </div>
                       </div>
 
                       <div className="space-y-1.5">
-                        <label className="block text-slate-500 text-[10px] font-mono">
+                        <label className="block text-[var(--text-muted)] text-[10px] font-mono">
                           Gambar Mockup / Pratinjau
                         </label>
                         <div className="flex items-center gap-3">
-                          <div className="w-16 h-12 rounded-lg overflow-hidden bg-slate-950 border border-white/10 shrink-0">
+                          <div className="w-16 h-12 rounded-lg overflow-hidden bg-[var(--bg-primary)] border border-[var(--card-border)] shrink-0">
                             <img
                               src={item.image || '/placeholder.svg'}
                               alt={item.title}
@@ -958,6 +1144,7 @@ export default function ProjectsListPage() {
                           <div className="flex-1 flex items-center gap-2">
                             <input
                               type="text"
+                              suppressHydrationWarning
                               value={item.image}
                               onChange={(e) =>
                                 handleUpdateSubItem(
@@ -967,15 +1154,16 @@ export default function ProjectsListPage() {
                                 )
                               }
                               placeholder="https://images.unsplash.com/..."
-                              className="w-full px-3 py-1.5 rounded-lg bg-[#0b0e17] border border-white/10 text-slate-300 font-mono text-[11px]"
+                              className="w-full px-3 py-1.5 rounded-lg bg-[var(--card-bg)] border border-[var(--card-border)] text-[var(--text-main)] font-mono text-[11px]"
                             />
                             <button
                               type="button"
+                              suppressHydrationWarning
                               onClick={() => {
                                 setActiveSubId(item.id);
                                 activeSubInputRef.current?.click();
                               }}
-                              className="px-3 py-1.5 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 text-cyan-300 text-[11px] font-mono font-bold flex items-center gap-1 shrink-0 cursor-pointer"
+                              className="px-3 py-1.5 rounded-lg bg-accent/15 hover:bg-accent/25 border border-accent/40 text-accent text-[11px] font-mono font-bold flex items-center gap-1 shrink-0 cursor-pointer"
                             >
                               <Upload size={12} />
                               <span>Laptop</span>
@@ -986,11 +1174,12 @@ export default function ProjectsListPage() {
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-slate-500 text-[10px] font-mono mb-1">
+                          <label className="block text-[var(--text-muted)] text-[10px] font-mono mb-1">
                             Tautan Figma / Live (Opsional)
                           </label>
                           <input
                             type="text"
+                            suppressHydrationWarning
                             value={item.link || ''}
                             onChange={(e) =>
                               handleUpdateSubItem(
@@ -1000,15 +1189,16 @@ export default function ProjectsListPage() {
                               )
                             }
                             placeholder="https://figma.com/..."
-                            className="w-full px-3 py-1.5 rounded-lg bg-[#0b0e17] border border-white/10 text-slate-300 font-mono text-[11px]"
+                            className="w-full px-3 py-1.5 rounded-lg bg-[var(--card-bg)] border border-[var(--card-border)] text-[var(--text-main)] font-mono text-[11px]"
                           />
                         </div>
                         <div>
-                          <label className="block text-slate-500 text-[10px] font-mono mb-1">
+                          <label className="block text-[var(--text-muted)] text-[10px] font-mono mb-1">
                             Tech Tags (Pisahkan koma)
                           </label>
                           <input
                             type="text"
+                            suppressHydrationWarning
                             value={
                               Array.isArray(item.tags)
                                 ? item.tags.join(', ')
@@ -1025,22 +1215,23 @@ export default function ProjectsListPage() {
                               )
                             }
                             placeholder="Figma, Mobile UI, Wireframe"
-                            className="w-full px-3 py-1.5 rounded-lg bg-[#0b0e17] border border-white/10 text-slate-300 font-mono text-[11px]"
+                            className="w-full px-3 py-1.5 rounded-lg bg-[var(--card-bg)] border border-[var(--card-border)] text-[var(--text-main)] font-mono text-[11px]"
                           />
                         </div>
                       </div>
 
                       <div>
-                        <label className="block text-slate-500 text-[10px] font-mono mb-1">
+                        <label className="block text-[var(--text-muted)] text-[10px] font-mono mb-1">
                           Deskripsi Item
                         </label>
                         <textarea
                           rows={2}
+                          suppressHydrationWarning
                           value={item.desc}
                           onChange={(e) =>
                             handleUpdateSubItem(item.id, 'desc', e.target.value)
                           }
-                          className="w-full px-3 py-1.5 rounded-lg bg-[#0b0e17] border border-white/10 text-white text-xs leading-relaxed"
+                          className="w-full px-3 py-1.5 rounded-lg bg-[var(--card-bg)] border border-[var(--card-border)] text-[var(--text-main)] text-xs leading-relaxed"
                         />
                       </div>
                     </div>
@@ -1049,19 +1240,21 @@ export default function ProjectsListPage() {
               )}
             </div>
 
-            <div className="px-6 py-4 border-t border-white/10 bg-[#0b0e17] shrink-0 flex items-center justify-end gap-2">
+            <div className="px-6 py-4 border-t border-[var(--card-border)] bg-[var(--card-bg)] shrink-0 flex items-center justify-end gap-2">
               <button
                 type="button"
+                suppressHydrationWarning
                 onClick={() => setIsMultiModalOpen(false)}
-                className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-300 cursor-pointer transition-colors"
+                className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text-main)] cursor-pointer transition-colors"
               >
                 Batal
               </button>
               <button
                 type="button"
+                suppressHydrationWarning
                 disabled={savingSub}
                 onClick={handleSaveSubItems}
-                className="px-5 py-2 rounded-xl bg-purple-500 hover:bg-purple-400 text-white font-bold text-xs flex items-center gap-1.5 transition-all shadow-lg shadow-purple-500/20 active:scale-95 disabled:opacity-50 cursor-pointer"
+                className="px-5 py-2 rounded-xl bg-accent text-slate-950 font-bold text-xs flex items-center gap-1.5 transition-all shadow-lg active:scale-95 disabled:opacity-50 cursor-pointer"
               >
                 {savingSub && <Loader2 size={13} className="animate-spin" />}
                 <Save size={13} />

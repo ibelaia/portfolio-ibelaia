@@ -171,6 +171,8 @@ export const Navbar: React.FC<NavbarProps> = ({ siteName: initialSiteName }) => 
             </a>
 
             <button
+              type="button"
+              suppressHydrationWarning
               onClick={() => setIsOpen(true)}
               className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/90 border border-white/10 text-xs font-medium text-slate-300 hover:text-white transition-colors cursor-pointer"
               aria-label="Buka Menu"
@@ -197,6 +199,8 @@ export const Navbar: React.FC<NavbarProps> = ({ siteName: initialSiteName }) => 
                   {t('Navigation', 'Navigasi')}
                 </span>
                 <button
+                  type="button"
+                  suppressHydrationWarning
                   onClick={() => setIsOpen(false)}
                   className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer"
                   aria-label="Tutup Menu"
@@ -292,6 +296,8 @@ export const Navbar: React.FC<NavbarProps> = ({ siteName: initialSiteName }) => 
                   </div>
                   <div className="flex items-center gap-1 text-[11px] font-bold">
                     <button
+                      type="button"
+                      suppressHydrationWarning
                       onClick={() => setLanguage('ID')}
                       style={
                         language === 'ID'
@@ -312,6 +318,8 @@ export const Navbar: React.FC<NavbarProps> = ({ siteName: initialSiteName }) => 
                     </button>
                     <span className="text-slate-600">/</span>
                     <button
+                      type="button"
+                      suppressHydrationWarning
                       onClick={() => setLanguage('EN')}
                       style={
                         language === 'EN'

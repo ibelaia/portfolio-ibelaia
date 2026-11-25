@@ -144,7 +144,7 @@ export default function AllProjectsPage() {
   });
 
   return (
-    <main className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 space-y-8">
+    <main suppressHydrationWarning className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 space-y-8">
       {/* Tombol Navigasi Kembali */}
       <div>
         <Link
@@ -178,6 +178,7 @@ export default function AllProjectsPage() {
         <div className="relative w-full md:w-72">
           <input
             type="text"
+            suppressHydrationWarning
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={t('Search project or stack...', 'Cari proyek atau teknologi...')}
@@ -193,6 +194,7 @@ export default function AllProjectsPage() {
           <button
             key={tab.key}
             type="button"
+            suppressHydrationWarning
             onClick={() => setSelectedFilter(tab.key)}
             className={`px-4 py-2 rounded-xl text-xs font-medium whitespace-nowrap transition-all cursor-pointer ${
               selectedFilter === tab.key

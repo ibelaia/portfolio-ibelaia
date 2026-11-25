@@ -187,6 +187,8 @@ export async function PUT(request: Request) {
       solution,
       deliverables,
       collection_items,
+      is_featured,
+      featured,
     } = body;
 
     if (!id) {
@@ -203,30 +205,63 @@ export async function PUT(request: Request) {
       );
     }
 
-    const tagsJson = toJsonbValue(tags, []);
-    const deliverablesArray = toStringArray(deliverables);
-    const collectionJson = toJsonbValue(collection_items, []);
+    const existingRows = await sql`
+      SELECT * FROM projects WHERE id = ${String(id)} LIMIT 1
+    `;
+    const existing =
+      Array.isArray(existingRows) && existingRows.length > 0
+        ? existingRows[0]
+        : null;
+
+    if (!existing) {
+      return NextResponse.json(
+        { success: false, error: 'Proyek tidak ditemukan di database' },
+        { status: 404, headers: NO_STORE_HEADERS }
+      );
+    }
+
+    const nextFeatured =
+      typeof is_featured === 'boolean'
+        ? is_featured
+        : typeof featured === 'boolean'
+          ? featured
+          : Boolean(existing.is_featured);
+
+    const tagsJson = toJsonbValue(
+      tags !== undefined ? tags : existing.tags,
+      []
+    );
+    const deliverablesArray = toStringArray(
+      deliverables !== undefined ? deliverables : existing.deliverables
+    );
+    const collectionJson = toJsonbValue(
+      collection_items !== undefined
+        ? collection_items
+        : existing.collection_items,
+      []
+    );
 
     const rows = await sql`
       UPDATE projects
       SET
         title = ${title},
-        slug = ${slug || ''},
+        slug = ${slug !== undefined ? slug || '' : existing.slug || ''},
         category = ${category},
-        status = ${status || 'PUBLISHED'},
-        type = ${type || 'single'},
-        overview = ${overview || ''},
+        status = ${status || existing.status || 'PUBLISHED'},
+        type = ${type || existing.type || 'single'},
+        overview = ${overview !== undefined ? overview || '' : existing.overview || ''},
         tags = ${tagsJson}::jsonb,
-        thumbnail = ${thumbnail || ''},
-        live_url = ${live_url || ''},
-        github_url = ${github_url || ''},
-        role = ${role || ''},
-        client = ${client || ''},
-        year = ${year || ''},
-        problem = ${problem || ''},
-        solution = ${solution || ''},
+        thumbnail = ${thumbnail !== undefined ? thumbnail || '' : existing.thumbnail || ''},
+        live_url = ${live_url !== undefined ? live_url || '' : existing.live_url || ''},
+        github_url = ${github_url !== undefined ? github_url || '' : existing.github_url || ''},
+        role = ${role !== undefined ? role || '' : existing.role || ''},
+        client = ${client !== undefined ? client || '' : existing.client || ''},
+        year = ${year !== undefined ? year || '' : existing.year || ''},
+        problem = ${problem !== undefined ? problem || '' : existing.problem || ''},
+        solution = ${solution !== undefined ? solution || '' : existing.solution || ''},
         deliverables = ${deliverablesArray}::text[],
-        collection_items = ${collectionJson}::jsonb
+        collection_items = ${collectionJson}::jsonb,
+        is_featured = ${nextFeatured}
       WHERE id = ${String(id)}
       RETURNING *
     `;
